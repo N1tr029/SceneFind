@@ -7,13 +7,22 @@ enum StreamingProviderCatalog {
     ]
 
     private static let verifiedHuluEpisodes: [String: URL] = [
-        "modern family|4|4": URL(string: "https://www.hulu.com/series/modern-family-883c414c-34a3-4fcc-b50a-0ad5a184c977?entity_id=008ab86a-f287-4275-83d2-d2d7aa605bb5")!
+        "modern family|4|4": URL(string: "hulu://watch/008ab86a-f287-4275-83d2-d2d7aa605bb5")!,
+        "the rookie|5|10": URL(string: "hulu://watch/e4650184-87a5-4ff3-ba6e-aae2a7e2807a")!
+    ]
+
+    private static let verifiedProviderIDs: [String: Set<String>] = [
+        "the rookie": ["hulu"]
     ]
 
     static func providers(for candidate: SceneCandidate, supplied: [WatchProvider]) -> [WatchProvider] {
         var providers = supplied.map { provider in
             guard isHulu(provider) else { return provider }
             return huluProvider(for: candidate)
+        }
+
+        if let allowed = verifiedProviderIDs[normalized(candidate.mediaTitle)] {
+            providers = providers.filter { allowed.contains(providerID(for: $0)) }
         }
 
         if huluSeriesURL(for: candidate.mediaTitle) != nil,
@@ -74,6 +83,12 @@ enum StreamingProviderCatalog {
     private static func normalized(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
+
+    private static func providerID(for provider: WatchProvider) -> String {
+        if isHulu(provider) { return "hulu" }
+        if provider.name.localizedCaseInsensitiveContains("apple") { return "apple-tv" }
+        return normalized(provider.id)
+    }
 }
 
 struct StreamingDestinationResolver {
@@ -110,9 +125,7 @@ struct StreamingDestinationResolver {
             return seriesURL
         }
 
-        var components = URLComponents(url: seriesURL, resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "entity_id", value: episodeID)]
-        return components.url ?? seriesURL
+        return URL(string: "hulu://watch/\(episodeID)") ?? seriesURL
     }
 }
 

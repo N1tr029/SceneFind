@@ -55,9 +55,8 @@ final class StreamingDestinationResolverTests: XCTestCase {
         XCTAssertEqual(providers.count, 1)
         XCTAssertEqual(providers[0].id, "hulu")
         XCTAssertEqual(
-            URLComponents(url: providers[0].episodeURL, resolvingAgainstBaseURL: false)?
-                .queryItems?.first(where: { $0.name == "entity_id" })?.value,
-            "008ab86a-f287-4275-83d2-d2d7aa605bb5"
+            providers[0].episodeURL.absoluteString,
+            "hulu://watch/008ab86a-f287-4275-83d2-d2d7aa605bb5"
         )
     }
 
@@ -69,6 +68,29 @@ final class StreamingDestinationResolverTests: XCTestCase {
 
         XCTAssertEqual(providers.map(\.name), ["Hulu"])
         XCTAssertTrue(providers[0].episodeURL.absoluteString.contains("the-rookie-1138ee62"))
+    }
+
+    func testTheRookieUsesExactHuluEpisodeAndRemovesUnavailableAppleTV() throws {
+        let appleTV = WatchProvider(
+            id: "apple-tv",
+            name: "Apple TV",
+            offer: "Purchase",
+            episodeURL: try XCTUnwrap(URL(string: "https://tv.apple.com/us/show/the-rookie/example")),
+            sceneURL: nil,
+            symbolName: "appletv.fill",
+            brandColorHex: "FFFFFF"
+        )
+
+        let providers = StreamingProviderCatalog.providers(
+            for: candidate(title: "The Rookie", season: 5, episode: 10, episodeTitle: "The List"),
+            supplied: [appleTV]
+        )
+
+        XCTAssertEqual(providers.map(\.name), ["Hulu"])
+        XCTAssertEqual(
+            providers[0].episodeURL.absoluteString,
+            "hulu://watch/e4650184-87a5-4ff3-ba6e-aae2a7e2807a"
+        )
     }
 
     private func candidate(

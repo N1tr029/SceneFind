@@ -68,7 +68,7 @@ enum KnownClipCatalog {
                 id: "hulu",
                 name: "Hulu",
                 offer: "Subscription",
-                episodeURL: URL(string: "https://www.hulu.com/series/modern-family-883c414c-34a3-4fcc-b50a-0ad5a184c977?entity_id=008ab86a-f287-4275-83d2-d2d7aa605bb5")!,
+                episodeURL: URL(string: "hulu://watch/008ab86a-f287-4275-83d2-d2d7aa605bb5")!,
                 sceneURL: nil,
                 symbolName: "play.rectangle.fill",
                 brandColorHex: "1CE783"
