@@ -71,8 +71,15 @@ struct SceneCandidate: Codable, Identifiable, Hashable {
     }
 
     var episodeLine: String {
-        guard let seasonNumber, let episodeNumber else { return "Feature film" }
-        return "S\(seasonNumber) E\(episodeNumber)"
+        switch mediaType {
+        case .television:
+            guard let seasonNumber, let episodeNumber else { return "TV episode" }
+            return "S\(seasonNumber) E\(episodeNumber)"
+        case .movie:
+            return "Feature film"
+        case .other:
+            return "Online media"
+        }
     }
 
     var confidenceLabel: String {

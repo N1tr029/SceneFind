@@ -1,6 +1,13 @@
 import XCTest
 
 final class GeminiClipIdentificationServiceTests: XCTestCase {
+    func testMediaTypeClassifiesNativeOnlineMediaAsOther() {
+        XCTAssertEqual(MediaType(apiValue: "movie"), .movie)
+        XCTAssertEqual(MediaType(apiValue: "tv"), .television)
+        XCTAssertEqual(MediaType(apiValue: "other"), .other)
+        XCTAssertEqual(MediaType(apiValue: "youtube"), .other)
+    }
+
     func testRetiredModelIsMigrated() {
         XCTAssertEqual(
             GeminiConfiguration.supportedModel("gemini-2.5-flash-lite"),

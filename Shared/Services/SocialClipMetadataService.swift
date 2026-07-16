@@ -208,6 +208,8 @@ final class PublicTitleArtworkService: TitleArtworkService {
             )
         case .movie:
             return await movieArtwork(title: mediaTitle)
+        case .other:
+            return nil
         }
     }
 

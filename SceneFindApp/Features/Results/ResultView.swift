@@ -68,8 +68,12 @@ struct ResultView: View {
                 Text("\(candidate.mediaTitle) · \(candidate.episodeLine)")
                     .font(.headline)
                     .foregroundStyle(.secondary)
-            } else {
+            } else if candidate.mediaType == .movie {
                 Text("\(candidate.mediaTitle) · \(candidate.releaseYear)")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Online media · \(candidate.releaseYear)")
                     .font(.headline)
                     .foregroundStyle(.secondary)
             }
@@ -177,7 +181,7 @@ struct ResultView: View {
                 }
             } label: {
                 Label(
-                    model.isSaved(result) ? "Saved" : "Save scene",
+                    model.isSaved(result) ? "Saved for later" : "Save for later",
                     systemImage: model.isSaved(result) ? "bookmark.fill" : "bookmark"
                 )
                     .frame(maxWidth: .infinity)

@@ -3,6 +3,15 @@ import Foundation
 enum MediaType: String, Codable, CaseIterable, Hashable {
     case movie
     case television
+    case other
+
+    init(apiValue: String) {
+        switch apiValue.lowercased() {
+        case "movie", "film": self = .movie
+        case "tv", "television", "episode": self = .television
+        default: self = .other
+        }
+    }
 }
 
 struct MediaTitle: Codable, Identifiable, Hashable {
@@ -50,4 +59,3 @@ struct ExtractedFrame: Identifiable, Hashable {
     let timestamp: Double
     let imageURL: URL
 }
-

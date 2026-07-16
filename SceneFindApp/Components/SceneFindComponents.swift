@@ -81,9 +81,17 @@ struct ShowCoverArtwork: View {
     private var fallback: some View {
         ZStack {
             Color(uiColor: .tertiarySystemBackground)
-            Image(systemName: candidate.mediaType == .movie ? "film" : "tv")
+            Image(systemName: fallbackSymbol)
                 .font(.title2)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var fallbackSymbol: String {
+        switch candidate.mediaType {
+        case .movie: "film"
+        case .television: "tv"
+        case .other: "play.rectangle"
         }
     }
 }

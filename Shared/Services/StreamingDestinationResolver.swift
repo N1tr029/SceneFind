@@ -128,7 +128,10 @@ struct StreamingDestinationResolver {
                 return nil
             }
         case .appleTV:
-            guard candidate.mediaType == .movie ? path.contains("/movie/") : path.contains("/episode/") else {
+            let isExact = candidate.mediaType == .movie
+                ? path.contains("/movie/")
+                : candidate.mediaType == .television && path.contains("/episode/")
+            guard isExact else {
                 return nil
             }
         case .disneyPlus:

@@ -16,7 +16,7 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     identifyPanel
                     servicesSummary
-                    recentSection
+                    lastMatchSection
                 }
                 .padding()
             }
@@ -112,19 +112,16 @@ struct HomeView: View {
         return count == 0 ? "Set the services you can watch" : "\(count) service\(count == 1 ? "" : "s") with access"
     }
 
-    private var recentSection: some View {
+    @ViewBuilder
+    private var lastMatchSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Recent searches")
-                .font(.title3.bold())
-            if model.recentResults.isEmpty {
-                ContentUnavailableView("No recent clips", systemImage: "clock", description: Text("Your latest matches will appear here."))
-            } else {
-                ForEach(model.recentResults) { result in
-                    Button { router.navigate(to: .result(result.id)) } label: {
-                        ResultRow(result: result)
-                    }
-                    .buttonStyle(.plain)
+            if let result = model.recentResults.first {
+                Text("Last match")
+                    .font(.title3.bold())
+                Button { router.navigate(to: .result(result.id)) } label: {
+                    ResultRow(result: result)
                 }
+                .buttonStyle(.plain)
             }
         }
     }

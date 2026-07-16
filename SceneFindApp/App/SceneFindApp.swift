@@ -34,7 +34,7 @@ struct RootView: View {
                 SavedView()
                     .navigationDestination(for: AppRoute.self, destination: routeView)
             }
-            .tabItem { Label("Saved", systemImage: "bookmark") }
+            .tabItem { Label("Saved", systemImage: "bookmark.fill") }
             .tag(AppTab.saved)
 
             NavigationStack(path: $router.settingsPath) {
