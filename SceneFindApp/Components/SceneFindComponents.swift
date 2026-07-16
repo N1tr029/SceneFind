@@ -1,5 +1,93 @@
 import SwiftUI
 
+@MainActor
+private final class ShowCoverStore {
+    static let shared = ShowCoverStore()
+
+    private let artworkService = PublicTitleArtworkService()
+    private var cachedURLs: [String: URL] = [:]
+    private var missingKeys: Set<String> = []
+    private var requests: [String: Task<URL?, Never>] = [:]
+
+    func coverURL(for candidate: SceneCandidate) async -> URL? {
+        let key = "\(candidate.mediaType.rawValue):\(candidate.mediaTitle.lowercased())"
+        if let cachedURL = cachedURLs[key] { return cachedURL }
+        if missingKeys.contains(key) { return usableFallback(candidate.heroImageURL) }
+        if let request = requests[key] { return await request.value }
+
+        let request = Task { [artworkService] in
+            await artworkService.artworkURL(
+                for: candidate.mediaTitle,
+                mediaType: candidate.mediaType,
+                seasonNumber: nil,
+                episodeNumber: nil
+            )
+        }
+        requests[key] = request
+        let catalogURL = await request.value
+        requests[key] = nil
+
+        if let catalogURL {
+            cachedURLs[key] = catalogURL
+            return catalogURL
+        }
+        missingKeys.insert(key)
+        return usableFallback(candidate.heroImageURL)
+    }
+
+    private func usableFallback(_ url: URL?) -> URL? {
+        guard let url else { return nil }
+        let host = url.host?.lowercased() ?? ""
+        guard !host.contains("metadata.provider"), !host.contains("wrong.example") else { return nil }
+        return url
+    }
+}
+
+struct ShowCoverArtwork: View {
+    let candidate: SceneCandidate
+    var contentMode: ContentMode = .fill
+
+    @State private var coverURL: URL?
+
+    var body: some View {
+        Group {
+            if let coverURL {
+                AsyncImage(url: coverURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: contentMode)
+                    case .failure:
+                        fallback
+                    default:
+                        ProgressView()
+                    }
+                }
+            } else {
+                fallback
+            }
+        }
+        .task(id: cacheKey) {
+            coverURL = await ShowCoverStore.shared.coverURL(for: candidate)
+        }
+        .accessibilityLabel("Cover for \(candidate.mediaTitle)")
+    }
+
+    private var cacheKey: String {
+        "\(candidate.mediaType.rawValue):\(candidate.mediaTitle.lowercased())"
+    }
+
+    private var fallback: some View {
+        ZStack {
+            Color(uiColor: .tertiarySystemBackground)
+            Image(systemName: candidate.mediaType == .movie ? "film" : "tv")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
 struct CinematicBackground: View {
     var body: some View {
         Color(uiColor: .systemBackground)

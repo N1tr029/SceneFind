@@ -79,7 +79,8 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         let service = GeminiClipIdentificationService(
             session: session,
             apiKeyProvider: { "gemini-test-key" },
-            modelProvider: { "gemini-test" }
+            modelProvider: { "gemini-test" },
+            artworkService: NoArtworkService()
         )
         let request = SharedClipRequest(
             sourceType: .url,
@@ -177,6 +178,46 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         XCTAssertEqual(metadata.videoURL?.absoluteString, "https://cdn.example/clip.mp4")
         XCTAssertEqual(metadata.thumbnailURL?.absoluteString, "https://cdn.example/cover.jpg")
         XCTAssertEqual(metadata.searchHints, ["bull tv series", "bull immigration episode"])
+    }
+
+    func testTVArtworkPrefersShowCoverOverEpisodeStill() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GeminiStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        GeminiStubURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let payload: [String: Any] = [
+                "image": [
+                    "medium": "https://images.example/show-medium.jpg",
+                    "original": "https://images.example/show-cover.jpg"
+                ],
+                "_embedded": ["episodes": [[
+                    "season": 4,
+                    "number": 18,
+                    "image": [
+                        "medium": "https://images.example/episode-medium.jpg",
+                        "original": "https://images.example/episode-still.jpg"
+                    ]
+                ]]]
+            ]
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+            return (response, try JSONSerialization.data(withJSONObject: payload))
+        }
+
+        let artwork = await PublicTitleArtworkService(session: session).artworkURL(
+            for: "The Rookie",
+            mediaType: .television,
+            seasonNumber: 4,
+            episodeNumber: 18
+        )
+
+        XCTAssertEqual(artwork?.absoluteString, "https://images.example/show-cover.jpg")
     }
 
     func testTikTokVideoIsUploadedAndIdentifiedInOneGenerateCall() async throws {

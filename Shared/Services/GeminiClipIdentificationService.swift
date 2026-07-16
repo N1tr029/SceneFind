@@ -84,15 +84,15 @@ final class GeminiClipIdentificationService {
         for candidatePayload in payload.candidates {
             let mediaType: MediaType = candidatePayload.mediaType == "movie" ? .movie : .television
             let artworkURL: URL?
-            if let thumbnailURL = metadata?.thumbnailURL {
-                artworkURL = thumbnailURL
-            } else if let catalogURL = await artworkService.artworkURL(
+            if let catalogURL = await artworkService.artworkURL(
                     for: candidatePayload.mediaTitle,
                     mediaType: mediaType,
-                    seasonNumber: candidatePayload.seasonNumber,
-                    episodeNumber: candidatePayload.episodeNumber
+                    seasonNumber: nil,
+                    episodeNumber: nil
             ) {
                 artworkURL = catalogURL
+            } else if let thumbnailURL = metadata?.thumbnailURL {
+                artworkURL = thumbnailURL
             } else {
                 artworkURL = candidatePayload.heroImageURL.flatMap(URL.init(string:))
             }

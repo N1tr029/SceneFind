@@ -172,7 +172,7 @@ struct ResultRow: View {
     var body: some View {
         SceneCard {
             HStack(spacing: 12) {
-                ResultThumbnail(url: result.topCandidate.heroImageURL)
+                ResultThumbnail(candidate: result.topCandidate)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(result.topCandidate.mediaTitle)
                         .font(.headline)
@@ -187,29 +187,11 @@ struct ResultRow: View {
 }
 
 private struct ResultThumbnail: View {
-    let url: URL?
+    let candidate: SceneCandidate
 
     var body: some View {
-        Group {
-            if let url {
-                AsyncImage(url: url) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    fallback
-                }
-            } else {
-                fallback
-            }
-        }
+        ShowCoverArtwork(candidate: candidate)
         .frame(width: 64, height: 44)
         .clipShape(RoundedRectangle(cornerRadius: 6))
-    }
-
-    private var fallback: some View {
-        ZStack {
-            Color(uiColor: .tertiarySystemBackground)
-            Image(systemName: "film")
-                .foregroundStyle(.secondary)
-        }
     }
 }

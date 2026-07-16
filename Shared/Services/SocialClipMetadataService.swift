@@ -226,7 +226,7 @@ final class PublicTitleArtworkService: TitleArtworkService {
         let episodeImage = show.embedded?.episodes.first {
             $0.season == seasonNumber && $0.number == episodeNumber
         }?.image
-        return episodeImage?.original ?? episodeImage?.medium ?? show.image?.original ?? show.image?.medium
+        return show.image?.original ?? show.image?.medium ?? episodeImage?.original ?? episodeImage?.medium
     }
 
     private func movieArtwork(title: String) async -> URL? {

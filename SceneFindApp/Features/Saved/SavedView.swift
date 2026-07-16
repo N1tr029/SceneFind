@@ -54,14 +54,20 @@ struct SavedRow: View {
     let result: ClipAnalysisResult
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(result.topCandidate.mediaTitle)
-                .font(.headline)
-            Text("\(result.topCandidate.episodeLine) • \(result.topCandidate.sceneTimestampSeconds?.timestampString ?? "Unknown time")")
-                .font(.subheadline)
-            Text("\(result.createdAt.formatted(date: .abbreviated, time: .shortened)) • \(Int(result.topCandidate.confidence * 100))% • \(result.analysisDetails.sourcePlatform.label)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        HStack(spacing: 12) {
+            ShowCoverArtwork(candidate: result.topCandidate)
+                .frame(width: 48, height: 68)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(result.topCandidate.mediaTitle)
+                    .font(.headline)
+                Text("\(result.topCandidate.episodeLine) • \(result.topCandidate.sceneTimestampSeconds?.timestampString ?? "Unknown time")")
+                    .font(.subheadline)
+                Text("\(result.createdAt.formatted(date: .abbreviated, time: .shortened)) • \(Int(result.topCandidate.confidence * 100))% • \(result.analysisDetails.sourcePlatform.label)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.vertical, 6)
     }

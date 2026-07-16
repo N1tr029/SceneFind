@@ -257,22 +257,7 @@ private struct HeroArtwork: View {
             Rectangle()
                 .fill(Color.black.opacity(0.35))
 
-            if let url = candidate.heroImageURL {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                    case .failure:
-                        fallback
-                    default:
-                        ProgressView()
-                    }
-                }
-            } else {
-                fallback
-            }
+            ShowCoverArtwork(candidate: candidate, contentMode: .fit)
 
             LinearGradient(
                 colors: [.clear, .black.opacity(0.78)],
@@ -291,18 +276,6 @@ private struct HeroArtwork: View {
         .accessibilityLabel("Artwork for \(candidate.mediaTitle)")
     }
 
-    private var fallback: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color(red: 0.22, green: 0.17, blue: 0.08), .black],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            Image(systemName: "film.stack")
-                .font(.system(size: 64, weight: .thin))
-                .foregroundStyle(.white.opacity(0.28))
-        }
-    }
 }
 
 private struct ProviderRow: View {
