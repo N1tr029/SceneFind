@@ -44,6 +44,14 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section {
+                EngineStatusHeader(
+                    label: keyStatus.label,
+                    symbol: keyStatus.symbol,
+                    tint: keyStatus.color
+                )
+            }
+
             Section("Streaming") {
                 NavigationLink {
                     MyServicesView()
@@ -58,14 +66,6 @@ struct SettingsView: View {
             }
 
             Section("Recognition") {
-                HStack {
-                    Label(keyStatus.label, systemImage: keyStatus.symbol)
-                        .foregroundStyle(keyStatus.color)
-                    Spacer()
-                    Text("Gemini")
-                        .foregroundStyle(.secondary)
-                }
-
                 DisclosureGroup("API settings") {
                     VStack(alignment: .leading, spacing: 12) {
                     SecureField("API key", text: $apiKey)
@@ -118,6 +118,9 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
+        .scrollContentBackground(.hidden)
+        .background(CinematicBackground())
+        .tint(Color.sceneCyan)
         .onAppear {
             modelName = GeminiConfiguration.model
             switch GeminiConfiguration.storageLocation {
@@ -172,6 +175,8 @@ struct MyServicesView: View {
                 Text("Selections record your access; SceneFind does not sign in to or verify streaming accounts.")
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(CinematicBackground())
         .navigationTitle("My Services")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -181,7 +186,8 @@ struct MyServicesView: View {
             Image(systemName: service.symbolName)
                 .foregroundStyle(Color(serviceHex: service.brandColorHex))
                 .font(.title3)
-                .frame(width: 32, height: 32)
+                .frame(width: 38, height: 38)
+                .background(Color(serviceHex: service.brandColorHex).opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
 
             Text(service.name)
                 .font(.body.weight(.medium))
@@ -210,6 +216,33 @@ struct MyServicesView: View {
         case .notSubscribed: .secondary
         case .unknown: .orange
         }
+    }
+}
+
+private struct EngineStatusHeader: View {
+    let label: String
+    let symbol: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: symbol)
+                .font(.title2)
+                .foregroundStyle(tint)
+                .frame(width: 48, height: 48)
+                .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Recognition engine")
+                    .font(.headline)
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(tint)
+            }
+            Spacer()
+            SignalBars(accent: tint)
+                .frame(width: 48, height: 18)
+        }
+        .padding(.vertical, 6)
     }
 }
 

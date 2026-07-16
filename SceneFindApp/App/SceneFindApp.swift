@@ -44,6 +44,10 @@ struct RootView: View {
             .tabItem { Label("Settings", systemImage: "gearshape") }
             .tag(AppTab.settings)
         }
+        .tint(Color.sceneCyan)
+        .toolbarBackground(.ultraThinMaterial, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
+        .sensoryFeedback(.selection, trigger: router.selectedTab)
         .onAppear { routePendingShare() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {

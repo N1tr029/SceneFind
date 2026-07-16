@@ -31,9 +31,12 @@ struct AlternativesView: View {
                         } label: {
                             CandidateCell(candidate: candidate)
                         }
+                        .foregroundStyle(.primary)
+                        .listRowBackground(Color.sceneSurface)
                     }
                 }
                 .scrollContentBackground(.hidden)
+                .listStyle(.insetGrouped)
             } else {
                 ContentUnavailableView("No alternatives", systemImage: "list.bullet.rectangle")
             }
@@ -46,25 +49,28 @@ struct CandidateCell: View {
     let candidate: SceneCandidate
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        HStack(spacing: 12) {
+            ShowCoverArtwork(candidate: candidate)
+                .frame(width: 58, height: 82)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            VStack(alignment: .leading, spacing: 6) {
                 Text(candidate.mediaTitle)
                     .font(.headline)
-                Spacer()
-                Text("\(Int(candidate.confidence * 100))%")
-                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(candidate.episodeTitle ?? candidate.episodeLine)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    MetadataPill(text: candidate.episodeLine, symbol: "play.square.stack")
+                    if let timestamp = candidate.sceneTimestampSeconds {
+                        MetadataPill(text: timestamp.timestampString, symbol: "scope", tint: .sceneCyan)
+                    }
+                }
             }
-            Text("\(candidate.episodeLine) \(candidate.episodeTitle ?? "")")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            if let text = candidate.matchedSubtitleText {
-                Text(text)
-                    .font(.callout)
-            }
-            if let timestamp = candidate.sceneTimestampSeconds {
-                Label(timestamp.timestampString, systemImage: "timer")
-                    .font(.caption)
-            }
+            Spacer(minLength: 4)
+            MatchScoreRing(score: candidate.confidence, diameter: 46)
         }
         .padding(.vertical, 8)
         .accessibilityLabel("Candidate \(candidate.mediaTitle), \(candidate.confidenceLabel)")

@@ -4,6 +4,7 @@ struct AnalyzeView: View {
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var model: SceneFindModel
     @Environment(\.dismiss) private var dismiss
+
     let requestID: UUID
 
     @State private var request: SharedClipRequest?
@@ -14,116 +15,71 @@ struct AnalyzeView: View {
     @State private var errorMessage: String?
 
     private let steps = [
-        "Reading shared link",
-        "Checking known scenes",
-        "Inspecting video and audio",
-        "Identifying show and episode",
-        "Locating the moment",
-        "Preparing watch options"
+        AnalysisStage(label: "Reading the clip", symbol: "link"),
+        AnalysisStage(label: "Checking known scenes", symbol: "film.stack"),
+        AnalysisStage(label: "Scanning video and audio", symbol: "waveform"),
+        AnalysisStage(label: "Finding the episode", symbol: "sparkle.magnifyingglass"),
+        AnalysisStage(label: "Locating the moment", symbol: "scope"),
+        AnalysisStage(label: "Preparing watch options", symbol: "play.tv")
     ]
+
+    private var progress: Double {
+        min(Double(currentStep + 1) / Double(steps.count), isAnalyzing ? 0.92 : 1)
+    }
 
     var body: some View {
         ZStack {
             CinematicBackground()
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(spacing: 22) {
+                    AnalysisVisual(
+                        stage: steps[currentStep],
+                        stepNumber: currentStep + 1,
+                        totalSteps: steps.count,
+                        progress: progress,
+                        startedAt: analysisStartedAt,
+                        isAnalyzing: isAnalyzing
+                    )
+
+                    AnalysisProgressRail(
+                        stages: steps,
+                        currentStep: currentStep,
+                        hasError: errorMessage != nil
+                    )
+
                     if let request {
-                        summary(request)
-                    }
-
-                    SceneCard {
-                        VStack(alignment: .leading, spacing: 16) {
-                            if isAnalyzing {
-                                HStack(spacing: 10) {
-                                    ProgressView()
-                                        .tint(.green)
-                                    Text("Analyzing clip")
-                                        .font(.headline)
-                                    Spacer()
-                                    TimelineView(.periodic(from: analysisStartedAt, by: 1)) { context in
-                                        Text(elapsedLabel(at: context.date))
-                                            .font(.subheadline.monospacedDigit())
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-
-                            ForEach(steps.indices, id: \.self) { index in
-                                HStack {
-                                    stepIndicator(for: index)
-                                    Text(steps[index])
-                                        .foregroundStyle(index <= currentStep ? .primary : .secondary)
-                                    Spacer()
-                                }
-                                .accessibilityLabel("\(steps[index]) \(index < currentStep ? "complete" : index == currentStep ? "in progress" : "pending")")
-                            }
-                            if isAnalyzing {
-                                ProgressView(value: min(Double(currentStep + 1) / Double(steps.count), 0.9))
-                                    .tint(.blue)
-                                    .accessibilityLabel("Analysis progress")
-                            }
-                        }
+                        AnalysisSourceSummary(request: request)
                     }
 
                     if let errorMessage {
-                        ContentUnavailableView(errorTitle, systemImage: "film.badge.exclamationmark", description: Text(errorMessage))
+                        AnalysisErrorCard(
+                            title: errorTitle,
+                            message: errorMessage,
+                            retry: retry
+                        )
                     }
                 }
                 .padding()
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 12) {
-                if errorMessage != nil {
-                    Button {
-                        Task { await runAnalysis() }
-                    } label: {
-                        Label("Try Again", systemImage: "arrow.clockwise")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                }
-
-                Button(role: .cancel) {
-                    dismiss()
-                } label: {
-                    Label(isAnalyzing ? "Cancel" : "Close", systemImage: "xmark")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
+            Button(role: .cancel, action: dismiss.callAsFunction) {
+                Label(isAnalyzing ? "Cancel analysis" : "Close", systemImage: "xmark")
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
             .padding()
             .background(.ultraThinMaterial)
         }
-        .navigationTitle(isAnalyzing ? "Analyzing" : "Analysis")
+        .navigationTitle("Analyzing clip")
         .navigationBarTitleDisplayMode(.inline)
         .task { await runAnalysis() }
+        .animation(.smooth(duration: 0.45), value: currentStep)
     }
 
-    private func summary(_ request: SharedClipRequest) -> some View {
-        SceneCard {
-            HStack(spacing: 14) {
-                Image(systemName: request.sourceType == .video ? "video" : "link")
-                    .font(.title)
-                    .frame(width: 58, height: 58)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(request.pageTitle ?? "Shared clip")
-                        .font(.headline)
-                    Text("\(request.sourcePlatform.label) • \(request.sourceType.label)")
-                        .foregroundStyle(.secondary)
-                    if let url = request.originalURL {
-                        Text(url.absoluteString)
-                            .font(.caption)
-                            .lineLimit(1)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-            }
-        }
+    private func retry() {
+        Task { await runAnalysis() }
     }
 
     @MainActor
@@ -158,32 +114,150 @@ struct AnalyzeView: View {
             errorMessage = error.localizedDescription
         }
     }
+}
 
-    @ViewBuilder
-    private func stepIndicator(for index: Int) -> some View {
-        if index < currentStep {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-                .accessibilityHidden(true)
-        } else if index == currentStep, isAnalyzing {
-            ProgressView()
-                .controlSize(.small)
-                .tint(.green)
-                .frame(width: 20, height: 20)
-                .accessibilityHidden(true)
-        } else if index == currentStep, errorMessage != nil {
-            Image(systemName: "exclamationmark.circle.fill")
-                .foregroundStyle(.orange)
-                .accessibilityHidden(true)
-        } else {
-            Image(systemName: "circle")
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+private struct AnalysisStage: Identifiable {
+    let id = UUID()
+    let label: String
+    let symbol: String
+}
+
+private struct AnalysisVisual: View {
+    let stage: AnalysisStage
+    let stepNumber: Int
+    let totalSteps: Int
+    let progress: Double
+    let startedAt: Date
+    let isAnalyzing: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SignalScanner(
+                symbol: stage.symbol,
+                progress: progress,
+                accent: isAnalyzing ? .sceneCyan : .sceneCoral
+            )
+
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(stage.label)
+                        .font(.title2.bold())
+                        .contentTransition(.opacity)
+                    Text("STEP \(stepNumber) OF \(totalSteps)")
+                        .font(.caption2.bold().monospacedDigit())
+                        .foregroundStyle(Color.sceneCyan)
+                        .contentTransition(.numericText())
+                }
+                Spacer()
+                if isAnalyzing {
+                    TimelineView(.periodic(from: startedAt, by: 1)) { context in
+                        Text(elapsedLabel(at: context.date))
+                            .font(.title3.weight(.semibold).monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
         }
     }
 
     private func elapsedLabel(at date: Date) -> String {
-        let seconds = max(0, Int(date.timeIntervalSince(analysisStartedAt)))
-        return "\(seconds)s"
+        "\(max(0, Int(date.timeIntervalSince(startedAt))))s"
+    }
+}
+
+private struct AnalysisProgressRail: View {
+    let stages: [AnalysisStage]
+    let currentStep: Int
+    let hasError: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(Array(stages.enumerated()), id: \.element.id) { index, stage in
+                Image(systemName: symbol(for: index, stage: stage))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(color(for: index))
+                    .frame(width: 34, height: 34)
+                    .background(color(for: index).opacity(index <= currentStep ? 0.14 : 0.06), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(color(for: index).opacity(index == currentStep ? 0.6 : 0.12), lineWidth: 1)
+                    }
+                    .accessibilityLabel(stage.label)
+                if index < stages.count - 1 {
+                    Rectangle()
+                        .fill(index < currentStep ? Color.sceneGreen : .white.opacity(0.08))
+                        .frame(height: 2)
+                }
+            }
+        }
+    }
+
+    private func symbol(for index: Int, stage: AnalysisStage) -> String {
+        if index < currentStep { return "checkmark" }
+        if index == currentStep, hasError { return "exclamationmark" }
+        return stage.symbol
+    }
+
+    private func color(for index: Int) -> Color {
+        if index < currentStep { return .sceneGreen }
+        if index == currentStep { return hasError ? .sceneCoral : .sceneCyan }
+        return .secondary
+    }
+}
+
+private struct AnalysisSourceSummary: View {
+    let request: SharedClipRequest
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: request.sourceType == .video ? "video.fill" : "link")
+                .font(.title3)
+                .foregroundStyle(Color.sceneGold)
+                .frame(width: 42, height: 42)
+                .background(Color.sceneGold.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(request.pageTitle ?? "Shared clip")
+                    .font(.headline)
+                    .lineLimit(1)
+                Text("\(request.sourcePlatform.label) · \(request.sourceType.label)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .background(Color.sceneSurface, in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(.white.opacity(0.06), lineWidth: 1)
+        }
+    }
+}
+
+private struct AnalysisErrorCard: View {
+    let title: String
+    let message: String
+    let retry: () -> Void
+
+    var body: some View {
+        SceneCard {
+            VStack(spacing: 14) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.title)
+                    .foregroundStyle(Color.sceneCoral)
+                Text(title)
+                    .font(.headline)
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Button(action: retry) {
+                    Label("Try again", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.sceneCoral)
+            }
+        }
     }
 }

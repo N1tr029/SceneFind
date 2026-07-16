@@ -17,26 +17,28 @@ struct ResultView: View {
             CinematicBackground()
             if let result {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 22) {
+                    LazyVStack(spacing: 0) {
                         HeroArtwork(candidate: result.topCandidate)
-                        titleBlock(result.topCandidate)
-                        whereToWatch(result.topCandidate)
-                        if model.showAnalysisDetails {
-                            analysisDetails(result)
-                        }
-                        actions(result)
-
-                        if !result.alternativeCandidates.isEmpty {
-                            Button {
-                                router.navigate(to: .alternatives(result.id))
-                            } label: {
-                                Label("Choose another candidate", systemImage: "list.bullet.rectangle")
-                                    .frame(maxWidth: .infinity)
+                        VStack(alignment: .leading, spacing: 22) {
+                            ClipTimelineCard(result: result)
+                            whereToWatch(result.topCandidate)
+                            if model.showAnalysisDetails {
+                                analysisDetails(result)
                             }
-                            .buttonStyle(.bordered)
+                            actions(result)
+
+                            if !result.alternativeCandidates.isEmpty {
+                                Button {
+                                    router.navigate(to: .alternatives(result.id))
+                                } label: {
+                                    Label("View other matches", systemImage: "square.stack.3d.up")
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.bordered)
+                            }
                         }
+                        .padding()
                     }
-                    .padding()
                 }
             } else {
                 ContentUnavailableView(
@@ -57,159 +59,131 @@ struct ResultView: View {
         }
     }
 
-    private func titleBlock(_ candidate: SceneCandidate) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ConfidenceBadge(candidate: candidate)
-            Text(candidate.episodeTitle ?? candidate.mediaTitle)
-                .font(.largeTitle.bold())
-                .fixedSize(horizontal: false, vertical: true)
-
-            if candidate.mediaType == .television {
-                Text("\(candidate.mediaTitle) · \(candidate.episodeLine)")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-            } else if candidate.mediaType == .movie {
-                Text("\(candidate.mediaTitle) · \(candidate.releaseYear)")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("Online media · \(candidate.releaseYear)")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-            }
-
-            if let timestamp = candidate.sceneTimestampSeconds {
-                Label("Clip starts near \(timestamp.timestampString)", systemImage: "timer")
-                    .font(.subheadline.weight(.semibold))
-            }
-        }
-    }
-
     private func whereToWatch(_ candidate: SceneCandidate) -> some View {
         let providers = providers(for: candidate)
         let yourProviders = providers.filter { model.accessState(for: $0) == .subscribed }
         let otherProviders = providers.filter { model.accessState(for: $0) != .subscribed }
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("Where to watch")
-                    .font(.title2.bold())
-                Spacer()
-                Button {
-                    router.navigate(to: .services)
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("Manage streaming services")
-            }
-            .padding(.bottom, 10)
-
-            if providers.isEmpty {
-                ContentUnavailableView(
-                    "No exact episode links",
-                    systemImage: "play.tv",
-                    description: Text("SceneFind found the episode, but no provider returned a verified episode-level destination.")
-                )
-            } else {
-                if !yourProviders.isEmpty {
-                    Text("ON YOUR SERVICES")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.vertical, 8)
-                    ForEach(Array(yourProviders.enumerated()), id: \.element.id) { index, provider in
-                        ProviderRow(provider: provider, access: .subscribed) {
-                            selectedProvider = provider
-                        }
-                        if index < yourProviders.count - 1 {
-                            Divider()
-                        }
+        return SceneCard {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Label("Watch", systemImage: "play.fill")
+                        .font(.title3.bold())
+                    Spacer()
+                    Button {
+                        router.navigate(to: .services)
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
                     }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Manage streaming services")
                 }
+                .padding(.bottom, 8)
 
-                if !otherProviders.isEmpty {
+                if providers.isEmpty {
+                    HStack(spacing: 12) {
+                        Image(systemName: "link.badge.plus")
+                            .font(.title2)
+                            .foregroundStyle(Color.sceneGold)
+                        Text("No verified episode link yet")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 16)
+                } else {
                     if !yourProviders.isEmpty {
-                        Divider()
+                        Text("YOUR SERVICES")
+                            .font(.caption2.bold())
+                            .foregroundStyle(Color.sceneGreen)
                             .padding(.vertical, 8)
-                    }
-                    Text(yourProviders.isEmpty ? "EXACT EPISODE LINKS" : "OTHER EXACT LINKS")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.vertical, 8)
-                    ForEach(Array(otherProviders.enumerated()), id: \.element.id) { index, provider in
-                        ProviderRow(provider: provider, access: model.accessState(for: provider)) {
-                            selectedProvider = provider
+                        ForEach(Array(yourProviders.enumerated()), id: \.element.id) { index, provider in
+                            ProviderRow(provider: provider, access: .subscribed) {
+                                selectedProvider = provider
+                            }
+                            if index < yourProviders.count - 1 { Divider() }
                         }
-                        if index < otherProviders.count - 1 {
-                            Divider()
+                    }
+
+                    if !otherProviders.isEmpty {
+                        if !yourProviders.isEmpty { Divider().padding(.vertical, 6) }
+                        Text(yourProviders.isEmpty ? "AVAILABLE" : "MORE OPTIONS")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 8)
+                        ForEach(Array(otherProviders.enumerated()), id: \.element.id) { index, provider in
+                            ProviderRow(provider: provider, access: model.accessState(for: provider)) {
+                                selectedProvider = provider
+                            }
+                            if index < otherProviders.count - 1 { Divider() }
                         }
                     }
                 }
-
-                Text("Access labels come from My Services. Availability and pricing can still vary by region.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .padding(.top, 10)
             }
         }
     }
 
     private func analysisDetails(_ result: ClipAnalysisResult) -> some View {
         SceneCard {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Why this match")
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 14) {
+                    MatchSignalBars(candidate: result.topCandidate)
+                    Divider()
+                    detailRow("Heard", result.detectedDialogue)
+                    detailRow("Matched", result.topCandidate.matchedSubtitleText ?? "No subtitle line matched")
+                    detailRow("Source", "\(result.analysisDetails.sourcePlatform.label) · \(result.analysisDetails.sourceType.label)")
+                }
+                .padding(.top, 14)
+            } label: {
+                Label("Why this match", systemImage: "waveform.badge.magnifyingglass")
                     .font(.headline)
-                detailRow("Detected dialogue", result.detectedDialogue)
-                detailRow("Matching subtitle", result.topCandidate.matchedSubtitleText ?? "No subtitle line matched")
-                detailRow("Source", "\(result.analysisDetails.sourcePlatform.label) · \(result.analysisDetails.sourceType.label)")
-                Divider()
-                detailRow(
-                    "Match signals",
-                    "Subtitle \(Int(result.topCandidate.subtitleScore * 100))%, visual \(Int(result.topCandidate.visualScore * 100))%, metadata \(Int(result.topCandidate.metadataScore * 100))%"
-                )
             }
+            .tint(Color.sceneCyan)
         }
     }
 
     private func actions(_ result: ClipAnalysisResult) -> some View {
-        VStack(spacing: 12) {
-            Button {
-                if model.isSaved(result) {
-                    model.removeSaved(id: result.id)
-                } else {
-                    model.save(result)
-                }
-            } label: {
-                Label(
-                    model.isSaved(result) ? "Saved for later" : "Save for later",
-                    systemImage: model.isSaved(result) ? "bookmark.fill" : "bookmark"
-                )
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Button {
+                    if model.isSaved(result) {
+                        model.removeSaved(id: result.id)
+                    } else {
+                        model.save(result)
+                    }
+                } label: {
+                    Label(
+                        model.isSaved(result) ? "Saved" : "Save",
+                        systemImage: model.isSaved(result) ? "bookmark.fill" : "bookmark"
+                    )
                     .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(model.isSaved(result) ? Color.sceneGreen : Color.sceneCyan)
 
-            HStack {
                 Button {
                     UIPasteboard.general.string = copyText(result)
                 } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
-                        .frame(maxWidth: .infinity)
+                    Image(systemName: "doc.on.doc")
+                        .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.bordered)
+                .accessibilityLabel("Copy match")
 
                 Button {
                     router.navigate(to: .analyze(result.requestID))
                 } label: {
-                    Label("Wrong match", systemImage: "hand.thumbsdown")
-                        .frame(maxWidth: .infinity)
+                    Image(systemName: "hand.thumbsdown")
+                        .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.bordered)
+                .accessibilityLabel("Report wrong match")
             }
 
             Button {
                 router.returnHome()
             } label: {
-                Label("Analyze another clip", systemImage: "plus.magnifyingglass")
+                Label("Scan another clip", systemImage: "plus.magnifyingglass")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
@@ -257,29 +231,141 @@ private struct HeroArtwork: View {
     let candidate: SceneCandidate
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            Rectangle()
-                .fill(Color.black.opacity(0.35))
-
-            ShowCoverArtwork(candidate: candidate, contentMode: .fit)
+        ZStack {
+            ShowCoverArtwork(candidate: candidate, contentMode: .fill)
+                .scaleEffect(1.18)
+                .blur(radius: 22)
+                .opacity(0.78)
 
             LinearGradient(
-                colors: [.clear, .black.opacity(0.78)],
-                startPoint: .center,
+                colors: [.black.opacity(0.16), .black.opacity(0.52), Color.sceneBackground],
+                startPoint: .top,
                 endPoint: .bottom
             )
 
-            Text(candidate.mediaTitle)
-                .font(.title2.bold())
-                .padding()
+            HStack(alignment: .bottom, spacing: 16) {
+                ShowCoverArtwork(candidate: candidate, contentMode: .fit)
+                    .frame(width: 108, height: 162)
+                    .background(.black.opacity(0.32))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(.white.opacity(0.16), lineWidth: 1)
+                    }
+                    .shadow(color: .black.opacity(0.5), radius: 12, y: 6)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(candidate.episodeTitle ?? candidate.mediaTitle)
+                        .font(.title2.bold())
+                        .lineLimit(3)
+                    Text(mediaLine)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.72))
+                        .lineLimit(2)
+                    HStack(spacing: 8) {
+                        if let timestamp = candidate.sceneTimestampSeconds {
+                            MetadataPill(
+                                text: timestamp.timestampString,
+                                symbol: "scope",
+                                tint: .sceneCyan
+                            )
+                        }
+                        MatchScoreRing(score: candidate.confidence, diameter: 48)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(16)
         }
         .frame(maxWidth: .infinity)
-        .aspectRatio(16 / 10, contentMode: .fit)
+        .frame(height: 286)
         .clipped()
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .accessibilityLabel("Artwork for \(candidate.mediaTitle)")
     }
 
+    private var mediaLine: String {
+        switch candidate.mediaType {
+        case .television: "\(candidate.mediaTitle) · \(candidate.episodeLine)"
+        case .movie: "Movie · \(candidate.releaseYear)"
+        case .other: "Online media · \(candidate.releaseYear)"
+        }
+    }
+}
+
+private struct ClipTimelineCard: View {
+    let result: ClipAnalysisResult
+
+    var body: some View {
+        SceneCard {
+            VStack(spacing: 14) {
+                HStack {
+                    Label("Clip location", systemImage: "timeline.selection")
+                        .font(.headline)
+                    Spacer()
+                    MetadataPill(
+                        text: result.analysisDetails.sourcePlatform.label,
+                        symbol: "arrowshape.turn.up.right"
+                    )
+                }
+
+                HStack(alignment: .center, spacing: 12) {
+                    timeValue(label: "START", value: result.topCandidate.sceneTimestampSeconds)
+                    ZStack {
+                        Capsule().fill(.white.opacity(0.08)).frame(height: 4)
+                        Capsule().fill(Color.sceneCyan).frame(height: 4)
+                            .padding(.horizontal, 8)
+                    }
+                    timeValue(
+                        label: "END",
+                        value: result.topCandidate.clipEndTimestampSeconds ?? result.topCandidate.sceneTimestampSeconds
+                    )
+                }
+            }
+        }
+    }
+
+    private func timeValue(label: String, value: Double?) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label)
+                .font(.caption2.bold())
+                .foregroundStyle(.secondary)
+            Text(value?.timestampString ?? "--:--:--")
+                .font(.subheadline.bold().monospacedDigit())
+        }
+    }
+}
+
+private struct MatchSignalBars: View {
+    let candidate: SceneCandidate
+
+    var body: some View {
+        VStack(spacing: 10) {
+            scoreRow("Dialogue", value: candidate.subtitleScore, tint: .sceneGreen)
+            scoreRow("Visual", value: candidate.visualScore, tint: .sceneCoral)
+            scoreRow("Metadata", value: candidate.metadataScore, tint: .sceneCyan)
+        }
+    }
+
+    private func scoreRow(_ label: String, value: Double, tint: Color) -> some View {
+        HStack(spacing: 10) {
+            Text(label)
+                .font(.caption.weight(.medium))
+                .frame(width: 62, alignment: .leading)
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.08))
+                    Capsule()
+                        .fill(tint)
+                        .frame(width: proxy.size.width * min(max(value, 0), 1))
+                }
+            }
+            .frame(height: 5)
+            Text("\(Int(value * 100))")
+                .font(.caption2.bold().monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 24, alignment: .trailing)
+        }
+    }
 }
 
 private struct ProviderRow: View {
@@ -293,23 +379,25 @@ private struct ProviderRow: View {
                 .font(.title3)
                 .foregroundStyle(Color(hex: provider.brandColorHex))
                 .frame(width: 42, height: 42)
-                .background(.thinMaterial, in: Circle())
+                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(provider.name)
                     .font(.headline)
-                Text("\(provider.offer) · \(access.shortLabel)")
-                    .font(.subheadline)
-                    .foregroundStyle(access == .subscribed ? .green : .secondary)
+                Text(access == .subscribed ? provider.offer : access.shortLabel)
+                    .font(.caption)
+                    .foregroundStyle(access == .subscribed ? Color.sceneGreen : .secondary)
                     .lineLimit(2)
             }
 
             Spacer(minLength: 8)
 
             Button(action: action) {
-                Label("Watch", systemImage: "play.circle")
+                Image(systemName: "play.fill")
+                    .frame(width: 30, height: 30)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.borderedProminent)
+            .tint(Color(hex: provider.brandColorHex))
             .accessibilityLabel("Watch on \(provider.name)")
         }
         .padding(.vertical, 12)
@@ -417,7 +505,7 @@ private struct WatchOptionsSheet: View {
                     .font(.headline)
                 Text(subtitle)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.72))
             }
             Spacer()
         }
