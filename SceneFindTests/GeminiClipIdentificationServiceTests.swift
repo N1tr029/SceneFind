@@ -50,8 +50,11 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
             let prompt = try XCTUnwrap(parts.first?["text"] as? String)
             XCTAssertTrue(prompt.contains("Nobody calls him that anymore"))
             let generationConfig = try XCTUnwrap(json["generationConfig"] as? [String: Any])
-            XCTAssertNil(generationConfig["responseJsonSchema"])
-            XCTAssertNil(generationConfig["responseMimeType"])
+            let responseFormat = try XCTUnwrap(generationConfig["responseFormat"] as? [String: Any])
+            let textFormat = try XCTUnwrap(responseFormat["text"] as? [String: Any])
+            XCTAssertEqual(textFormat["mimeType"] as? String, "APPLICATION_JSON")
+            let schema = try XCTUnwrap(textFormat["schema"] as? [String: Any])
+            XCTAssertEqual(schema["type"] as? String, "object")
 
             let resultJSON: [String: Any] = [
                 "match_found": true,
@@ -106,6 +109,54 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         XCTAssertEqual(result.topCandidate.watchProviders?.first?.name, "Hulu")
         XCTAssertEqual(result.topCandidate.heroImageURL, metadata.thumbnailURL)
         XCTAssertEqual(requestCount, 2)
+    }
+
+    func testCommonJSONTypeVariationsAreRecovered() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GeminiStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        GeminiStubURLProtocol.requestHandler = { request in
+            let body = try XCTUnwrap(Self.bodyData(from: request))
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            let generationConfig = try XCTUnwrap(json["generationConfig"] as? [String: Any])
+            XCTAssertNotNil(generationConfig["responseFormat"])
+
+            return try Self.geminiResponse(text: """
+                {
+                  "match_found": "true",
+                  "candidates": [{
+                    "media_title": "Example Show",
+                    "media_type": "tv",
+                    "release_year": "2022",
+                    "season_number": "3",
+                    "episode_number": 7,
+                    "scene_start_seconds": "732.5",
+                    "confidence": "92%"
+                  }]
+                }
+                """)
+        }
+
+        let service = GeminiClipIdentificationService(
+            session: session,
+            apiKeyProvider: { "gemini-test-key" },
+            modelProvider: { "gemini-test" }
+        )
+        let request = SharedClipRequest(
+            sourceType: .url,
+            sourcePlatform: .tiktok,
+            originalURL: URL(string: "https://www.tiktok.com/example")
+        )
+
+        let result = try await service.identify(request: request, metadata: nil)
+
+        XCTAssertEqual(result.topCandidate.releaseYear, 2022)
+        XCTAssertEqual(result.topCandidate.seasonNumber, 3)
+        XCTAssertEqual(result.topCandidate.sceneTimestampSeconds, 732.5)
+        XCTAssertEqual(result.topCandidate.confidence, 0.92, accuracy: 0.001)
+        XCTAssertEqual(result.detectedDialogue, "")
+        XCTAssertEqual(result.topCandidate.watchProviders, [])
     }
 
     func testMissingGeminiKeyFailsBeforeNetworkRequest() async {

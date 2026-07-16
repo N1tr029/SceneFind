@@ -89,7 +89,7 @@ final class GeminiClipIdentificationService {
             "Page title: \(request.pageTitle ?? "Unavailable")",
             "oEmbed title/caption: \(metadata?.title ?? "Unavailable")",
             "oEmbed author: \(metadata?.authorName ?? "Unavailable")",
-            "Direct video inspection: \(videoEvidence ?? "Unavailable; identify from the public metadata and search evidence.")"
+            "Direct video inspection: \(videoEvidence ?? "Unavailable; identify from the public metadata and model knowledge.")"
         ].joined(separator: "\n")
 
         return [
@@ -104,8 +104,64 @@ final class GeminiClipIdentificationService {
                 "text": "Identify the original movie or TV scene represented by this shared social clip.\n\n\(evidence)"
             ]]]],
             "generationConfig": [
-                "temperature": 0.2
+                "temperature": 0.2,
+                "maxOutputTokens": 4_096,
+                "responseFormat": [
+                    "text": [
+                        "mimeType": "APPLICATION_JSON",
+                        "schema": identificationResponseSchema
+                    ]
+                ]
             ]
+        ]
+    }
+
+    private var identificationResponseSchema: [String: Any] {
+        let nullableInteger: [String: Any] = ["type": ["integer", "null"]]
+        let nullableNumber: [String: Any] = ["type": ["number", "null"]]
+        let nullableString: [String: Any] = ["type": ["string", "null"]]
+        let provider: [String: Any] = [
+            "type": "object",
+            "properties": [
+                "name": ["type": "string"],
+                "offer": ["type": "string"],
+                "url": ["type": "string"]
+            ],
+            "required": ["name", "offer", "url"],
+            "additionalProperties": false
+        ]
+        let candidate: [String: Any] = [
+            "type": "object",
+            "properties": [
+                "media_title": ["type": "string"],
+                "media_type": ["type": "string", "enum": ["movie", "tv"]],
+                "release_year": ["type": "integer", "minimum": 1870, "maximum": 2100],
+                "season_number": nullableInteger,
+                "episode_number": nullableInteger,
+                "episode_title": nullableString,
+                "scene_start_seconds": nullableNumber,
+                "clip_end_seconds": nullableNumber,
+                "matching_subtitle": nullableString,
+                "confidence": ["type": "number", "minimum": 0, "maximum": 1],
+                "hero_image_url": nullableString,
+                "watch_providers": ["type": "array", "items": provider, "maxItems": 5]
+            ],
+            "required": [
+                "media_title", "media_type", "release_year", "season_number", "episode_number",
+                "episode_title", "scene_start_seconds", "clip_end_seconds", "matching_subtitle",
+                "confidence", "hero_image_url", "watch_providers"
+            ],
+            "additionalProperties": false
+        ]
+        return [
+            "type": "object",
+            "properties": [
+                "match_found": ["type": "boolean"],
+                "detected_dialogue": ["type": "string"],
+                "candidates": ["type": "array", "items": candidate, "maxItems": 3]
+            ],
+            "required": ["match_found", "detected_dialogue", "candidates"],
+            "additionalProperties": false
         ]
     }
 
@@ -145,7 +201,7 @@ final class GeminiClipIdentificationService {
             return nil
         } catch {
             #if DEBUG
-            print("Gemini video inspection unavailable; continuing with metadata and search: \(error.localizedDescription)")
+            print("Gemini video inspection unavailable; continuing with metadata: \(error.localizedDescription)")
             #endif
             return nil
         }
@@ -239,6 +295,10 @@ final class GeminiClipIdentificationService {
         do {
             return try JSONDecoder().decode(GeminiIdentificationPayload.self, from: json)
         } catch {
+            #if DEBUG
+            print("Gemini result decoding failed: \(error)")
+            print("Gemini result text: \(String(data: json, encoding: .utf8) ?? "Unreadable JSON")")
+            #endif
             throw SceneFindError.geminiInvalidResponse
         }
     }
@@ -359,6 +419,13 @@ private struct GeminiIdentificationPayload: Decodable {
         case detectedDialogue = "detected_dialogue"
         case candidates
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        candidates = (try? container.decode([GeminiCandidatePayload].self, forKey: .candidates)) ?? []
+        matchFound = container.decodeFlexibleBoolIfPresent(forKey: .matchFound) ?? !candidates.isEmpty
+        detectedDialogue = (try? container.decode(String.self, forKey: .detectedDialogue)) ?? ""
+    }
 }
 
 private struct GeminiCandidatePayload: Decodable {
@@ -389,10 +456,65 @@ private struct GeminiCandidatePayload: Decodable {
         case heroImageURL = "hero_image_url"
         case watchProviders = "watch_providers"
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        mediaTitle = try container.decode(String.self, forKey: .mediaTitle)
+        mediaType = (try? container.decode(String.self, forKey: .mediaType)) ?? "tv"
+        releaseYear = try container.decodeFlexibleInt(forKey: .releaseYear)
+        seasonNumber = container.decodeFlexibleIntIfPresent(forKey: .seasonNumber)
+        episodeNumber = container.decodeFlexibleIntIfPresent(forKey: .episodeNumber)
+        episodeTitle = try? container.decodeIfPresent(String.self, forKey: .episodeTitle)
+        sceneStartSeconds = container.decodeFlexibleDoubleIfPresent(forKey: .sceneStartSeconds)
+        clipEndSeconds = container.decodeFlexibleDoubleIfPresent(forKey: .clipEndSeconds)
+        matchingSubtitle = try? container.decodeIfPresent(String.self, forKey: .matchingSubtitle)
+        let rawConfidence = container.decodeFlexibleDoubleIfPresent(forKey: .confidence) ?? 0.5
+        confidence = rawConfidence > 1 ? rawConfidence / 100 : rawConfidence
+        heroImageURL = try? container.decodeIfPresent(String.self, forKey: .heroImageURL)
+        watchProviders = (try? container.decode([GeminiProviderPayload].self, forKey: .watchProviders)) ?? []
+    }
 }
 
 private struct GeminiProviderPayload: Decodable {
     let name: String
     let offer: String
     let url: String
+}
+
+private extension KeyedDecodingContainer {
+    func decodeFlexibleBoolIfPresent(forKey key: Key) -> Bool? {
+        guard contains(key), (try? decodeNil(forKey: key)) == false else { return nil }
+        if let value = try? decode(Bool.self, forKey: key) { return value }
+        if let value = try? decode(String.self, forKey: key) {
+            return ["true", "yes", "1"].contains(value.lowercased())
+        }
+        if let value = try? decode(Int.self, forKey: key) { return value != 0 }
+        return nil
+    }
+
+    func decodeFlexibleInt(forKey key: Key) throws -> Int {
+        if let value = decodeFlexibleIntIfPresent(forKey: key) { return value }
+        throw DecodingError.valueNotFound(
+            Int.self,
+            DecodingError.Context(codingPath: codingPath + [key], debugDescription: "Expected an integer value")
+        )
+    }
+
+    func decodeFlexibleIntIfPresent(forKey key: Key) -> Int? {
+        guard contains(key), (try? decodeNil(forKey: key)) == false else { return nil }
+        if let value = try? decode(Int.self, forKey: key) { return value }
+        if let value = try? decode(Double.self, forKey: key) { return Int(value) }
+        if let value = try? decode(String.self, forKey: key) { return Int(value) }
+        return nil
+    }
+
+    func decodeFlexibleDoubleIfPresent(forKey key: Key) -> Double? {
+        guard contains(key), (try? decodeNil(forKey: key)) == false else { return nil }
+        if let value = try? decode(Double.self, forKey: key) { return value }
+        if let value = try? decode(String.self, forKey: key) {
+            guard let number = Double(value.replacingOccurrences(of: "%", with: "")) else { return nil }
+            return value.contains("%") ? number / 100 : number
+        }
+        return nil
+    }
 }

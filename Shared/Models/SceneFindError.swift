@@ -46,7 +46,7 @@ enum SceneFindError: LocalizedError {
         case .geminiFreeTierLimitReached: "The Gemini free-tier limit has been reached. Try again after the limit resets."
         case .geminiCreditsDepleted: "This Gemini key belongs to a project with depleted prepaid credits. Replace it with a key from a free-tier AI Studio project or add credits."
         case .geminiRequestTimedOut: "Gemini took too long to analyze this video. Try again or use a shorter public clip."
-        case .geminiInvalidResponse: "Gemini returned a result SceneFind could not read. Try again."
+        case .geminiInvalidResponse: "Gemini answered, but SceneFind could not finish reading the result. Try again."
         case .geminiRequestFailed(let message): "Gemini request failed: \(message)"
         }
     }
@@ -63,7 +63,8 @@ enum SceneFindError: LocalizedError {
         case .geminiFreeTierLimitReached: "Free-tier limit reached"
         case .geminiCreditsDepleted: "Gemini project needs credits"
         case .geminiRequestTimedOut: "Video analysis timed out"
-        case .geminiInvalidResponse, .geminiRequestFailed: "Gemini unavailable"
+        case .geminiInvalidResponse: "Couldn't read the result"
+        case .geminiRequestFailed: "Gemini unavailable"
         default: "Analysis failed"
         }
     }
