@@ -135,6 +135,8 @@ private struct ClipInputPanel: View {
     @FocusState.Binding var isURLFieldFocused: Bool
     let analyze: () -> Void
 
+    @State private var tutorialPage = 0
+
     private var canAnalyze: Bool {
         !pastedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -142,11 +144,9 @@ private struct ClipInputPanel: View {
     var body: some View {
         SceneCard {
             VStack(alignment: .leading, spacing: 16) {
-                SignalScanner(
-                    symbol: canAnalyze ? "link.badge.plus" : "viewfinder",
-                    progress: canAnalyze ? 0.72 : 0.12,
-                    accent: canAnalyze ? .sceneGreen : .sceneCyan
-                )
+                ClipTutorialDeck(page: $tutorialPage) {
+                    isURLFieldFocused = true
+                }
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Find the original moment")
@@ -217,6 +217,229 @@ private struct ClipInputPanel: View {
         }
         .animation(.smooth(duration: 0.35), value: canAnalyze)
     }
+}
+
+private struct ClipTutorialDeck: View {
+    @Binding var page: Int
+    let focusLinkField: () -> Void
+
+    private let steps = TutorialStep.all
+
+    var body: some View {
+        VStack(spacing: 0) {
+            TabView(selection: $page) {
+                ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
+                    TutorialSlide(step: step)
+                        .tag(index)
+                        .padding(.horizontal, 14)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(height: 168)
+
+            HStack {
+                Button {
+                    move(to: page - 1)
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .frame(width: 34, height: 34)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(page == 0 ? Color.secondary.opacity(0.3) : .white)
+                .disabled(page == 0)
+                .accessibilityLabel("Previous tutorial step")
+
+                Spacer()
+
+                HStack(spacing: 7) {
+                    ForEach(steps.indices, id: \.self) { index in
+                        Button {
+                            move(to: index)
+                        } label: {
+                            Capsule()
+                                .fill(index == page ? steps[page].accent : Color.white.opacity(0.18))
+                                .frame(width: index == page ? 22 : 7, height: 7)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Tutorial step \(index + 1)")
+                    }
+                }
+                .animation(.snappy(duration: 0.25), value: page)
+
+                Spacer()
+
+                Button {
+                    if page == steps.count - 1 {
+                        focusLinkField()
+                    } else {
+                        move(to: page + 1)
+                    }
+                } label: {
+                    Image(systemName: page == steps.count - 1 ? "arrow.down" : "chevron.right")
+                        .font(.subheadline.bold())
+                        .frame(width: 34, height: 34)
+                        .background(steps[page].accent, in: Circle())
+                        .foregroundStyle(Color.sceneBackground)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(page == steps.count - 1 ? "Enter a clip link" : "Next tutorial step")
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 10)
+        }
+        .background(Color.sceneSurfaceRaised, in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(steps[page].accent.opacity(0.22), lineWidth: 1)
+        }
+        .animation(.smooth(duration: 0.3), value: page)
+        .sensoryFeedback(.selection, trigger: page)
+    }
+
+    private func move(to destination: Int) {
+        guard steps.indices.contains(destination) else { return }
+        withAnimation(.snappy(duration: 0.32)) {
+            page = destination
+        }
+    }
+}
+
+private struct TutorialSlide: View {
+    let step: TutorialStep
+
+    var body: some View {
+        HStack(spacing: 16) {
+            TutorialIllustration(kind: step.kind, accent: step.accent)
+                .frame(width: 112, height: 112)
+
+            VStack(alignment: .leading, spacing: 7) {
+                Text(step.eyebrow)
+                    .font(.caption2.bold())
+                    .foregroundStyle(step.accent)
+                Text(step.title)
+                    .font(.title3.bold())
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(step.detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct TutorialIllustration: View {
+    let kind: TutorialStep.Kind
+    let accent: Color
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(accent.opacity(0.09))
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(accent.opacity(0.18), lineWidth: 1)
+
+            switch kind {
+            case .share:
+                HStack(spacing: 8) {
+                    VStack(spacing: 7) {
+                        SourceTile(symbol: "music.note", color: .white)
+                        SourceTile(symbol: "play.rectangle.fill", color: .sceneCoral)
+                    }
+                    Image(systemName: "arrow.right")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                    Image(systemName: "square.and.arrow.up.fill")
+                        .font(.system(size: 29, weight: .semibold))
+                        .foregroundStyle(accent)
+                }
+            case .add:
+                VStack(spacing: 9) {
+                    Image(systemName: "link")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(accent)
+                    HStack(spacing: 4) {
+                        ForEach(0..<3, id: \.self) { _ in
+                            Capsule()
+                                .fill(Color.white.opacity(0.22))
+                                .frame(width: 19, height: 4)
+                        }
+                    }
+                    Image(systemName: "arrow.down")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                }
+            case .watch:
+                HStack(spacing: 7) {
+                    Image(systemName: "rectangle.portrait.fill")
+                        .font(.system(size: 42))
+                        .foregroundStyle(.white.opacity(0.22))
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Color.sceneGreen)
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 31))
+                        .foregroundStyle(accent)
+                }
+            }
+        }
+    }
+}
+
+private struct SourceTile: View {
+    let symbol: String
+    let color: Color
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.caption.bold())
+            .foregroundStyle(color)
+            .frame(width: 30, height: 30)
+            .background(Color.sceneBackground.opacity(0.8), in: RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+private struct TutorialStep: Identifiable {
+    enum Kind {
+        case share
+        case add
+        case watch
+    }
+
+    let id: Int
+    let eyebrow: String
+    let title: String
+    let detail: String
+    let accent: Color
+    let kind: Kind
+
+    static let all = [
+        TutorialStep(
+            id: 0,
+            eyebrow: "STEP 1",
+            title: "Find a clip",
+            detail: "Tap Share in TikTok, YouTube, or Instagram.",
+            accent: .sceneCyan,
+            kind: .share
+        ),
+        TutorialStep(
+            id: 1,
+            eyebrow: "STEP 2",
+            title: "Send it here",
+            detail: "Choose SceneFind, paste its link, or import the video.",
+            accent: .sceneGold,
+            kind: .add
+        ),
+        TutorialStep(
+            id: 2,
+            eyebrow: "STEP 3",
+            title: "Watch the scene",
+            detail: "Confirm the match and open the episode on your service.",
+            accent: .sceneGreen,
+            kind: .watch
+        )
+    ]
 }
 
 private struct ServiceAccessButton: View {
