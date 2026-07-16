@@ -31,7 +31,7 @@ final class OpenAIClipIdentificationServiceTests: XCTestCase {
                     "season_number": 2,
                     "episode_number": 3,
                     "episode_title": "Secret Names",
-                    "scene_start_seconds": 441.0,
+                    "clip_start_seconds": 441.0,
                     "clip_end_seconds": 459.0,
                     "matching_subtitle": "Every boat in this harbor has a secret name.",
                     "confidence": 0.91,

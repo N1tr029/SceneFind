@@ -1,6 +1,11 @@
 import XCTest
 
 final class StreamingDestinationResolverTests: XCTestCase {
+    override func tearDown() {
+        StreamingStubURLProtocol.requestHandler = nil
+        super.tearDown()
+    }
+
     func testHuluPageParserFindsExactEpisode() throws {
         let payload: [String: Any] = [
             "props": [
@@ -36,61 +41,111 @@ final class StreamingDestinationResolverTests: XCTestCase {
         )
     }
 
-    func testModernFamilyReplacesWrongHuluEpisodeURL() throws {
-        let wrongHulu = WatchProvider(
-            id: "generated-hulu",
+    func testHuluWebWatchURLBecomesNativeEpisodeRoute() async throws {
+        let hulu = WatchProvider(
+            id: "hulu",
             name: "Hulu",
             offer: "Subscription",
-            episodeURL: try XCTUnwrap(URL(string: "https://www.hulu.com/watch/856225")),
+            episodeURL: try XCTUnwrap(URL(string: "https://www.hulu.com/watch/008ab86a-f287-4275-83d2-d2d7aa605bb5")),
             sceneURL: nil,
             symbolName: "play.tv.fill",
             brandColorHex: "1CE783"
         )
 
-        let providers = StreamingProviderCatalog.providers(
-            for: candidate(title: "Modern Family", season: 4, episode: 4, episodeTitle: "The Butler's Escape"),
-            supplied: [wrongHulu]
+        let destination = await StreamingDestinationResolver().destination(
+            for: hulu,
+            candidate: candidate(title: "Any Show", season: 4, episode: 4, episodeTitle: "Episode Four")
         )
 
-        XCTAssertEqual(providers.count, 1)
-        XCTAssertEqual(providers[0].id, "hulu")
         XCTAssertEqual(
-            providers[0].episodeURL.absoluteString,
+            destination?.primaryURL.absoluteString,
             "hulu://watch/008ab86a-f287-4275-83d2-d2d7aa605bb5"
         )
     }
 
-    func testTheRookieGetsHuluWhenModelReturnsNoProviders() {
+    func testHuluSeriesPageIsAcceptedForDynamicEpisodeResolution() throws {
+        let hulu = provider(
+            name: "Hulu",
+            url: "https://www.hulu.com/series/any-show-1138ee62-b9d9-4561-8094-3f7cda4bbd22"
+        )
         let providers = StreamingProviderCatalog.providers(
-            for: candidate(title: "The Rookie", season: 6, episode: 2, episodeTitle: "The Hammer"),
-            supplied: []
+            for: candidate(title: "Any Show", season: 6, episode: 2, episodeTitle: "The Episode"),
+            supplied: [hulu]
         )
 
         XCTAssertEqual(providers.map(\.name), ["Hulu"])
-        XCTAssertTrue(providers[0].episodeURL.absoluteString.contains("the-rookie-1138ee62"))
     }
 
-    func testTheRookieUsesExactHuluEpisodeAndRemovesUnavailableAppleTV() throws {
-        let appleTV = WatchProvider(
-            id: "apple-tv",
-            name: "Apple TV",
-            offer: "Purchase",
-            episodeURL: try XCTUnwrap(URL(string: "https://tv.apple.com/us/show/the-rookie/example")),
-            sceneURL: nil,
-            symbolName: "appletv.fill",
-            brandColorHex: "FFFFFF"
+    func testHuluSeriesPageResolvesRequestedSeasonAndEpisode() async throws {
+        let payload: [String: Any] = [
+            "props": ["episodes": [[
+                "id": "resolved-episode-id",
+                "type": "episode",
+                "season": 12,
+                "number": 8
+            ]]]
+        ]
+        let json = try JSONSerialization.data(withJSONObject: payload)
+        let jsonText = try XCTUnwrap(String(data: json, encoding: .utf8))
+        let html = Data("<script id=\"__NEXT_DATA__\" type=\"application/json\">\(jsonText)</script>".utf8)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StreamingStubURLProtocol.self]
+        StreamingStubURLProtocol.requestHandler = { request in
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "text/html"]
+            ))
+            return (response, html)
+        }
+
+        let destination = await StreamingDestinationResolver(
+            session: URLSession(configuration: configuration)
+        ).destination(
+            for: provider(name: "Hulu", url: "https://www.hulu.com/series/a-show-series-id"),
+            candidate: candidate(title: "A Show", season: 12, episode: 8, episodeTitle: "Episode Eight")
         )
+
+        XCTAssertEqual(destination?.primaryURL.absoluteString, "hulu://watch/resolved-episode-id")
+    }
+
+    func testExactEpisodeRoutesAreAcceptedAcrossProviders() throws {
+        let supplied = [
+            provider(name: "Netflix", url: "https://www.netflix.com/watch/81234567"),
+            provider(name: "Apple TV", url: "https://tv.apple.com/us/episode/example/umc.cmc.episode"),
+            provider(name: "Disney+", url: "https://www.disneyplus.com/video/episode-uuid"),
+            provider(name: "Prime Video", url: "https://www.amazon.com/gp/video/detail/B012345678"),
+            provider(name: "Max", url: "https://play.max.com/video/watch/episode-id"),
+            provider(name: "Peacock", url: "https://www.peacocktv.com/watch-online/tv/show/seasons/1/episodes/pilot/episode-id"),
+            provider(name: "Paramount+", url: "https://www.paramountplus.com/shows/video/episode-id"),
+            provider(name: "YouTube", url: "https://www.youtube.com/watch?v=episode-id")
+        ]
 
         let providers = StreamingProviderCatalog.providers(
-            for: candidate(title: "The Rookie", season: 5, episode: 10, episodeTitle: "The List"),
-            supplied: [appleTV]
+            for: candidate(title: "Any Show", season: 2, episode: 3, episodeTitle: "The Episode"),
+            supplied: supplied
         )
 
-        XCTAssertEqual(providers.map(\.name), ["Hulu"])
-        XCTAssertEqual(
-            providers[0].episodeURL.absoluteString,
-            "hulu://watch/e4650184-87a5-4ff3-ba6e-aae2a7e2807a"
+        XCTAssertEqual(providers.map(\.name), supplied.map(\.name))
+    }
+
+    func testShowAndSearchPagesAreNotPresentedAsEpisodeLinks() throws {
+        let supplied = [
+            provider(name: "Netflix", url: "https://www.netflix.com/title/81234567"),
+            provider(name: "Apple TV", url: "https://tv.apple.com/us/show/example/umc.cmc.show"),
+            provider(name: "Disney+", url: "https://www.disneyplus.com/browse/entity-series-id"),
+            provider(name: "Max", url: "https://play.max.com/show/show-id"),
+            provider(name: "Prime Video", url: "https://www.amazon.com/s?k=show+episode"),
+            provider(name: "YouTube", url: "https://www.youtube.com/results?search_query=show+episode")
+        ]
+
+        let providers = StreamingProviderCatalog.providers(
+            for: candidate(title: "Any Show", season: 2, episode: 3, episodeTitle: "The Episode"),
+            supplied: supplied
         )
+
+        XCTAssertTrue(providers.isEmpty)
     }
 
     private func candidate(
@@ -117,4 +172,40 @@ final class StreamingDestinationResolverTests: XCTestCase {
             streamingURL: nil
         )
     }
+
+    private func provider(name: String, url: String) -> WatchProvider {
+        WatchProvider(
+            id: name.lowercased(),
+            name: name,
+            offer: "Subscription",
+            episodeURL: URL(string: url)!,
+            sceneURL: nil,
+            symbolName: "play.tv.fill",
+            brandColorHex: "FFFFFF"
+        )
+    }
+}
+
+private final class StreamingStubURLProtocol: URLProtocol {
+    static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let handler = Self.requestHandler else {
+            XCTFail("StreamingStubURLProtocol received a request without a handler")
+            return
+        }
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }

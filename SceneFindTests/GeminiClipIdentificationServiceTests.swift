@@ -66,7 +66,7 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
                     "season_number": 3,
                     "episode_number": 7,
                     "episode_title": "Old Names",
-                    "scene_start_seconds": 732.0,
+                    "clip_start_seconds": 732.0,
                     "clip_end_seconds": 748.0,
                     "matching_subtitle": "Nobody calls him that anymore.",
                     "confidence": 0.92,
@@ -131,7 +131,7 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
                     "release_year": "2022",
                     "season_number": "3",
                     "episode_number": 7,
-                    "scene_start_seconds": "732.5",
+                    "clip_start_seconds": "732.5",
                     "confidence": "92%"
                   }]
                 }

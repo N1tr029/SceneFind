@@ -75,7 +75,7 @@ struct ResultView: View {
             }
 
             if let timestamp = candidate.sceneTimestampSeconds {
-                Label("Scene begins at \(timestamp.timestampString)", systemImage: "timer")
+                Label("Clip starts near \(timestamp.timestampString)", systemImage: "timer")
                     .font(.subheadline.weight(.semibold))
             }
         }
@@ -95,9 +95,9 @@ struct ResultView: View {
 
             if providers.isEmpty {
                 ContentUnavailableView(
-                    "No providers found",
+                    "No exact episode links",
                     systemImage: "play.tv",
-                    description: Text("Streaming availability is not available for this match.")
+                    description: Text("SceneFind found the episode, but no provider returned a verified episode-level destination.")
                 )
             } else {
                 ForEach(Array(providers.enumerated()), id: \.element.id) { index, provider in
@@ -410,19 +410,30 @@ private struct WatchOptionsSheet: View {
     @MainActor
     private func open(_ choice: WatchStartChoice) async {
         isResolving = true
-        let episodeURL = await StreamingDestinationResolver().destination(for: provider, candidate: candidate)
-        let destination: URL
-        switch choice {
-        case .beginning:
-            destination = episodeURL
-        case .afterClip:
-            destination = provider.sceneURL ?? episodeURL
-            if provider.sceneURL == nil, let timestamp = afterClipTimestamp {
-                UIPasteboard.general.string = timestamp.timestampString
-            }
+        guard let resolved = await StreamingDestinationResolver().destination(
+            for: provider,
+            candidate: candidate
+        ) else {
+            isResolving = false
+            openError = "SceneFind could not verify an exact episode link for \(provider.name). It will not send you to the wrong show page."
+            return
         }
-        let accepted = await withCheckedContinuation { continuation in
-            openURL(destination) { continuation.resume(returning: $0) }
+
+        if choice == .afterClip, let timestamp = afterClipTimestamp {
+            UIPasteboard.general.string = timestamp.timestampString
+        }
+
+        let destinations = [resolved.primaryURL, resolved.webFallbackURL]
+            .compactMap { $0 }
+            .reduce(into: [URL]()) { urls, url in
+                if !urls.contains(url) { urls.append(url) }
+            }
+        var accepted = false
+        for destination in destinations {
+            accepted = await withCheckedContinuation { continuation in
+                openURL(destination) { continuation.resume(returning: $0) }
+            }
+            if accepted { break }
         }
         isResolving = false
         if accepted {

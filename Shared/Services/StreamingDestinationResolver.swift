@@ -1,46 +1,61 @@
 import Foundation
 
+enum StreamingProviderKind: String {
+    case hulu
+    case netflix
+    case appleTV
+    case disneyPlus
+    case primeVideo
+    case max
+    case peacock
+    case paramountPlus
+    case youtube
+    case other
+
+    init(provider: WatchProvider) {
+        let name = provider.name.lowercased()
+        let host = provider.episodeURL.host?.lowercased() ?? ""
+        let scheme = provider.episodeURL.scheme?.lowercased() ?? ""
+        if scheme == "hulu" || name.contains("hulu") || host.hasSuffix("hulu.com") {
+            self = .hulu
+        } else if scheme == "nflx" || name.contains("netflix") || host.hasSuffix("netflix.com") {
+            self = .netflix
+        } else if name.contains("apple") || host == "tv.apple.com" {
+            self = .appleTV
+        } else if name.contains("disney") || host.hasSuffix("disneyplus.com") {
+            self = .disneyPlus
+        } else if name.contains("prime") || name.contains("amazon") || host.hasSuffix("amazon.com") {
+            self = .primeVideo
+        } else if name == "max" || name.contains("hbo") || host.hasSuffix("max.com") {
+            self = .max
+        } else if name.contains("peacock") || host.hasSuffix("peacocktv.com") {
+            self = .peacock
+        } else if name.contains("paramount") || host.contains("paramountplus") {
+            self = .paramountPlus
+        } else if name.contains("youtube") || host.hasSuffix("youtube.com") || host == "youtu.be" {
+            self = .youtube
+        } else {
+            self = .other
+        }
+    }
+}
+
+struct ResolvedStreamingDestination: Equatable {
+    let primaryURL: URL
+    let webFallbackURL: URL?
+}
+
 enum StreamingProviderCatalog {
-    private static let huluSeriesURLs: [String: URL] = [
-        "modern family": URL(string: "https://www.hulu.com/series/modern-family-883c414c-34a3-4fcc-b50a-0ad5a184c977")!,
-        "the rookie": URL(string: "https://www.hulu.com/series/the-rookie-1138ee62-b9d9-4561-8094-3f7cda4bbd22")!
-    ]
-
-    private static let verifiedHuluEpisodes: [String: URL] = [
-        "modern family|4|4": URL(string: "hulu://watch/008ab86a-f287-4275-83d2-d2d7aa605bb5")!,
-        "the rookie|5|10": URL(string: "hulu://watch/e4650184-87a5-4ff3-ba6e-aae2a7e2807a")!
-    ]
-
-    private static let verifiedProviderIDs: [String: Set<String>] = [
-        "the rookie": ["hulu"]
-    ]
 
     static func providers(for candidate: SceneCandidate, supplied: [WatchProvider]) -> [WatchProvider] {
-        var providers = supplied.map { provider in
-            guard isHulu(provider) else { return provider }
-            return huluProvider(for: candidate)
-        }
-
-        if let allowed = verifiedProviderIDs[normalized(candidate.mediaTitle)] {
-            providers = providers.filter { allowed.contains(providerID(for: $0)) }
-        }
-
-        if huluSeriesURL(for: candidate.mediaTitle) != nil,
-           !providers.contains(where: isHulu) {
-            providers.insert(huluProvider(for: candidate), at: 0)
-        }
-
         var seen = Set<String>()
-        return providers.filter { seen.insert($0.id.lowercased()).inserted }
-    }
-
-    static func huluSeriesURL(for mediaTitle: String) -> URL? {
-        huluSeriesURLs[normalized(mediaTitle)]
-    }
-
-    static func verifiedHuluEpisodeURL(for candidate: SceneCandidate) -> URL? {
-        guard let season = candidate.seasonNumber, let episode = candidate.episodeNumber else { return nil }
-        return verifiedHuluEpisodes["\(normalized(candidate.mediaTitle))|\(season)|\(episode)"]
+        return supplied.filter { provider in
+            let kind = StreamingProviderKind(provider: provider)
+            guard StreamingDestinationResolver.canResolve(provider: provider, candidate: candidate) else {
+                return false
+            }
+            return seen.insert(kind.rawValue).inserted
+        }
     }
 
     static func isHulu(_ provider: WatchProvider) -> Bool {
@@ -48,47 +63,6 @@ enum StreamingProviderCatalog {
             || provider.episodeURL.host?.lowercased().hasSuffix("hulu.com") == true
     }
 
-    static func huluSearchURL(for candidate: SceneCandidate) -> URL {
-        var components = URLComponents(string: "https://www.hulu.com/search")!
-        components.queryItems = [URLQueryItem(name: "q", value: searchTitle(for: candidate))]
-        return components.url!
-    }
-
-    private static func huluProvider(for candidate: SceneCandidate) -> WatchProvider {
-        let destination = verifiedHuluEpisodeURL(for: candidate)
-            ?? huluSeriesURL(for: candidate.mediaTitle)
-            ?? huluSearchURL(for: candidate)
-        return WatchProvider(
-            id: "hulu",
-            name: "Hulu",
-            offer: "Subscription",
-            episodeURL: destination,
-            sceneURL: nil,
-            symbolName: "play.tv.fill",
-            brandColorHex: "1CE783"
-        )
-    }
-
-    private static func searchTitle(for candidate: SceneCandidate) -> String {
-        [
-            candidate.mediaTitle,
-            candidate.seasonNumber.map { "Season \($0)" },
-            candidate.episodeNumber.map { "Episode \($0)" },
-            candidate.episodeTitle
-        ]
-        .compactMap { $0 }
-        .joined(separator: " ")
-    }
-
-    private static func normalized(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    }
-
-    private static func providerID(for provider: WatchProvider) -> String {
-        if isHulu(provider) { return "hulu" }
-        if provider.name.localizedCaseInsensitiveContains("apple") { return "apple-tv" }
-        return normalized(provider.id)
-    }
 }
 
 struct StreamingDestinationResolver {
@@ -98,19 +72,27 @@ struct StreamingDestinationResolver {
         self.session = session
     }
 
-    func destination(for provider: WatchProvider, candidate: SceneCandidate) async -> URL {
-        guard StreamingProviderCatalog.isHulu(provider) else { return provider.episodeURL }
-        if let verified = StreamingProviderCatalog.verifiedHuluEpisodeURL(for: candidate) {
-            return verified
-        }
-        guard let seriesURL = StreamingProviderCatalog.huluSeriesURL(for: candidate.mediaTitle),
-              let season = candidate.seasonNumber,
-              let episode = candidate.episodeNumber else {
-            return StreamingProviderCatalog.huluSeriesURL(for: candidate.mediaTitle)
-                ?? StreamingProviderCatalog.huluSearchURL(for: candidate)
-        }
+    static func canResolve(provider: WatchProvider, candidate: SceneCandidate) -> Bool {
+        if directDestination(for: provider, candidate: candidate) != nil { return true }
+        return StreamingProviderKind(provider: provider) == .hulu
+            && isHuluSeriesURL(provider.episodeURL)
+            && candidate.seasonNumber != nil
+            && candidate.episodeNumber != nil
+    }
 
-        var request = URLRequest(url: seriesURL)
+    func destination(
+        for provider: WatchProvider,
+        candidate: SceneCandidate
+    ) async -> ResolvedStreamingDestination? {
+        if let direct = Self.directDestination(for: provider, candidate: candidate) {
+            return direct
+        }
+        guard StreamingProviderKind(provider: provider) == .hulu,
+              Self.isHuluSeriesURL(provider.episodeURL),
+              let season = candidate.seasonNumber,
+              let episode = candidate.episodeNumber else { return nil }
+
+        var request = URLRequest(url: provider.episodeURL)
         request.timeoutInterval = 12
         request.setValue("Mozilla/5.0 SceneFind/1.0", forHTTPHeaderField: "User-Agent")
 
@@ -121,11 +103,78 @@ struct StreamingDestinationResolver {
                 season: season,
                 episode: episode,
                 title: candidate.episodeTitle
-              ) else {
-            return seriesURL
-        }
+              ) else { return nil }
 
-        return URL(string: "hulu://watch/\(episodeID)") ?? seriesURL
+        guard let nativeURL = URL(string: "hulu://watch/\(episodeID)") else { return nil }
+        return ResolvedStreamingDestination(primaryURL: nativeURL, webFallbackURL: nil)
+    }
+
+    private static func directDestination(
+        for provider: WatchProvider,
+        candidate: SceneCandidate
+    ) -> ResolvedStreamingDestination? {
+        let url = provider.episodeURL
+        let path = url.path.lowercased()
+        let kind = StreamingProviderKind(provider: provider)
+
+        switch kind {
+        case .hulu:
+            guard let episodeID = huluEpisodeID(in: url),
+                  let nativeURL = URL(string: "hulu://watch/\(episodeID)") else { return nil }
+            let fallback = url.scheme?.lowercased().hasPrefix("http") == true ? url : nil
+            return ResolvedStreamingDestination(primaryURL: nativeURL, webFallbackURL: fallback)
+        case .netflix:
+            guard url.scheme?.lowercased() == "nflx" || pathComponent(after: "watch", in: url) != nil else {
+                return nil
+            }
+        case .appleTV:
+            guard candidate.mediaType == .movie ? path.contains("/movie/") : path.contains("/episode/") else {
+                return nil
+            }
+        case .disneyPlus:
+            let isExact = path.contains("/video/")
+                || (candidate.mediaType == .movie && path.contains("/browse/entity-"))
+            guard isExact else { return nil }
+        case .primeVideo:
+            guard path.contains("/video/detail/") || path.contains("/gp/video/detail/") else { return nil }
+        case .max:
+            guard path.contains("/video/watch/") || path.contains("/episode/") else { return nil }
+        case .peacock:
+            guard path.contains("/episodes/") || path.contains("/watch/playback/") || path.contains("/deeplink") else {
+                return nil
+            }
+        case .paramountPlus:
+            guard url.host?.lowercased() == "link.us.paramountplus.com" || path.contains("/video/") else {
+                return nil
+            }
+        case .youtube:
+            guard path.contains("/watch") || url.host?.lowercased() == "youtu.be" else { return nil }
+        case .other:
+            guard path.contains("/episode/") || path.contains("/episodes/") || path.contains("/watch/") else {
+                return nil
+            }
+        }
+        return ResolvedStreamingDestination(primaryURL: url, webFallbackURL: nil)
+    }
+
+    private static func huluEpisodeID(in url: URL) -> String? {
+        if url.scheme?.lowercased() == "hulu", url.host?.lowercased() == "watch" {
+            return url.pathComponents.dropFirst().first
+        }
+        guard url.host?.lowercased().hasSuffix("hulu.com") == true else { return nil }
+        return pathComponent(after: "watch", in: url)
+    }
+
+    private static func isHuluSeriesURL(_ url: URL) -> Bool {
+        url.host?.lowercased().hasSuffix("hulu.com") == true && url.path.lowercased().contains("/series/")
+    }
+
+    private static func pathComponent(after marker: String, in url: URL) -> String? {
+        let components = url.pathComponents.filter { $0 != "/" }
+        guard let index = components.firstIndex(where: { $0.caseInsensitiveCompare(marker) == .orderedSame }),
+              components.indices.contains(index + 1),
+              !components[index + 1].isEmpty else { return nil }
+        return components[index + 1]
     }
 }
 
