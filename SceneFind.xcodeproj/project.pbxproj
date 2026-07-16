@@ -11,12 +11,14 @@
 		061A3CD59837DF840A5364BA /* SceneFindComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06B3212247E94C2D4BDE7E8E /* SceneFindComponents.swift */; };
 		0B5ACA4A9389966AA4E60C91 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4337FE7E2F22A3A36E83E08D /* ShareViewController.swift */; };
 		1395D545F3A0530A0E399F3E /* MediaModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2466D94DFC0F28D100F60BBC /* MediaModels.swift */; };
+		13D6DA546D856E345D538DDD /* SharedURLExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E0B8452F27D86ADA35BDF91 /* SharedURLExtractor.swift */; };
 		14D32C92FC77850C790F79C1 /* SocialClipMetadataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2DAA16057D3E43ABE1A3F24 /* SocialClipMetadataService.swift */; };
 		16575E8A7472A1EF19A52453 /* SceneFindError.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD220C739747F97245BE53AE /* SceneFindError.swift */; };
 		17BFD1032DF52444C1FD95A4 /* VideoServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5634D7442CADCE9B8C57C5 /* VideoServices.swift */; };
 		1947C64F6557D5D9B1433CD4 /* ClipAnalysisPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8523706C031EABABDAE5174 /* ClipAnalysisPipeline.swift */; };
 		1ABB5AC80A1119FAFFB08146 /* ResultRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AAFE66E592C751DCC1776EB /* ResultRepository.swift */; };
 		1BF63433581339648FD7925D /* SceneFindError.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD220C739747F97245BE53AE /* SceneFindError.swift */; };
+		1EF685E5368FF29ABF6C4B4E /* SharedURLExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E0B8452F27D86ADA35BDF91 /* SharedURLExtractor.swift */; };
 		2034524BDDA188667DAF3BF6 /* SavedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C825D503777980BFD3726B7A /* SavedView.swift */; };
 		21B2B2B9DAC18BFF13C383AC /* MockMediaLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9EE400BB6CFC592AC483B3E /* MockMediaLibrary.swift */; };
 		2506B155E5C391CAD006CAA6 /* SceneFindApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 400690C4C7DCF1480E2A1BBD /* SceneFindApp.swift */; };
@@ -76,7 +78,9 @@
 		C8060A7279E30FEBB65C6EBA /* SubtitleMatchingEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D258EC66D4600E076F0FAE0E /* SubtitleMatchingEngineTests.swift */; };
 		C8655717C3503872EE8D8EAC /* SubtitleMatchingEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44B30EFCC82014B5312275A0 /* SubtitleMatchingEngine.swift */; };
 		D17381B27A7E971BF4ACD37E /* OpenAIClipIdentificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EF20A7E8249128CF104275F /* OpenAIClipIdentificationService.swift */; };
+		D5DBE60B7E309A0FDEDCCE54 /* SharedURLExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E0B8452F27D86ADA35BDF91 /* SharedURLExtractor.swift */; };
 		DBDD515A8B9B2F34C85E0FB0 /* OpenAIClipIdentificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EF20A7E8249128CF104275F /* OpenAIClipIdentificationService.swift */; };
+		E49575712EF1369B0909E72D /* SharedURLExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39D565CBBD1EFBF60F18609E /* SharedURLExtractorTests.swift */; };
 		E8560571AEFF87AFC9022628 /* GeminiClipIdentificationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B32EAE565D0A552F0D8073F /* GeminiClipIdentificationServiceTests.swift */; };
 		F5364CB8085367EBFEFCDED7 /* VideoServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5634D7442CADCE9B8C57C5 /* VideoServices.swift */; };
 		F5611D2F0C30E8C416DFB1C1 /* SharedClipRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1970012BB9898A867E45BC3D /* SharedClipRequest.swift */; };
@@ -129,6 +133,7 @@
 		2466D94DFC0F28D100F60BBC /* MediaModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaModels.swift; sourceTree = "<group>"; };
 		2AA7A699673FAC1E7EB45DA5 /* ShareExtensionViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareExtensionViewModel.swift; sourceTree = "<group>"; };
 		399636CCF2B2FF744E0C4BAF /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		39D565CBBD1EFBF60F18609E /* SharedURLExtractorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedURLExtractorTests.swift; sourceTree = "<group>"; };
 		3AAFE66E592C751DCC1776EB /* ResultRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultRepository.swift; sourceTree = "<group>"; };
 		3C320F5F210D8ED31110C211 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		400690C4C7DCF1480E2A1BBD /* SceneFindApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneFindApp.swift; sourceTree = "<group>"; };
@@ -140,6 +145,7 @@
 		534A23DBAD85140AC5BCFBE6 /* OpenAIConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIConfiguration.swift; sourceTree = "<group>"; };
 		574A7CBCE92330CF38158294 /* GeminiConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiConfiguration.swift; sourceTree = "<group>"; };
 		5C0CA5829AB7CAB0D0156D55 /* SceneFindTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SceneFindTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		6E0B8452F27D86ADA35BDF91 /* SharedURLExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedURLExtractor.swift; sourceTree = "<group>"; };
 		7EF20A7E8249128CF104275F /* OpenAIClipIdentificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIClipIdentificationService.swift; sourceTree = "<group>"; };
 		80EEE09A3D927CBD730B0CB5 /* TranscriptionServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionServices.swift; sourceTree = "<group>"; };
 		8A94389880C5D2B1865E7668 /* AnalyzeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyzeView.swift; sourceTree = "<group>"; };
@@ -205,6 +211,7 @@
 			children = (
 				CA69A90CB6659809AC49E56A /* KnownClipCatalog.swift */,
 				F9EE400BB6CFC592AC483B3E /* MockMediaLibrary.swift */,
+				6E0B8452F27D86ADA35BDF91 /* SharedURLExtractor.swift */,
 				44B30EFCC82014B5312275A0 /* SubtitleMatchingEngine.swift */,
 			);
 			path = Matching;
@@ -325,6 +332,7 @@
 				3C320F5F210D8ED31110C211 /* Info.plist */,
 				9B2279B44DB1BCB8C773F946 /* KnownClipCatalogTests.swift */,
 				18D97163E932A071902BF476 /* OpenAIClipIdentificationServiceTests.swift */,
+				39D565CBBD1EFBF60F18609E /* SharedURLExtractorTests.swift */,
 				D258EC66D4600E076F0FAE0E /* SubtitleMatchingEngineTests.swift */,
 			);
 			path = SceneFindTests;
@@ -393,6 +401,7 @@
 			buildPhases = (
 				E0948EBC23499FD191559D3B /* Sources */,
 				BEE3A20D47F444EB728FE70A /* Embed Foundation Extensions */,
+				3AC23887FD809C88B6316664 /* Embed Local Prototype Secrets */,
 			);
 			buildRules = (
 			);
@@ -422,10 +431,20 @@
 					26173BCDEE3B2FED31EFAD77 = {
 						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
+						SystemCapabilities = {
+							com.apple.ApplicationGroups.iOS = {
+								enabled = 1;
+							};
+						};
 					};
 					EF200D55D1735256BC050C32 = {
 						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
+						SystemCapabilities = {
+							com.apple.ApplicationGroups.iOS = {
+								enabled = 1;
+							};
+						};
 					};
 				};
 			};
@@ -449,6 +468,28 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		3AC23887FD809C88B6316664 /* Embed Local Prototype Secrets */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed Local Prototype Secrets";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "SECRETS_FILE=\"${SRCROOT}/SceneFindApp/Resources/PrototypeSecrets.plist\"\nif [ -f \"${SECRETS_FILE}\" ]; then\n  mkdir -p \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n  cp \"${SECRETS_FILE}\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/PrototypeSecrets.plist\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		20404D3BCCA3FCA835D2F1B1 /* Sources */ = {
@@ -474,6 +515,8 @@
 				1BF63433581339648FD7925D /* SceneFindError.swift in Sources */,
 				A503E42D6FAFC79833781BF4 /* SharedClipRequest.swift in Sources */,
 				2D0B649521AE19B509A537AE /* SharedContainerStore.swift in Sources */,
+				1EF685E5368FF29ABF6C4B4E /* SharedURLExtractor.swift in Sources */,
+				E49575712EF1369B0909E72D /* SharedURLExtractorTests.swift in Sources */,
 				9AE5D5EECC7B852DD32FC22E /* SocialClipMetadataService.swift in Sources */,
 				2AAF29101D8E23BE13CC7781 /* SubtitleMatchingEngine.swift in Sources */,
 				C8060A7279E30FEBB65C6EBA /* SubtitleMatchingEngineTests.swift in Sources */,
@@ -504,6 +547,7 @@
 				0B5ACA4A9389966AA4E60C91 /* ShareViewController.swift in Sources */,
 				F5611D2F0C30E8C416DFB1C1 /* SharedClipRequest.swift in Sources */,
 				923D22041D1B5888BE1CEE73 /* SharedContainerStore.swift in Sources */,
+				13D6DA546D856E345D538DDD /* SharedURLExtractor.swift in Sources */,
 				BB7FB2BE340E14946F8998C4 /* SocialClipMetadataService.swift in Sources */,
 				C8655717C3503872EE8D8EAC /* SubtitleMatchingEngine.swift in Sources */,
 				548092CD6D8F012F34EBE2A1 /* TranscriptionServices.swift in Sources */,
@@ -539,6 +583,7 @@
 				8E47A547CB5517160664A1B8 /* SettingsView.swift in Sources */,
 				3685C70E745E1A071D638345 /* SharedClipRequest.swift in Sources */,
 				3DBF7A9B9123303898D80ACC /* SharedContainerStore.swift in Sources */,
+				D5DBE60B7E309A0FDEDCCE54 /* SharedURLExtractor.swift in Sources */,
 				14D32C92FC77850C790F79C1 /* SocialClipMetadataService.swift in Sources */,
 				0302CB97ECD7D9C2112FE0DE /* SubtitleMatchingEngine.swift in Sources */,
 				66A40E00A85415126627C90A /* TranscriptionServices.swift in Sources */,

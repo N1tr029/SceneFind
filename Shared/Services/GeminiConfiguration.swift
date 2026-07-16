@@ -11,6 +11,7 @@ enum GeminiConfiguration {
     enum StorageLocation: Equatable {
         case keychain
         case debugLocalStorage
+        case bundledDefault
         case none
     }
 
@@ -34,10 +35,11 @@ enum GeminiConfiguration {
             }
 
             #if DEBUG
-            return UserDefaults.standard.string(forKey: debugAPIKey)
-            #else
-            return nil
+            if let value = UserDefaults.standard.string(forKey: debugAPIKey), !value.isEmpty {
+                return value
+            }
             #endif
+            return bundledAPIKey
         }
         set {
             _ = saveAPIKey(newValue)
@@ -84,6 +86,9 @@ enum GeminiConfiguration {
             return .debugLocalStorage
         }
         #endif
+        if bundledAPIKey != nil {
+            return .bundledDefault
+        }
         return .none
     }
 
@@ -113,6 +118,17 @@ enum GeminiConfiguration {
     }
 
     static var isConfigured: Bool { apiKey != nil }
+
+    private static var bundledAPIKey: String? {
+        guard let url = Bundle.main.url(forResource: "PrototypeSecrets", withExtension: "plist"),
+              let data = try? Data(contentsOf: url),
+              let values = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let value = values["GeminiAPIKey"] as? String else {
+            return nil
+        }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 
     private static var baseQuery: [String: Any] {
         [

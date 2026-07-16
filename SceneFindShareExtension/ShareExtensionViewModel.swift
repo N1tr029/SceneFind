@@ -23,7 +23,7 @@ final class ShareExtensionViewModel: ObservableObject {
         }
 
         do {
-            let attachmentText = try await sharedText(from: attachments)
+            let attachmentText = await sharedText(from: attachments)
             let itemText = items.compactMap { $0.attributedContentText?.string }.joined(separator: " ")
             let contextText = [attachmentText, itemText.isEmpty ? nil : itemText]
                 .compactMap { $0 }
@@ -31,15 +31,15 @@ final class ShareExtensionViewModel: ObservableObject {
 
             if let request = try await loadFirst(attachments: attachments, type: .movie, contextText: contextText) {
                 set(request)
-            } else if let request = try await loadFirst(attachments: attachments, type: .url, contextText: contextText) {
+            } else if let request = await loadURL(attachments: attachments, contextText: contextText) {
                 set(request)
-            } else if let url = firstURL(in: contextText) {
+            } else if let url = SharedURLExtractor.firstURL(in: contextText) {
                 set(SharedClipRequest(
                     sourceType: .url,
                     sourcePlatform: SharedPlatform.detect(url: url),
                     originalURL: url,
                     sharedText: contextText,
-                    pageTitle: "Shared from (SharedPlatform.detect(url: url).label)"
+                    pageTitle: "Shared from \(SharedPlatform.detect(url: url).label)"
                 ))
             } else if let request = try await loadFirst(attachments: attachments, type: .image, contextText: contextText) {
                 set(request)
@@ -71,7 +71,7 @@ final class ShareExtensionViewModel: ObservableObject {
 
     private func set(_ request: SharedClipRequest) {
         self.request = request
-        summary = "\(request.sourcePlatform.label) \(request.sourceType.label)"
+        summary = request.originalURL?.absoluteString ?? "\(request.sourcePlatform.label) \(request.sourceType.label)"
     }
 
     func appOpenFailed() {
@@ -80,22 +80,12 @@ final class ShareExtensionViewModel: ObservableObject {
 
     private func loadFirst(attachments: [NSItemProvider], type: UTType, contextText: String) async throws -> SharedClipRequest? {
         guard let provider = attachments.first(where: { $0.hasItemConformingToTypeIdentifier(type.identifier) }) else { return nil }
-        if type == .url {
-            let value = try await provider.loadItem(forTypeIdentifier: type.identifier)
-            let url = value as? URL ?? (value as? String).flatMap(URL.init(string:))
-            guard let url else { throw SceneFindError.invalidURL }
-            return SharedClipRequest(
-                sourceType: .url,
-                sourcePlatform: SharedPlatform.detect(url: url),
-                originalURL: url,
-                sharedText: contextText.isEmpty ? nil : contextText,
-                pageTitle: provider.suggestedName
-            )
-        }
-
         if type == .plainText {
             let value = try await provider.loadItem(forTypeIdentifier: type.identifier)
             let text = value as? String
+            if let text, let url = SharedURLExtractor.firstURL(in: text) {
+                return urlRequest(url: url, contextText: contextText, suggestedName: provider.suggestedName)
+            }
             return SharedClipRequest(sourceType: .plainText, sourcePlatform: .unknown, sharedText: text, pageTitle: provider.suggestedName)
         }
 
@@ -122,23 +112,38 @@ final class ShareExtensionViewModel: ObservableObject {
         return nil
     }
 
-    private func sharedText(from attachments: [NSItemProvider]) async throws -> String? {
-        guard let provider = attachments.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) }) else {
-            return nil
+    private func loadURL(attachments: [NSItemProvider], contextText: String) async -> SharedClipRequest? {
+        for provider in attachments where provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
+            guard let value = try? await provider.loadItem(forTypeIdentifier: UTType.url.identifier) else { continue }
+            let url = value as? URL
+                ?? (value as? NSURL).map { $0 as URL }
+                ?? (value as? String).flatMap(SharedURLExtractor.firstURL(in:))
+            if let url, SharedURLExtractor.isWebURL(url) {
+                return urlRequest(url: url, contextText: contextText, suggestedName: provider.suggestedName)
+            }
         }
-        let value = try await provider.loadItem(forTypeIdentifier: UTType.plainText.identifier)
-        return value as? String
+        return nil
     }
 
-    private func firstURL(in text: String) -> URL? {
-        text
-            .split(whereSeparator: { $0.isWhitespace })
-            .compactMap { token -> URL? in
-                let cleaned = token.trimmingCharacters(in: CharacterSet(charactersIn: "<>[](){}.,!\"'"))
-                guard cleaned.hasPrefix("https://") || cleaned.hasPrefix("http://") else { return nil }
-                return URL(string: cleaned)
+    private func urlRequest(url: URL, contextText: String, suggestedName: String?) -> SharedClipRequest {
+        SharedClipRequest(
+            sourceType: .url,
+            sourcePlatform: SharedPlatform.detect(url: url),
+            originalURL: url,
+            sharedText: contextText.isEmpty ? nil : contextText,
+            pageTitle: suggestedName ?? "Shared from \(SharedPlatform.detect(url: url).label)"
+        )
+    }
+
+    private func sharedText(from attachments: [NSItemProvider]) async -> String? {
+        for provider in attachments where provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+            if let value = try? await provider.loadItem(forTypeIdentifier: UTType.plainText.identifier),
+               let text = value as? String,
+               !text.isEmpty {
+                return text
             }
-            .first
+        }
+        return nil
     }
 }
 

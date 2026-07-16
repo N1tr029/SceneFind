@@ -10,6 +10,7 @@ struct SettingsView: View {
         case notConfigured
         case keychain
         case debugLocalStorage
+        case bundledDefault
         case failed(OSStatus)
 
         var label: String {
@@ -17,6 +18,7 @@ struct SettingsView: View {
             case .notConfigured: "Not configured"
             case .keychain: "Stored in Keychain"
             case .debugLocalStorage: "Stored locally for Debug"
+            case .bundledDefault: "Using bundled prototype key"
             case .failed(let status): "Save failed (\(status))"
             }
         }
@@ -26,6 +28,7 @@ struct SettingsView: View {
             case .notConfigured: "key.slash"
             case .keychain: "checkmark.shield.fill"
             case .debugLocalStorage: "internaldrive.fill"
+            case .bundledDefault: "key.fill"
             case .failed: "exclamationmark.triangle.fill"
             }
         }
@@ -33,7 +36,7 @@ struct SettingsView: View {
         var color: Color {
             switch self {
             case .notConfigured: .secondary
-            case .keychain, .debugLocalStorage: .green
+            case .keychain, .debugLocalStorage, .bundledDefault: .green
             case .failed: .red
             }
         }
@@ -64,15 +67,15 @@ struct SettingsView: View {
                         .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
 
-                    if GeminiConfiguration.isConfigured {
+                    if keyStatus == .keychain || keyStatus == .debugLocalStorage {
                         Button("Remove API key", role: .destructive) {
                             GeminiConfiguration.apiKey = nil
                             apiKey = ""
-                            keyStatus = .notConfigured
+                            keyStatus = GeminiConfiguration.storageLocation == .bundledDefault ? .bundledDefault : .notConfigured
                         }
                     }
 
-                    Text("New YouTube links use Gemini audio and video understanding. Other social links use their public caption and metadata. Signed builds use Keychain; unsigned Debug builds use local prototype storage.")
+                    Text("The bundled prototype key is used by default. A replacement saved here takes priority and is stored in Keychain. New YouTube links use Gemini audio and video understanding.")
                         .font(.footnote)
                 }
 
@@ -102,12 +105,20 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .onAppear {
-                apiKey = GeminiConfiguration.apiKey ?? ""
                 modelName = GeminiConfiguration.model
                 switch GeminiConfiguration.storageLocation {
-                case .keychain: keyStatus = .keychain
-                case .debugLocalStorage: keyStatus = .debugLocalStorage
-                case .none: keyStatus = .notConfigured
+                case .keychain:
+                    apiKey = GeminiConfiguration.apiKey ?? ""
+                    keyStatus = .keychain
+                case .debugLocalStorage:
+                    apiKey = GeminiConfiguration.apiKey ?? ""
+                    keyStatus = .debugLocalStorage
+                case .bundledDefault:
+                    apiKey = ""
+                    keyStatus = .bundledDefault
+                case .none:
+                    apiKey = ""
+                    keyStatus = .notConfigured
                 }
             }
         }

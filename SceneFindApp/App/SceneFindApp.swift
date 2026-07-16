@@ -44,7 +44,7 @@ struct RootView: View {
             .tabItem { Label("Settings", systemImage: "gearshape") }
             .tag(AppTab.settings)
         }
-        .task { routePendingShare() }
+        .onAppear { routePendingShare() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 routePendingShare()

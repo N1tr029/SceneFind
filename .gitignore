@@ -1,12 +1,14 @@
 .DS_Store
 .build/
 DerivedData/
+/build/
 *.xcuserstate
 xcuserdata/
 *.xcresult
 .env
 .env.*
 Secrets.xcconfig
+/SceneFindApp/Resources/PrototypeSecrets.plist
 
 # Accidental duplicate of the generated Xcode project.
 /SceneFind 2.xcodeproj/
