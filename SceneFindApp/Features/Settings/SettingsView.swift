@@ -75,13 +75,13 @@ struct SettingsView: View {
                         }
                     }
 
-                    Text("The bundled prototype key is used by default. A replacement saved here takes priority and is stored in Keychain. New YouTube links use Gemini audio and video understanding.")
+                    Text("The bundled prototype key is used by default. A replacement saved here takes priority and is stored in Keychain. New YouTube and TikTok links use Gemini audio and video understanding.")
                         .font(.footnote)
                 }
 
                 Section("Privacy") {
                     Toggle("Show analysis details", isOn: $model.showAnalysisDetails)
-                    Text("Known links are matched locally. New links send their URL, shared caption, and public oEmbed metadata to Gemini. Public YouTube links are also provided as video input. SceneFind does not access your social account.")
+                    Text("Known links are matched locally. New links send their URL, shared caption, and public page metadata to Gemini. Public YouTube and TikTok clips are also provided as video input. SceneFind does not access your social account.")
                         .font(.footnote)
                 }
 

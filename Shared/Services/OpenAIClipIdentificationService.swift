@@ -192,7 +192,7 @@ final class OpenAIClipIdentificationService {
             metadataScore: payload.confidence,
             streamingService: providers.first?.name,
             streamingURL: providers.first?.episodeURL,
-            heroImageURL: payload.heroImageURL.flatMap(URL.init(string:)) ?? metadata?.thumbnailURL,
+            heroImageURL: metadata?.thumbnailURL ?? payload.heroImageURL.flatMap(URL.init(string:)),
             watchProviders: providers
         )
     }

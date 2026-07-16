@@ -33,22 +33,14 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
             let contents = try XCTUnwrap(json["contents"] as? [[String: Any]])
             let parts = try XCTUnwrap(contents.first?["parts"] as? [[String: Any]])
 
-            if requestCount == 1 {
-                XCTAssertNil(json["tools"])
-                let fileData = try XCTUnwrap(parts.first?["file_data"] as? [String: Any])
-                XCTAssertEqual(
-                    fileData["file_uri"] as? String,
-                    "https://www.youtube.com/watch?v=abc123"
-                )
-                return try Self.geminiResponse(
-                    text: "Dialogue: Nobody calls him that anymore. Two people are speaking in a kitchen."
-                )
-            }
-
             XCTAssertNil(json["tools"])
-            XCTAssertNil(parts.first?["file_data"])
-            let prompt = try XCTUnwrap(parts.first?["text"] as? String)
-            XCTAssertTrue(prompt.contains("Nobody calls him that anymore"))
+            let fileData = try XCTUnwrap(parts.first?["file_data"] as? [String: Any])
+            XCTAssertEqual(
+                fileData["file_uri"] as? String,
+                "https://www.youtube.com/watch?v=abc123"
+            )
+            let prompt = try XCTUnwrap(parts.last?["text"] as? String)
+            XCTAssertTrue(prompt.contains("Social reposts may splice scenes out of order"))
             let generationConfig = try XCTUnwrap(json["generationConfig"] as? [String: Any])
             let responseFormat = try XCTUnwrap(generationConfig["responseFormat"] as? [String: Any])
             let textFormat = try XCTUnwrap(responseFormat["text"] as? [String: Any])
@@ -108,7 +100,7 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         XCTAssertEqual(result.topCandidate.clipEndTimestampSeconds, 748)
         XCTAssertEqual(result.topCandidate.watchProviders?.first?.name, "Hulu")
         XCTAssertEqual(result.topCandidate.heroImageURL, metadata.thumbnailURL)
-        XCTAssertEqual(requestCount, 2)
+        XCTAssertEqual(requestCount, 1)
     }
 
     func testCommonJSONTypeVariationsAreRecovered() async throws {
@@ -141,7 +133,8 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         let service = GeminiClipIdentificationService(
             session: session,
             apiKeyProvider: { "gemini-test-key" },
-            modelProvider: { "gemini-test" }
+            modelProvider: { "gemini-test" },
+            artworkService: NoArtworkService()
         )
         let request = SharedClipRequest(
             sourceType: .url,
@@ -157,6 +150,152 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         XCTAssertEqual(result.topCandidate.confidence, 0.92, accuracy: 0.001)
         XCTAssertEqual(result.detectedDialogue, "")
         XCTAssertEqual(result.topCandidate.watchProviders, [])
+    }
+
+    func testTikTokPageParserFindsPublicVideoThumbnailAndSearchHints() throws {
+        let payload: [String: Any] = [
+            "__DEFAULT_SCOPE__": [
+                "webapp.video-detail": [
+                    "itemInfo": [
+                        "itemStruct": [
+                            "video": [
+                                "playAddr": "https://cdn.example/clip.mp4",
+                                "originCover": "https://cdn.example/cover.jpg"
+                            ],
+                            "suggestedWords": ["bull tv series", "bull immigration episode"]
+                        ]
+                    ]
+                ]
+            ]
+        ]
+        let json = try JSONSerialization.data(withJSONObject: payload)
+        let jsonText = try XCTUnwrap(String(data: json, encoding: .utf8))
+        let html = Data("<script id=\"__UNIVERSAL_DATA_FOR_REHYDRATION__\" type=\"application/json\">\(jsonText)</script>".utf8)
+
+        let metadata = try XCTUnwrap(TikTokPageParser.metadata(from: html))
+
+        XCTAssertEqual(metadata.videoURL?.absoluteString, "https://cdn.example/clip.mp4")
+        XCTAssertEqual(metadata.thumbnailURL?.absoluteString, "https://cdn.example/cover.jpg")
+        XCTAssertEqual(metadata.searchHints, ["bull tv series", "bull immigration episode"])
+    }
+
+    func testTikTokVideoIsUploadedAndIdentifiedInOneGenerateCall() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GeminiStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        var generateCallCount = 0
+
+        GeminiStubURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            if url.host == "cdn.example" {
+                let response = try XCTUnwrap(HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "video/mp4"]
+                ))
+                return (response, Data(repeating: 7, count: 1_024))
+            }
+            if url.path == "/upload/v1beta/files" {
+                let response = try XCTUnwrap(HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["X-Goog-Upload-URL": "https://upload.example/finalize"]
+                ))
+                return (response, Data())
+            }
+            if url.host == "upload.example" {
+                let file = [
+                    "file": [
+                        "name": "files/tiktok-test",
+                        "uri": "https://generativelanguage.googleapis.com/v1beta/files/tiktok-test",
+                        "mimeType": "video/mp4",
+                        "state": "ACTIVE"
+                    ]
+                ]
+                let data = try JSONSerialization.data(withJSONObject: file)
+                let response = try XCTUnwrap(HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                ))
+                return (response, data)
+            }
+            if request.httpMethod == "DELETE" {
+                let response = try XCTUnwrap(HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                ))
+                return (response, Data())
+            }
+
+            generateCallCount += 1
+            let body = try XCTUnwrap(Self.bodyData(from: request))
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            let contents = try XCTUnwrap(json["contents"] as? [[String: Any]])
+            let parts = try XCTUnwrap(contents.first?["parts"] as? [[String: Any]])
+            let fileData = try XCTUnwrap(parts.first?["file_data"] as? [String: Any])
+            XCTAssertEqual(
+                fileData["file_uri"] as? String,
+                "https://generativelanguage.googleapis.com/v1beta/files/tiktok-test"
+            )
+            XCTAssertEqual(fileData["mime_type"] as? String, "video/mp4")
+            XCTAssertTrue((parts.last?["text"] as? String)?.contains("bull tv series") == true)
+
+            let resultJSON: [String: Any] = [
+                "match_found": true,
+                "detected_dialogue": "You had dinner at Della Nicci last week?",
+                "candidates": [[
+                    "media_title": "Bull",
+                    "media_type": "tv",
+                    "release_year": 2016,
+                    "season_number": 3,
+                    "episode_number": 9,
+                    "episode_title": "Separation",
+                    "clip_start_seconds": 1_417,
+                    "clip_end_seconds": 434,
+                    "matching_subtitle": "You had dinner at Della Nicci last week?",
+                    "confidence": 0.97,
+                    "hero_image_url": "https://wrong.example/guessed.jpg",
+                    "watch_providers": []
+                ]]
+            ]
+            let resultData = try JSONSerialization.data(withJSONObject: resultJSON)
+            return try Self.geminiResponse(text: String(data: resultData, encoding: .utf8)!)
+        }
+
+        let service = GeminiClipIdentificationService(
+            session: session,
+            apiKeyProvider: { "gemini-test-key" },
+            modelProvider: { "gemini-test" },
+            artworkService: NoArtworkService()
+        )
+        let clipThumbnail = try XCTUnwrap(URL(string: "https://cdn.example/tiktok-thumbnail.jpg"))
+        let metadata = SocialClipMetadata(
+            title: "#fyp",
+            authorName: "Clip account",
+            thumbnailURL: clipThumbnail,
+            videoURL: URL(string: "https://cdn.example/clip.mp4"),
+            searchHints: ["bull tv series", "bull immigration episode"]
+        )
+        let request = SharedClipRequest(
+            sourceType: .url,
+            sourcePlatform: .tiktok,
+            originalURL: URL(string: "https://www.tiktok.com/t/example")
+        )
+
+        let result = try await service.identify(request: request, metadata: metadata)
+
+        XCTAssertEqual(result.topCandidate.mediaTitle, "Bull")
+        XCTAssertEqual(result.topCandidate.episodeLine, "S3 E9")
+        XCTAssertEqual(result.topCandidate.sceneTimestampSeconds, 1_417)
+        XCTAssertEqual(result.topCandidate.clipEndTimestampSeconds, 434)
+        XCTAssertEqual(result.topCandidate.heroImageURL, clipThumbnail)
+        XCTAssertEqual(generateCallCount, 1)
     }
 
     func testMissingGeminiKeyFailsBeforeNetworkRequest() async {
@@ -290,6 +429,17 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
             headerFields: ["Content-Type": "application/json"]
         ))
         return (response, data)
+    }
+}
+
+private struct NoArtworkService: TitleArtworkService {
+    func artworkURL(
+        for mediaTitle: String,
+        mediaType: MediaType,
+        seasonNumber: Int?,
+        episodeNumber: Int?
+    ) async -> URL? {
+        nil
     }
 }
 

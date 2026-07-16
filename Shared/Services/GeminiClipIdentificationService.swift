@@ -9,21 +9,30 @@ final class GeminiClipIdentificationService {
         let response: URLResponse
     }
 
+    private struct VideoReference {
+        let uri: URL
+        let mimeType: String?
+        let uploadedFileName: String?
+    }
+
     private let session: URLSession
     private let apiKeyProvider: APIKeyProvider
     private let modelProvider: ModelProvider
     private let requestTimeoutSeconds: TimeInterval
+    private let artworkService: TitleArtworkService
 
     init(
         session: URLSession = .shared,
         apiKeyProvider: @escaping APIKeyProvider = { GeminiConfiguration.apiKey },
         modelProvider: @escaping ModelProvider = { GeminiConfiguration.model },
-        requestTimeoutSeconds: TimeInterval = 120
+        requestTimeoutSeconds: TimeInterval = 120,
+        artworkService: TitleArtworkService? = nil
     ) {
         self.session = session
         self.apiKeyProvider = apiKeyProvider
         self.modelProvider = modelProvider
         self.requestTimeoutSeconds = max(requestTimeoutSeconds, 1)
+        self.artworkService = artworkService ?? PublicTitleArtworkService(session: session)
     }
 
     func identify(
@@ -42,24 +51,52 @@ final class GeminiClipIdentificationService {
         }
 
         let startedAt = Date()
-        let videoEvidence = await inspectYouTubeVideoIfAvailable(
-            sharedRequest,
-            endpoint: endpoint,
+        let videoReference = try await videoReferenceIfAvailable(
+            for: sharedRequest,
+            metadata: metadata,
             apiKey: apiKey
         )
         let request = try makeRequest(
             endpoint: endpoint,
             apiKey: apiKey,
-            body: researchRequestBody(for: sharedRequest, metadata: metadata, videoEvidence: videoEvidence)
+            body: researchRequestBody(
+                for: sharedRequest,
+                metadata: metadata,
+                videoReference: videoReference
+            )
         )
-        let data = try await responseData(for: request, timeoutSeconds: requestTimeoutSeconds)
+        let data: Data
+        do {
+            data = try await responseData(for: request, timeoutSeconds: requestTimeoutSeconds)
+        } catch {
+            await deleteUploadedFile(videoReference?.uploadedFileName, apiKey: apiKey)
+            throw error
+        }
+        await deleteUploadedFile(videoReference?.uploadedFileName, apiKey: apiKey)
 
         let payload = try decodePayload(from: data)
         guard payload.matchFound, !payload.candidates.isEmpty else {
             throw SceneFindError.noLikelyMatch
         }
 
-        let candidates = payload.candidates.map { candidate(from: $0, metadata: metadata) }
+        var candidates: [SceneCandidate] = []
+        for candidatePayload in payload.candidates {
+            let mediaType: MediaType = candidatePayload.mediaType == "movie" ? .movie : .television
+            let artworkURL: URL?
+            if let thumbnailURL = metadata?.thumbnailURL {
+                artworkURL = thumbnailURL
+            } else if let catalogURL = await artworkService.artworkURL(
+                    for: candidatePayload.mediaTitle,
+                    mediaType: mediaType,
+                    seasonNumber: candidatePayload.seasonNumber,
+                    episodeNumber: candidatePayload.episodeNumber
+            ) {
+                artworkURL = catalogURL
+            } else {
+                artworkURL = candidatePayload.heroImageURL.flatMap(URL.init(string:))
+            }
+            candidates.append(candidate(from: candidatePayload, artworkURL: artworkURL))
+        }
         return ClipAnalysisResult(
             id: UUID(),
             requestID: sharedRequest.id,
@@ -70,7 +107,7 @@ final class GeminiClipIdentificationService {
             analysisDetails: AnalysisDetails(
                 sourcePlatform: sharedRequest.sourcePlatform,
                 sourceType: sharedRequest.sourceType,
-                extractedFrameCount: sharedRequest.sourcePlatform == .youtube ? 1 : 0,
+                extractedFrameCount: videoReference == nil ? 0 : 1,
                 subtitleCandidatesCompared: 0,
                 totalProcessingDuration: Date().timeIntervalSince(startedAt)
             )
@@ -80,7 +117,7 @@ final class GeminiClipIdentificationService {
     private func researchRequestBody(
         for request: SharedClipRequest,
         metadata: SocialClipMetadata?,
-        videoEvidence: String?
+        videoReference: VideoReference?
     ) -> [String: Any] {
         let evidence = [
             "Shared URL: \(request.originalURL?.absoluteString ?? "Unavailable")",
@@ -89,8 +126,21 @@ final class GeminiClipIdentificationService {
             "Page title: \(request.pageTitle ?? "Unavailable")",
             "oEmbed title/caption: \(metadata?.title ?? "Unavailable")",
             "oEmbed author: \(metadata?.authorName ?? "Unavailable")",
-            "Direct video inspection: \(videoEvidence ?? "Unavailable; identify from the public metadata and model knowledge.")"
+            "TikTok search hints: \(metadata?.searchHints.joined(separator: ", ") ?? "Unavailable")",
+            "Direct video: \(videoReference == nil ? "Unavailable; identify from public metadata and model knowledge." : "Attached. Inspect its complete audio and visual timeline.")"
         ].joined(separator: "\n")
+
+        var parts: [[String: Any]] = []
+        if let videoReference {
+            var fileData: [String: Any] = ["file_uri": videoReference.uri.absoluteString]
+            if let mimeType = videoReference.mimeType {
+                fileData["mime_type"] = mimeType
+            }
+            parts.append(["file_data": fileData])
+        }
+        parts.append([
+            "text": "Identify the original movie or TV scene represented by this shared social clip. Social reposts may splice scenes out of order. clip_start_seconds must locate the first frame of the repost in the original program, while clip_end_seconds must locate its final frame even when that value is earlier because of an edit.\n\n\(evidence)"
+        ])
 
         return [
             "systemInstruction": [
@@ -102,9 +152,7 @@ final class GeminiClipIdentificationService {
                     Return only one valid JSON object with no markdown or commentary. Every candidate must contain all of these keys: media_title, media_type (movie or tv), release_year, season_number, episode_number, episode_title, clip_start_seconds, clip_end_seconds, matching_subtitle, confidence (0 through 1), hero_image_url, and watch_providers. Use null for unknown nullable values. watch_providers must be an array of objects containing name, offer, and url. Include only current US providers that can play this title. The URL must be an official exact episode playback/detail URL, not a search or show page. Exact route shapes commonly include Netflix /watch/, Apple TV /episode/, Disney+ /video/, Prime Video /video/detail/, Max /video/watch/, Peacock /episodes/ or /watch/playback/, and Paramount+ /video/. Hulu is the sole exception: its official series URL is allowed because SceneFind resolves the season and episode locally. Never invent a path or content identifier, and omit uncertain providers. The top-level keys must be match_found, detected_dialogue, and candidates.
                     """]]
             ],
-            "contents": [["role": "user", "parts": [[
-                "text": "Identify the original movie or TV scene represented by this shared social clip.\n\n\(evidence)"
-            ]]]],
+            "contents": [["role": "user", "parts": parts]],
             "generationConfig": [
                 "temperature": 0.2,
                 "maxOutputTokens": 4_096,
@@ -167,46 +215,141 @@ final class GeminiClipIdentificationService {
         ]
     }
 
-    private func inspectYouTubeVideoIfAvailable(
-        _ request: SharedClipRequest,
-        endpoint: URL,
+    private func videoReferenceIfAvailable(
+        for request: SharedClipRequest,
+        metadata: SocialClipMetadata?,
         apiKey: String
-    ) async -> String? {
-        guard request.sourcePlatform == .youtube,
-              let videoURL = request.originalURL.map(canonicalYouTubeURL) else {
+    ) async throws -> VideoReference? {
+        if request.sourcePlatform == .youtube, let url = request.originalURL {
+            return VideoReference(
+                uri: canonicalYouTubeURL(url),
+                mimeType: nil,
+                uploadedFileName: nil
+            )
+        }
+        guard request.sourcePlatform == .tiktok, let videoURL = metadata?.videoURL else {
             return nil
         }
 
-        let body: [String: Any] = [
-            "contents": [["role": "user", "parts": [
-                ["file_data": ["file_uri": videoURL.absoluteString]],
-                ["text": "Inspect this short video using both audio and visual frames. Return concise factual evidence only: approximate clip duration, the first and last distinctive spoken lines, visible characters or actors, setting, costumes, scene cuts, and any title or channel clues. Do not guess an episode or original-program timestamp."]
-            ]]],
-            "generationConfig": [
-                "temperature": 0.1,
-                "maxOutputTokens": 1_500
-            ]
-        ]
-
         do {
-            let videoRequest = try makeRequest(endpoint: endpoint, apiKey: apiKey, body: body)
-            let data = try await responseData(
-                for: videoRequest,
-                timeoutSeconds: min(requestTimeoutSeconds, 45)
+            return try await uploadTikTokVideo(
+                from: videoURL,
+                sourcePageURL: request.originalURL,
+                apiKey: apiKey
             )
-            return try outputText(from: data)
-        } catch SceneFindError.geminiAuthenticationFailed {
-            return nil
-        } catch SceneFindError.geminiFreeTierLimitReached {
-            return nil
-        } catch SceneFindError.geminiCreditsDepleted {
-            return nil
+        } catch let error as SceneFindError {
+            switch error {
+            case .geminiAuthenticationFailed, .geminiFreeTierLimitReached, .geminiCreditsDepleted:
+                throw error
+            default:
+                #if DEBUG
+                print("TikTok video upload unavailable; continuing with page evidence: \(error.localizedDescription)")
+                #endif
+                return nil
+            }
         } catch {
             #if DEBUG
-            print("Gemini video inspection unavailable; continuing with metadata: \(error.localizedDescription)")
+            print("TikTok video upload unavailable; continuing with page evidence: \(error.localizedDescription)")
             #endif
             return nil
         }
+    }
+
+    private func uploadTikTokVideo(
+        from videoURL: URL,
+        sourcePageURL: URL?,
+        apiKey: String
+    ) async throws -> VideoReference {
+        var downloadRequest = URLRequest(url: videoURL)
+        downloadRequest.timeoutInterval = min(requestTimeoutSeconds, 45)
+        downloadRequest.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
+            forHTTPHeaderField: "User-Agent"
+        )
+        if let sourcePageURL {
+            downloadRequest.setValue(sourcePageURL.absoluteString, forHTTPHeaderField: "Referer")
+        }
+        let downloaded = try await data(
+            for: downloadRequest,
+            timeoutSeconds: min(requestTimeoutSeconds, 45)
+        )
+        guard let http = downloaded.response as? HTTPURLResponse,
+              200..<300 ~= http.statusCode,
+              !downloaded.data.isEmpty else {
+            throw SceneFindError.geminiRequestFailed("The public TikTok video could not be downloaded.")
+        }
+        guard downloaded.data.count <= 30 * 1_024 * 1_024 else {
+            throw SceneFindError.geminiRequestFailed("This TikTok clip is too large for prototype analysis.")
+        }
+
+        let mimeType = http.mimeType ?? "video/mp4"
+        guard let startURL = URL(string: "https://generativelanguage.googleapis.com/upload/v1beta/files") else {
+            throw SceneFindError.geminiRequestFailed("The Gemini upload endpoint is invalid.")
+        }
+        var startRequest = URLRequest(url: startURL)
+        startRequest.httpMethod = "POST"
+        startRequest.timeoutInterval = min(requestTimeoutSeconds, 30)
+        startRequest.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+        startRequest.setValue("resumable", forHTTPHeaderField: "X-Goog-Upload-Protocol")
+        startRequest.setValue("start", forHTTPHeaderField: "X-Goog-Upload-Command")
+        startRequest.setValue(String(downloaded.data.count), forHTTPHeaderField: "X-Goog-Upload-Header-Content-Length")
+        startRequest.setValue(mimeType, forHTTPHeaderField: "X-Goog-Upload-Header-Content-Type")
+        startRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        startRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+            "file": ["display_name": "SceneFind TikTok clip"]
+        ])
+
+        let started = try await data(for: startRequest, timeoutSeconds: min(requestTimeoutSeconds, 30))
+        try validateGeminiResponse(started)
+        guard let uploadURLText = (started.response as? HTTPURLResponse)?
+            .value(forHTTPHeaderField: "X-Goog-Upload-URL"),
+              let uploadURL = URL(string: uploadURLText) else {
+            throw SceneFindError.geminiRequestFailed("Gemini did not return a video upload URL.")
+        }
+
+        var uploadRequest = URLRequest(url: uploadURL)
+        uploadRequest.httpMethod = "POST"
+        uploadRequest.timeoutInterval = requestTimeoutSeconds
+        uploadRequest.setValue("upload, finalize", forHTTPHeaderField: "X-Goog-Upload-Command")
+        uploadRequest.setValue("0", forHTTPHeaderField: "X-Goog-Upload-Offset")
+        uploadRequest.setValue(mimeType, forHTTPHeaderField: "Content-Type")
+        uploadRequest.httpBody = downloaded.data
+        let uploadData = try await responseData(for: uploadRequest, timeoutSeconds: requestTimeoutSeconds)
+        let uploaded = try JSONDecoder().decode(GeminiFileEnvelope.self, from: uploadData).file
+        let activeFile = try await waitForActiveFile(uploaded, apiKey: apiKey)
+        guard let uri = activeFile.uri else {
+            throw SceneFindError.geminiRequestFailed("Gemini did not return the uploaded video URI.")
+        }
+        return VideoReference(uri: uri, mimeType: activeFile.mimeType ?? mimeType, uploadedFileName: activeFile.name)
+    }
+
+    private func waitForActiveFile(_ initialFile: GeminiFile, apiKey: String) async throws -> GeminiFile {
+        var file = initialFile
+        for _ in 0..<20 {
+            if file.state?.uppercased() == "ACTIVE" { return file }
+            if file.state?.uppercased() == "FAILED" {
+                throw SceneFindError.geminiRequestFailed("Gemini could not process the TikTok video.")
+            }
+            try await Task.sleep(for: .seconds(1))
+            guard let fileURL = URL(string: "https://generativelanguage.googleapis.com/v1beta/\(file.name)") else {
+                break
+            }
+            var request = URLRequest(url: fileURL)
+            request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+            let data = try await responseData(for: request, timeoutSeconds: min(requestTimeoutSeconds, 20))
+            file = try JSONDecoder().decode(GeminiFile.self, from: data)
+        }
+        throw SceneFindError.geminiRequestTimedOut
+    }
+
+    private func deleteUploadedFile(_ name: String?, apiKey: String) async {
+        guard let name,
+              let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/\(name)") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 10
+        request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+        _ = try? await data(for: request, timeoutSeconds: 10)
     }
 
     private func makeRequest(endpoint: URL, apiKey: String, body: [String: Any]) throws -> URLRequest {
@@ -231,6 +374,11 @@ final class GeminiClipIdentificationService {
             throw SceneFindError.geminiRequestFailed(error.localizedDescription)
         }
 
+        try validateGeminiResponse(networkResponse)
+        return networkResponse.data
+    }
+
+    private func validateGeminiResponse(_ networkResponse: NetworkResponse) throws {
         guard let http = networkResponse.response as? HTTPURLResponse else {
             throw SceneFindError.geminiRequestFailed("No HTTP response was received.")
         }
@@ -250,7 +398,6 @@ final class GeminiClipIdentificationService {
             }
             throw SceneFindError.geminiRequestFailed(message)
         }
-        return networkResponse.data
     }
 
     private func data(for request: URLRequest, timeoutSeconds: TimeInterval) async throws -> NetworkResponse {
@@ -324,7 +471,7 @@ final class GeminiClipIdentificationService {
         return String(outputText[firstBrace...lastBrace]).data(using: .utf8)
     }
 
-    private func candidate(from payload: GeminiCandidatePayload, metadata: SocialClipMetadata?) -> SceneCandidate {
+    private func candidate(from payload: GeminiCandidatePayload, artworkURL: URL?) -> SceneCandidate {
         let providers = payload.watchProviders.compactMap(makeWatchProvider)
         return SceneCandidate(
             id: UUID(),
@@ -343,7 +490,7 @@ final class GeminiClipIdentificationService {
             metadataScore: payload.confidence,
             streamingService: providers.first?.name,
             streamingURL: providers.first?.episodeURL,
-            heroImageURL: payload.heroImageURL.flatMap(URL.init(string:)) ?? metadata?.thumbnailURL,
+            heroImageURL: artworkURL,
             watchProviders: providers
         )
     }
@@ -409,6 +556,24 @@ private struct GeminiGenerateContentResponse: Decodable {
 private struct GeminiAPIErrorEnvelope: Decodable {
     struct APIError: Decodable { let message: String }
     let error: APIError
+}
+
+private struct GeminiFileEnvelope: Decodable {
+    let file: GeminiFile
+}
+
+private struct GeminiFile: Decodable {
+    let name: String
+    let uri: URL?
+    let mimeType: String?
+    let state: String?
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case uri
+        case mimeType = "mimeType"
+        case state
+    }
 }
 
 private struct GeminiIdentificationPayload: Decodable {
