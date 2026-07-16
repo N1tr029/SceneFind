@@ -17,6 +17,10 @@ final class KnownClipCatalogTests: XCTestCase {
         XCTAssertEqual(result.topCandidate.sceneTimestampSeconds, 606)
         XCTAssertEqual(result.topCandidate.clipEndTimestampSeconds, 625)
         XCTAssertEqual(result.topCandidate.watchProviders?.count, 8)
+        XCTAssertEqual(
+            result.topCandidate.watchProviders?.first?.episodeURL.absoluteString,
+            "https://www.hulu.com/series/modern-family-883c414c-34a3-4fcc-b50a-0ad5a184c977?entity_id=008ab86a-f287-4275-83d2-d2d7aa605bb5"
+        )
         XCTAssertGreaterThan(result.topCandidate.confidence, 0.95)
     }
 

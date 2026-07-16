@@ -173,12 +173,11 @@ struct ResultView: View {
     }
 
     private func providers(for candidate: SceneCandidate) -> [WatchProvider] {
+        let supplied: [WatchProvider]
         if let providers = candidate.watchProviders, !providers.isEmpty {
-            return providers
-        }
-        guard let url = candidate.streamingURL else { return [] }
-        return [
-            WatchProvider(
+            supplied = providers
+        } else if let url = candidate.streamingURL {
+            supplied = [WatchProvider(
                 id: candidate.streamingService ?? "streaming",
                 name: candidate.streamingService ?? "Streaming",
                 offer: "Availability varies",
@@ -186,8 +185,11 @@ struct ResultView: View {
                 sceneURL: nil,
                 symbolName: "play.tv.fill",
                 brandColorHex: "3B82F6"
-            )
-        ]
+            )]
+        } else {
+            supplied = []
+        }
+        return StreamingProviderCatalog.providers(for: candidate, supplied: supplied)
     }
 
     private func detailRow(_ title: String, _ value: String) -> some View {
@@ -299,6 +301,8 @@ private struct ProviderRow: View {
 private struct WatchOptionsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @State private var isResolving = false
+    @State private var openError: String?
 
     let provider: WatchProvider
     let candidate: SceneCandidate
@@ -318,7 +322,7 @@ private struct WatchOptionsSheet: View {
                 }
 
                 Button {
-                    open(.beginning)
+                    Task { await open(.beginning) }
                 } label: {
                     optionLabel(
                         title: "Start from the beginning",
@@ -329,7 +333,7 @@ private struct WatchOptionsSheet: View {
                 .buttonStyle(.borderedProminent)
 
                 Button {
-                    open(.afterClip)
+                    Task { await open(.afterClip) }
                 } label: {
                     optionLabel(
                         title: "Continue after this clip",
@@ -348,9 +352,20 @@ private struct WatchOptionsSheet: View {
                     .foregroundStyle(.secondary)
                 }
 
+                if isResolving {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Finding the exact episode on \(provider.name)...")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 Spacer()
             }
             .padding()
+            .disabled(isResolving)
             .navigationTitle("How do you want to watch?")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -358,6 +373,14 @@ private struct WatchOptionsSheet: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+        }
+        .alert("Could not open \(provider.name)", isPresented: Binding(
+            get: { openError != nil },
+            set: { if !$0 { openError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(openError ?? "Try again in a moment.")
         }
     }
 
@@ -384,19 +407,29 @@ private struct WatchOptionsSheet: View {
         .padding(.vertical, 4)
     }
 
-    private func open(_ choice: WatchStartChoice) {
+    @MainActor
+    private func open(_ choice: WatchStartChoice) async {
+        isResolving = true
+        let episodeURL = await StreamingDestinationResolver().destination(for: provider, candidate: candidate)
         let destination: URL
         switch choice {
         case .beginning:
-            destination = provider.episodeURL
+            destination = episodeURL
         case .afterClip:
-            destination = provider.sceneURL ?? provider.episodeURL
+            destination = provider.sceneURL ?? episodeURL
             if provider.sceneURL == nil, let timestamp = afterClipTimestamp {
                 UIPasteboard.general.string = timestamp.timestampString
             }
         }
-        openURL(destination)
-        dismiss()
+        let accepted = await withCheckedContinuation { continuation in
+            openURL(destination) { continuation.resume(returning: $0) }
+        }
+        isResolving = false
+        if accepted {
+            dismiss()
+        } else {
+            openError = "SceneFind could not hand this episode to \(provider.name). Check that the app is installed, then try again."
+        }
     }
 }
 
