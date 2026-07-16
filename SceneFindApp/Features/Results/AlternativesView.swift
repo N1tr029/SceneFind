@@ -6,7 +6,7 @@ struct AlternativesView: View {
     let resultID: UUID
 
     private var result: ClipAnalysisResult? {
-        router.resultsByID[resultID] ?? model.savedResults.first { $0.id == resultID }
+        router.resultsByID[resultID] ?? model.result(id: resultID)
     }
 
     var body: some View {
@@ -26,7 +26,7 @@ struct AlternativesView: View {
                                 analysisDetails: result.analysisDetails
                             )
                             router.resultsByID[updated.id] = updated
-                            model.save(updated)
+                            model.record(updated)
                             router.navigate(to: .result(updated.id))
                         } label: {
                             CandidateCell(candidate: candidate)
@@ -70,4 +70,3 @@ struct CandidateCell: View {
         .accessibilityLabel("Candidate \(candidate.mediaTitle), \(candidate.confidenceLabel)")
     }
 }
-

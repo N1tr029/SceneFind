@@ -23,21 +23,21 @@ struct RootView: View {
 
     var body: some View {
         TabView(selection: $router.selectedTab) {
-            NavigationStack(path: $router.path) {
+            NavigationStack(path: $router.homePath) {
                 HomeView()
                     .navigationDestination(for: AppRoute.self, destination: routeView)
             }
             .tabItem { Label("Home", systemImage: "sparkle.magnifyingglass") }
             .tag(AppTab.home)
 
-            NavigationStack(path: $router.path) {
+            NavigationStack(path: $router.savedPath) {
                 SavedView()
                     .navigationDestination(for: AppRoute.self, destination: routeView)
             }
             .tabItem { Label("Saved", systemImage: "bookmark") }
             .tag(AppTab.saved)
 
-            NavigationStack(path: $router.path) {
+            NavigationStack(path: $router.settingsPath) {
                 SettingsView()
                     .navigationDestination(for: AppRoute.self, destination: routeView)
             }
@@ -68,6 +68,8 @@ struct RootView: View {
             AlternativesView(resultID: resultID)
         case .settings:
             SettingsView()
+        case .services:
+            MyServicesView()
         }
     }
 }

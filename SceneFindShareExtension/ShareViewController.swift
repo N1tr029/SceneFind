@@ -7,8 +7,6 @@ final class ShareViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         let root = ShareExtensionView(viewModel: viewModel) { [weak self] in
-            self?.extensionContext?.completeRequest(returningItems: nil)
-        } cancel: { [weak self] in
             self?.extensionContext?.cancelRequest(withError: SceneFindError.unsupportedSharedItem)
         } openApp: { [weak self] url in
             self?.extensionContext?.open(url) { opened in

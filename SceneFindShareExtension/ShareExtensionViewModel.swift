@@ -14,6 +14,8 @@ final class ShareExtensionViewModel: ObservableObject {
     private let store = SharedContainerStore.shared
 
     func load(from context: NSExtensionContext?) async {
+        isLoading = true
+        defer { isLoading = false }
         let items = context?.inputItems.compactMap { $0 as? NSExtensionItem } ?? []
         let attachments = items.flatMap { $0.attachments ?? [] }
         guard

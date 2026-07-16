@@ -148,11 +148,10 @@ struct AnalyzeView: View {
             let loaded = try model.store.loadRequest(id: requestID)
             request = loaded
             let result = try await model.identificationService.identify(request: loaded)
-            model.save(result)
+            model.record(result)
             router.resultsByID[result.id] = result
             isAnalyzing = false
-            router.path.removeAll { $0 == .analyze(requestID) }
-            router.navigate(to: .result(result.id))
+            router.finishAnalysis(requestID: requestID, resultID: result.id)
         } catch {
             isAnalyzing = false
             errorTitle = (error as? SceneFindError)?.failureTitle ?? "Analysis failed"

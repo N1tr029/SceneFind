@@ -6,20 +6,17 @@ struct HomeView: View {
     @EnvironmentObject private var model: SceneFindModel
     @State private var selectedVideo: PhotosPickerItem?
     @State private var pastedURL = ""
-    @State private var showPasteField = false
     @State private var errorMessage: String?
+    @FocusState private var isURLFieldFocused: Bool
 
     var body: some View {
         ZStack {
             CinematicBackground()
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    header
-                    importActions
-                    shareHint
-                    demoMode
+                    identifyPanel
+                    servicesSummary
                     recentSection
-                    savedPreview
                 }
                 .padding()
             }
@@ -33,91 +30,86 @@ struct HomeView: View {
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Verified catalog + Gemini video research", systemImage: "checkmark.shield")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.green)
-            Text("Find where any clip is from")
-                .font(.largeTitle.bold())
-                .fixedSize(horizontal: false, vertical: true)
-            Text("Share, paste, or import a clip to identify the show, episode, scene time, and where to watch next.")
-                .font(.body)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var importActions: some View {
-        VStack(spacing: 12) {
-            PhotosPicker(selection: $selectedVideo, matching: .videos) {
-                Label("Choose a video", systemImage: "video.badge.plus")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-
-            Button {
-                withAnimation { showPasteField.toggle() }
-            } label: {
-                Label("Paste a link", systemImage: "link")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-
-            if showPasteField {
-                SceneCard {
-                    VStack(spacing: 12) {
-                        TextField("https://youtube.com/shorts/...", text: $pastedURL)
-                            .textInputAutocapitalization(.never)
-                            .keyboardType(.URL)
-                            .textFieldStyle(.roundedBorder)
-                        Button("Analyze link") { analyzePastedURL() }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(pastedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                }
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-    }
-
-    private var shareHint: some View {
+    private var identifyPanel: some View {
         SceneCard {
-            Label("You can also share clips directly from TikTok, YouTube, Safari, or Photos.", systemImage: "square.and.arrow.up")
-                .font(.callout)
-        }
-    }
+            VStack(alignment: .leading, spacing: 16) {
+                Label("Identify a clip", systemImage: "sparkle.magnifyingglass")
+                    .font(.title2.bold())
 
-    private var demoMode: some View {
-        SceneCard {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Demo Mode")
-                    .font(.headline)
-                ForEach(DemoCase.allCases) { demo in
-                    Button {
-                        runDemo(demo)
-                    } label: {
-                        HStack {
-                            Image(systemName: demo.icon)
-                                .frame(width: 28)
-                            VStack(alignment: .leading) {
-                                Text(demo.title)
-                                Text(demo.subtitle)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
+                HStack(spacing: 10) {
+                    Image(systemName: "link")
+                        .foregroundStyle(.secondary)
+                    TextField("TikTok, YouTube, or web link", text: $pastedURL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .focused($isURLFieldFocused)
+                        .submitLabel(.go)
+                        .onSubmit(analyzePastedURL)
+                    if !pastedURL.isEmpty {
+                        Button {
+                            pastedURL = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
                         }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Clear link")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Run demo \(demo.title)")
-                    if demo != DemoCase.allCases.last { Divider() }
                 }
+                .padding(.horizontal, 12)
+                .frame(minHeight: 48)
+                .background(Color(uiColor: .tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+
+                Button(action: analyzePastedURL) {
+                    Label("Find scene", systemImage: "magnifyingglass")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(pastedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                PhotosPicker(selection: $selectedVideo, matching: .videos) {
+                    Label("Choose from Photos", systemImage: "video.badge.plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
             }
         }
+    }
+
+    private var servicesSummary: some View {
+        Button {
+            router.navigate(to: .services)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "play.tv.fill")
+                    .font(.title3)
+                    .foregroundStyle(.cyan)
+                    .frame(width: 36, height: 36)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("My services")
+                        .font(.headline)
+                    Text(serviceSummaryText)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 64)
+            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var serviceSummaryText: String {
+        let count = model.subscribedServiceCount
+        return count == 0 ? "Set the services you can watch" : "\(count) service\(count == 1 ? "" : "s") with access"
     }
 
     private var recentSection: some View {
@@ -125,27 +117,13 @@ struct HomeView: View {
             Text("Recent searches")
                 .font(.title3.bold())
             if model.recentResults.isEmpty {
-                ContentUnavailableView("No recent searches", systemImage: "clock", description: Text("Run a demo or import a clip to start."))
+                ContentUnavailableView("No recent clips", systemImage: "clock", description: Text("Your latest matches will appear here."))
             } else {
                 ForEach(model.recentResults) { result in
                     Button { router.navigate(to: .result(result.id)) } label: {
                         ResultRow(result: result)
                     }
                     .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    private var savedPreview: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Saved scenes")
-                .font(.title3.bold())
-            if model.savedResults.isEmpty {
-                ContentUnavailableView("No saved scenes", systemImage: "bookmark", description: Text("Save a result to keep it here."))
-            } else {
-                ForEach(model.savedResults.prefix(3)) { result in
-                    ResultRow(result: result)
                 }
             }
         }
@@ -177,10 +155,6 @@ struct HomeView: View {
         }
     }
 
-    private func runDemo(_ demo: DemoCase) {
-        saveAndNavigate(demo.request)
-    }
-
     private func saveAndNavigate(_ request: SharedClipRequest) {
         do {
             try model.store.saveRequest(request)
@@ -198,10 +172,7 @@ struct ResultRow: View {
     var body: some View {
         SceneCard {
             HStack(spacing: 12) {
-                Image(systemName: "film")
-                    .font(.title2)
-                    .frame(width: 44, height: 44)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                ResultThumbnail(url: result.topCandidate.heroImageURL)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(result.topCandidate.mediaTitle)
                         .font(.headline)
@@ -215,74 +186,30 @@ struct ResultRow: View {
     }
 }
 
-enum DemoCase: String, CaseIterable, Identifiable {
-    case strongDialogue
-    case weakVisual
-    case youtubeURL
-    case tiktokURL
-    case importedVideo
-    case noMatch
-    case ambiguous
+private struct ResultThumbnail: View {
+    let url: URL?
 
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .strongDialogue: "Strong dialogue match"
-        case .weakVisual: "Weak visual-only match"
-        case .youtubeURL: "Verified Modern Family match"
-        case .tiktokURL: "TikTok URL match"
-        case .importedVideo: "Imported video match"
-        case .noMatch: "No match"
-        case .ambiguous: "Ambiguous candidates"
+    var body: some View {
+        Group {
+            if let url {
+                AsyncImage(url: url) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    fallback
+                }
+            } else {
+                fallback
+            }
         }
+        .frame(width: 64, height: 44)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
-    var subtitle: String {
-        switch self {
-        case .strongDialogue: "Exact subtitle hit"
-        case .weakVisual: "Quiet clip, metadata helps"
-        case .youtubeURL: "The Butler's Escape at 10:06"
-        case .tiktokURL: "Workplace comedy keywords"
-        case .importedVideo: "Simulated Photos handoff"
-        case .noMatch: "Intentionally low confidence"
-        case .ambiguous: "Several plausible scenes"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .strongDialogue: "quote.bubble"
-        case .weakVisual: "eye"
-        case .youtubeURL: "play.rectangle"
-        case .tiktokURL: "music.note"
-        case .importedVideo: "photo.on.rectangle"
-        case .noMatch: "questionmark.circle"
-        case .ambiguous: "list.bullet.rectangle"
-        }
-    }
-
-    var request: SharedClipRequest {
-        switch self {
-        case .strongDialogue:
-            SharedClipRequest(sourceType: .plainText, sourcePlatform: .safari, sharedText: "We have one sunrise left before the orbit closes.", pageTitle: title)
-        case .weakVisual:
-            SharedClipRequest(sourceType: .demo, sourcePlatform: .files, sharedText: "quiet clip", pageTitle: "velvet observatory visual")
-        case .youtubeURL:
-            SharedClipRequest(
-                sourceType: .url,
-                sourcePlatform: .youtube,
-                originalURL: URL(string: "https://www.youtube.com/shorts/QD4bDD7L66M"),
-                pageTitle: "how many times has she done this??? #Shorts #ModernFamily #MitchellPritchett #CamTucker"
-            )
-        case .tiktokURL:
-            SharedClipRequest(sourceType: .url, sourcePlatform: .tiktok, originalURL: URL(string: "https://vm.tiktok.com/paper-office-scranton"), pageTitle: "office paper joke")
-        case .importedVideo:
-            SharedClipRequest(sourceType: .video, sourcePlatform: .photos, localFileName: "garden-glass-flower-demo.mov", pageTitle: "Garden clip")
-        case .noMatch:
-            SharedClipRequest(sourceType: .plainText, sourcePlatform: .unknown, sharedText: "no-match cobalt toaster staircase sentence", pageTitle: "Unknown clip")
-        case .ambiguous:
-            SharedClipRequest(sourceType: .plainText, sourcePlatform: .reddit, sharedText: "The signal broke before the truth came through.", pageTitle: "signal static radio scene")
+    private var fallback: some View {
+        ZStack {
+            Color(uiColor: .tertiarySystemBackground)
+            Image(systemName: "film")
+                .foregroundStyle(.secondary)
         }
     }
 }

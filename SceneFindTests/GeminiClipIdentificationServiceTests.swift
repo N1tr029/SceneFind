@@ -298,6 +298,97 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         XCTAssertEqual(generateCallCount, 1)
     }
 
+    func testImportedVideoIsUploadedBeforeIdentification() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GeminiStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        try SharedContainerStore.shared.prepare()
+        let fileName = "import-test-\(UUID().uuidString).mov"
+        let fileURL = SharedContainerStore.shared.filesURL.appendingPathComponent(fileName)
+        try Data(repeating: 4, count: 2_048).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        var generatedWithFile = false
+        GeminiStubURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            if url.path == "/upload/v1beta/files" {
+                XCTAssertEqual(request.value(forHTTPHeaderField: "X-Goog-Upload-Header-Content-Length"), "2048")
+                let response = try XCTUnwrap(HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["X-Goog-Upload-URL": "https://upload.example/imported"]
+                ))
+                return (response, Data())
+            }
+            if url.host == "upload.example" {
+                let envelope: [String: Any] = ["file": [
+                    "name": "files/imported-test",
+                    "uri": "https://generativelanguage.googleapis.com/v1beta/files/imported-test",
+                    "mimeType": "video/quicktime",
+                    "state": "ACTIVE"
+                ]]
+                let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+                return (response, try JSONSerialization.data(withJSONObject: envelope))
+            }
+            if request.httpMethod == "DELETE" {
+                let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+                return (response, Data())
+            }
+
+            let body = try XCTUnwrap(Self.bodyData(from: request))
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            let contents = try XCTUnwrap(json["contents"] as? [[String: Any]])
+            let parts = try XCTUnwrap(contents.first?["parts"] as? [[String: Any]])
+            let fileData = try XCTUnwrap(parts.first?["file_data"] as? [String: Any])
+            XCTAssertEqual(
+                fileData["file_uri"] as? String,
+                "https://generativelanguage.googleapis.com/v1beta/files/imported-test"
+            )
+            generatedWithFile = true
+
+            let result: [String: Any] = [
+                "match_found": true,
+                "detected_dialogue": "Imported clip dialogue",
+                "candidates": [[
+                    "media_title": "Imported Show",
+                    "media_type": "tv",
+                    "release_year": 2024,
+                    "season_number": 1,
+                    "episode_number": 2,
+                    "episode_title": "The Import",
+                    "clip_start_seconds": 120,
+                    "clip_end_seconds": 135,
+                    "matching_subtitle": "Imported clip dialogue",
+                    "confidence": 0.9,
+                    "hero_image_url": NSNull(),
+                    "watch_providers": []
+                ]]
+            ]
+            let resultData = try JSONSerialization.data(withJSONObject: result)
+            return try Self.geminiResponse(text: String(data: resultData, encoding: .utf8)!)
+        }
+
+        let service = GeminiClipIdentificationService(
+            session: session,
+            apiKeyProvider: { "gemini-test-key" },
+            modelProvider: { "gemini-test" },
+            artworkService: NoArtworkService()
+        )
+        let request = SharedClipRequest(
+            sourceType: .video,
+            sourcePlatform: .photos,
+            localFileName: fileName
+        )
+
+        let result = try await service.identify(request: request, metadata: nil)
+
+        XCTAssertTrue(generatedWithFile)
+        XCTAssertEqual(result.topCandidate.mediaTitle, "Imported Show")
+        XCTAssertEqual(result.analysisDetails.extractedFrameCount, 1)
+    }
+
     func testMissingGeminiKeyFailsBeforeNetworkRequest() async {
         let service = GeminiClipIdentificationService(apiKeyProvider: { nil })
         let request = SharedClipRequest(

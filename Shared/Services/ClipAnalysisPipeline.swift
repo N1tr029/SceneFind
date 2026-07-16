@@ -7,16 +7,13 @@ protocol ClipIdentificationService {
 final class HybridClipIdentificationService: ClipIdentificationService {
     private let metadataService: SocialClipMetadataService
     private let geminiService: GeminiClipIdentificationService
-    private let fallback: ClipIdentificationService
 
     init(
         metadataService: SocialClipMetadataService = OEmbedSocialClipMetadataService(),
-        geminiService: GeminiClipIdentificationService = GeminiClipIdentificationService(),
-        fallback: ClipIdentificationService = MockClipIdentificationService()
+        geminiService: GeminiClipIdentificationService = GeminiClipIdentificationService()
     ) {
         self.metadataService = metadataService
         self.geminiService = geminiService
-        self.fallback = fallback
     }
 
     func identify(request: SharedClipRequest) async throws -> ClipAnalysisResult {
@@ -25,8 +22,9 @@ final class HybridClipIdentificationService: ClipIdentificationService {
             return known
         }
 
+        let metadata: SocialClipMetadata?
         if let url = request.originalURL {
-            let metadata = try? await metadataService.metadata(for: url)
+            metadata = try? await metadataService.metadata(for: url)
             if let known = KnownClipCatalog.result(
                 for: request,
                 metadata: metadata,
@@ -34,13 +32,12 @@ final class HybridClipIdentificationService: ClipIdentificationService {
             ) {
                 return known
             }
-            if GeminiConfiguration.isConfigured {
-                return try await geminiService.identify(request: request, metadata: metadata)
-            }
-            throw SceneFindError.geminiKeyMissing
+        } else {
+            metadata = nil
         }
 
-        return try await fallback.identify(request: request)
+        guard GeminiConfiguration.isConfigured else { throw SceneFindError.geminiKeyMissing }
+        return try await geminiService.identify(request: request, metadata: metadata)
     }
 }
 
@@ -169,7 +166,7 @@ final class ClipAnalysisPipeline {
                 visualScore: 0.48,
                 metadataScore: metadata,
                 streamingService: title.streamingService,
-                streamingURL: URL(string: "https://example.com/watch/\(title.title.replacingOccurrences(of: " ", with: "-").lowercased())")
+                streamingURL: nil
             )
         }
     }
@@ -197,7 +194,7 @@ final class ClipAnalysisPipeline {
                     visualScore: 0.45,
                     metadataScore: max(0.20, score),
                     streamingService: title.streamingService,
-                    streamingURL: URL(string: "https://example.com/watch")
+                    streamingURL: nil
                 )
             }
     }

@@ -26,8 +26,8 @@ struct SavedView: View {
                             SavedRow(result: result)
                         }
                         .swipeActions {
-                            Button(role: .destructive) { model.deleteSaved(id: result.id) } label: {
-                                Label("Delete", systemImage: "trash")
+                            Button(role: .destructive) { model.removeSaved(id: result.id) } label: {
+                                Label("Remove", systemImage: "bookmark.slash")
                             }
                             Button { UIPasteboard.general.string = result.topCandidate.mediaTitle } label: {
                                 Label("Copy", systemImage: "doc.on.doc")
@@ -66,4 +66,3 @@ struct SavedRow: View {
         .padding(.vertical, 6)
     }
 }
-

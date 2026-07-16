@@ -1,26 +1,33 @@
 import SwiftUI
+import UIKit
 
 struct ShareExtensionView: View {
     @ObservedObject var viewModel: ShareExtensionViewModel
-    let done: () -> Void
     let cancel: () -> Void
     let openApp: (URL) -> Void
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 18) {
-                Image(systemName: "sparkle.magnifyingglass")
-                    .font(.system(size: 44))
-                    .foregroundStyle(.blue)
-                Text("Find this scene")
-                    .font(.title2.bold())
-                Text(viewModel.summary)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 14) {
+                    ShareThumbnail(request: viewModel.request)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Find this scene")
+                            .font(.title2.bold())
+                        Text(viewModel.summary)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                    }
+                }
 
                 if viewModel.isLoading {
-                    ProgressView()
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text(viewModel.request == nil ? "Reading shared clip" : "Opening SceneFind")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 if let errorMessage = viewModel.errorMessage {
@@ -51,15 +58,48 @@ struct ShareExtensionView: View {
                     }
                     .buttonStyle(.bordered)
                 }
-
-                Button("Cancel", role: .cancel, action: cancel)
             }
             .padding()
             .navigationTitle("SceneFind")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                Button("Done", action: done)
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(action: cancel) {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Cancel")
+                }
             }
         }
+    }
+}
+
+private struct ShareThumbnail: View {
+    let request: SharedClipRequest?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                ZStack {
+                    Color(uiColor: .secondarySystemBackground)
+                    Image(systemName: request?.sourceType == .video ? "video.fill" : "link")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(width: 72, height: 72)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var image: UIImage? {
+        guard let fileURL = SharedContainerStore.shared.resolveFileURL(fileName: request?.thumbnailFileName) else {
+            return nil
+        }
+        return UIImage(contentsOfFile: fileURL.path)
     }
 }

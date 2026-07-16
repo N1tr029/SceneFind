@@ -9,7 +9,7 @@ struct ResultView: View {
     let resultID: UUID
 
     private var result: ClipAnalysisResult? {
-        router.resultsByID[resultID] ?? model.savedResults.first { $0.id == resultID }
+        router.resultsByID[resultID] ?? model.result(id: resultID)
     }
 
     var body: some View {
@@ -83,13 +83,21 @@ struct ResultView: View {
 
     private func whereToWatch(_ candidate: SceneCandidate) -> some View {
         let providers = providers(for: candidate)
+        let yourProviders = providers.filter { model.accessState(for: $0) == .subscribed }
+        let otherProviders = providers.filter { model.accessState(for: $0) != .subscribed }
         return VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Where to Watch")
+                Text("Where to watch")
                     .font(.title2.bold())
                 Spacer()
-                Image(systemName: "chevron.up")
-                    .foregroundStyle(.secondary)
+                Button {
+                    router.navigate(to: .services)
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Manage streaming services")
             }
             .padding(.bottom, 10)
 
@@ -100,16 +108,41 @@ struct ResultView: View {
                     description: Text("SceneFind found the episode, but no provider returned a verified episode-level destination.")
                 )
             } else {
-                ForEach(Array(providers.enumerated()), id: \.element.id) { index, provider in
-                    ProviderRow(provider: provider) {
-                        selectedProvider = provider
-                    }
-                    if index < providers.count - 1 {
-                        Divider()
+                if !yourProviders.isEmpty {
+                    Text("ON YOUR SERVICES")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 8)
+                    ForEach(Array(yourProviders.enumerated()), id: \.element.id) { index, provider in
+                        ProviderRow(provider: provider, access: .subscribed) {
+                            selectedProvider = provider
+                        }
+                        if index < yourProviders.count - 1 {
+                            Divider()
+                        }
                     }
                 }
 
-                Text("Availability and pricing can vary by region and subscription.")
+                if !otherProviders.isEmpty {
+                    if !yourProviders.isEmpty {
+                        Divider()
+                            .padding(.vertical, 8)
+                    }
+                    Text(yourProviders.isEmpty ? "EXACT EPISODE LINKS" : "OTHER EXACT LINKS")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 8)
+                    ForEach(Array(otherProviders.enumerated()), id: \.element.id) { index, provider in
+                        ProviderRow(provider: provider, access: model.accessState(for: provider)) {
+                            selectedProvider = provider
+                        }
+                        if index < otherProviders.count - 1 {
+                            Divider()
+                        }
+                    }
+                }
+
+                Text("Access labels come from My Services. Availability and pricing can still vary by region.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .padding(.top, 10)
@@ -137,9 +170,16 @@ struct ResultView: View {
     private func actions(_ result: ClipAnalysisResult) -> some View {
         VStack(spacing: 12) {
             Button {
-                model.save(result)
+                if model.isSaved(result) {
+                    model.removeSaved(id: result.id)
+                } else {
+                    model.save(result)
+                }
             } label: {
-                Label("Save scene", systemImage: "bookmark")
+                Label(
+                    model.isSaved(result) ? "Saved" : "Save scene",
+                    systemImage: model.isSaved(result) ? "bookmark.fill" : "bookmark"
+                )
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -163,7 +203,7 @@ struct ResultView: View {
             }
 
             Button {
-                router.path = []
+                router.returnHome()
             } label: {
                 Label("Analyze another clip", systemImage: "plus.magnifyingglass")
                     .frame(maxWidth: .infinity)
@@ -267,6 +307,7 @@ private struct HeroArtwork: View {
 
 private struct ProviderRow: View {
     let provider: WatchProvider
+    let access: StreamingAccessState
     let action: () -> Void
 
     var body: some View {
@@ -280,9 +321,9 @@ private struct ProviderRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(provider.name)
                     .font(.headline)
-                Text(provider.offer)
+                Text("\(provider.offer) · \(access.shortLabel)")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(access == .subscribed ? .green : .secondary)
                     .lineLimit(2)
             }
 

@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 final class GeminiClipIdentificationService {
     typealias APIKeyProvider = () -> String?
@@ -220,6 +221,18 @@ final class GeminiClipIdentificationService {
         metadata: SocialClipMetadata?,
         apiKey: String
     ) async throws -> VideoReference? {
+        if let localURL = SharedContainerStore.shared.resolveFileURL(fileName: request.localFileName),
+           FileManager.default.fileExists(atPath: localURL.path) {
+            let data = try Data(contentsOf: localURL, options: .mappedIfSafe)
+            let mimeType = UTType(filenameExtension: localURL.pathExtension)?.preferredMIMEType
+                ?? (request.sourceType == .image ? "image/jpeg" : "video/quicktime")
+            return try await uploadMedia(
+                data: data,
+                mimeType: mimeType,
+                displayName: "SceneFind imported clip",
+                apiKey: apiKey
+            )
+        }
         if request.sourcePlatform == .youtube, let url = request.originalURL {
             return VideoReference(
                 uri: canonicalYouTubeURL(url),
@@ -278,11 +291,24 @@ final class GeminiClipIdentificationService {
               !downloaded.data.isEmpty else {
             throw SceneFindError.geminiRequestFailed("The public TikTok video could not be downloaded.")
         }
-        guard downloaded.data.count <= 30 * 1_024 * 1_024 else {
-            throw SceneFindError.geminiRequestFailed("This TikTok clip is too large for prototype analysis.")
-        }
-
         let mimeType = http.mimeType ?? "video/mp4"
+        return try await uploadMedia(
+            data: downloaded.data,
+            mimeType: mimeType,
+            displayName: "SceneFind TikTok clip",
+            apiKey: apiKey
+        )
+    }
+
+    private func uploadMedia(
+        data mediaData: Data,
+        mimeType: String,
+        displayName: String,
+        apiKey: String
+    ) async throws -> VideoReference {
+        guard mediaData.count <= 30 * 1_024 * 1_024 else {
+            throw SceneFindError.geminiRequestFailed("This clip is too large to analyze. Choose a clip under 30 MB.")
+        }
         guard let startURL = URL(string: "https://generativelanguage.googleapis.com/upload/v1beta/files") else {
             throw SceneFindError.geminiRequestFailed("The Gemini upload endpoint is invalid.")
         }
@@ -292,11 +318,11 @@ final class GeminiClipIdentificationService {
         startRequest.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
         startRequest.setValue("resumable", forHTTPHeaderField: "X-Goog-Upload-Protocol")
         startRequest.setValue("start", forHTTPHeaderField: "X-Goog-Upload-Command")
-        startRequest.setValue(String(downloaded.data.count), forHTTPHeaderField: "X-Goog-Upload-Header-Content-Length")
+        startRequest.setValue(String(mediaData.count), forHTTPHeaderField: "X-Goog-Upload-Header-Content-Length")
         startRequest.setValue(mimeType, forHTTPHeaderField: "X-Goog-Upload-Header-Content-Type")
         startRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         startRequest.httpBody = try JSONSerialization.data(withJSONObject: [
-            "file": ["display_name": "SceneFind TikTok clip"]
+            "file": ["display_name": displayName]
         ])
 
         let started = try await data(for: startRequest, timeoutSeconds: min(requestTimeoutSeconds, 30))
@@ -313,7 +339,7 @@ final class GeminiClipIdentificationService {
         uploadRequest.setValue("upload, finalize", forHTTPHeaderField: "X-Goog-Upload-Command")
         uploadRequest.setValue("0", forHTTPHeaderField: "X-Goog-Upload-Offset")
         uploadRequest.setValue(mimeType, forHTTPHeaderField: "Content-Type")
-        uploadRequest.httpBody = downloaded.data
+        uploadRequest.httpBody = mediaData
         let uploadData = try await responseData(for: uploadRequest, timeoutSeconds: requestTimeoutSeconds)
         let uploaded = try JSONDecoder().decode(GeminiFileEnvelope.self, from: uploadData).file
         let activeFile = try await waitForActiveFile(uploaded, apiKey: apiKey)

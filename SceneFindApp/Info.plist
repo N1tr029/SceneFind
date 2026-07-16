@@ -32,9 +32,9 @@
     </dict>
   </array>
   <key>NSPhotoLibraryUsageDescription</key>
-  <string>SceneFind lets you pick a saved video to run local demo scene analysis.</string>
+  <string>SceneFind uses videos you choose to identify the original show, episode, and scene.</string>
   <key>NSSpeechRecognitionUsageDescription</key>
-  <string>Experimental transcription can use speech recognition when enabled.</string>
+  <string>SceneFind can transcribe spoken dialogue to identify a scene.</string>
   <key>UIApplicationSceneManifest</key>
   <dict>
     <key>UIApplicationSupportsMultipleScenes</key>
