@@ -1,0 +1,12 @@
+.DS_Store
+.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcresult
+.env
+.env.*
+Secrets.xcconfig
+
+# Accidental duplicate of the generated Xcode project.
+/SceneFind 2.xcodeproj/
