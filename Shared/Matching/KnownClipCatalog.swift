@@ -16,6 +16,14 @@ enum KnownClipCatalog {
         .compactMap { $0?.lowercased() }
         .joined(separator: " ")
 
+        if evidence.contains("ztskqs1mb") || evidence.contains("7662820886914927903") {
+            return middleFinalFinalResult(
+                request: request,
+                thumbnailURL: metadata?.thumbnailURL,
+                processingDuration: processingDuration
+            )
+        }
+
         let isExactVideo = evidence.contains("qd4bdd7l66m")
         let namesEpisode = evidence.contains("the butler's escape") || evidence.contains("the butlers escape")
         let matchesRepostTitle = evidence.contains("how many times has she done this") && evidence.contains("modernfamily")
@@ -56,6 +64,75 @@ enum KnownClipCatalog {
                 sourcePlatform: request.sourcePlatform,
                 sourceType: request.sourceType,
                 extractedFrameCount: request.sourceType == .video ? 5 : 0,
+                subtitleCandidatesCompared: 1,
+                totalProcessingDuration: processingDuration
+            )
+        )
+    }
+
+    private static func middleFinalFinalResult(
+        request: SharedClipRequest,
+        thumbnailURL: URL?,
+        processingDuration: Double
+    ) -> ClipAnalysisResult {
+        let peacockURL = URL(
+            string: "https://www.peacocktv.com/watch-online/tv/the-middle/5225225821611903112/seasons/8/episodes/the-final-final-episode-22/90ce0c38-8686-3ec9-b04e-c0cb7527cab2"
+        )!
+        let appleTVURL = URL(
+            string: "https://tv.apple.com/us/episode/the-final-final/umc.cmc.3x9ev67xfip01ks0ibuw7iada?showId=umc.cmc.1ugiceeccwygl5sif5h4kivng"
+        )!
+        let providers = [
+            WatchProvider(
+                id: "peacock-the-middle-s08e22",
+                name: "Peacock",
+                offer: "Subscription",
+                episodeURL: peacockURL,
+                sceneURL: nil,
+                symbolName: "play.tv.fill",
+                brandColorHex: "F9D71C"
+            ),
+            WatchProvider(
+                id: "apple-tv-the-middle-s08e22",
+                name: "Apple TV",
+                offer: "Purchase options vary",
+                episodeURL: appleTVURL,
+                sceneURL: nil,
+                symbolName: "appletv.fill",
+                brandColorHex: "FFFFFF"
+            )
+        ]
+        let candidate = SceneCandidate(
+            id: MockMediaLibrary.stableID("the-middle-s08e22-597"),
+            mediaTitle: "The Middle",
+            mediaType: .television,
+            releaseYear: 2017,
+            seasonNumber: 8,
+            episodeNumber: 22,
+            episodeTitle: "The Final Final",
+            sceneTimestampSeconds: 597.5,
+            clipEndTimestampSeconds: 587.8,
+            matchedSubtitleText: "We overpayed in 2009. It's a refund check!",
+            confidence: 0.99,
+            subtitleScore: 0.99,
+            visualScore: 0.97,
+            metadataScore: 1,
+            streamingService: providers.first?.name,
+            streamingURL: providers.first?.episodeURL,
+            heroImageURL: thumbnailURL,
+            watchProviders: providers
+        )
+
+        return ClipAnalysisResult(
+            id: UUID(),
+            requestID: request.id,
+            createdAt: Date(),
+            detectedDialogue: "We overpayed in 2009. It's a refund check! How the hell do you track down Prairie Scouts?",
+            topCandidate: candidate,
+            alternativeCandidates: [],
+            analysisDetails: AnalysisDetails(
+                sourcePlatform: request.sourcePlatform,
+                sourceType: request.sourceType,
+                extractedFrameCount: 10,
                 subtitleCandidatesCompared: 1,
                 totalProcessingDuration: processingDuration
             )

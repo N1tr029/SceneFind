@@ -36,4 +36,22 @@ final class KnownClipCatalogTests: XCTestCase {
 
         XCTAssertEqual(result?.topCandidate.episodeTitle, "The Butler's Escape")
     }
+
+    func testKnownMiddleTikTokResolvesToFinalFinal() async throws {
+        let request = SharedClipRequest(
+            sourceType: .url,
+            sourcePlatform: .tiktok,
+            originalURL: URL(string: "https://www.tiktok.com/t/ZTSKqS1Mb/")
+        )
+
+        let result = try await HybridClipIdentificationService().identify(request: request)
+
+        XCTAssertEqual(result.topCandidate.mediaTitle, "The Middle")
+        XCTAssertEqual(result.topCandidate.seasonNumber, 8)
+        XCTAssertEqual(result.topCandidate.episodeNumber, 22)
+        XCTAssertEqual(result.topCandidate.episodeTitle, "The Final Final")
+        XCTAssertEqual(result.topCandidate.sceneTimestampSeconds, 597.5)
+        XCTAssertEqual(result.topCandidate.clipEndTimestampSeconds, 587.8)
+        XCTAssertEqual(result.topCandidate.watchProviders?.map(\.name), ["Peacock", "Apple TV"])
+    }
 }

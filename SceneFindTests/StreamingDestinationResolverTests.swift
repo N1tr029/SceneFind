@@ -148,6 +148,55 @@ final class StreamingDestinationResolverTests: XCTestCase {
         XCTAssertTrue(providers.isEmpty)
     }
 
+    func testNetflixDestinationOpensWhenPageMatchesIdentifiedTitle() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StreamingStubURLProtocol.self]
+        StreamingStubURLProtocol.requestHandler = { request in
+            let html = Data(#"<html><head><meta property="og:title" content="Watch All American | Netflix"></head></html>"#.utf8)
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "text/html"]
+            ))
+            return (response, html)
+        }
+        let netflix = provider(name: "Netflix", url: "https://www.netflix.com/watch/81012998")
+
+        let destination = await StreamingDestinationResolver(
+            session: URLSession(configuration: configuration)
+        ).destination(
+            for: netflix,
+            candidate: candidate(title: "All American", season: 8, episode: 1, episodeTitle: "The First Time")
+        )
+
+        XCTAssertEqual(destination?.primaryURL, netflix.episodeURL)
+    }
+
+    func testNetflixDestinationRejectsUnrelatedWatchID() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StreamingStubURLProtocol.self]
+        StreamingStubURLProtocol.requestHandler = { request in
+            let html = Data(#"<html><head><meta property="og:title" content="Watch Random Comedy Special | Netflix"></head></html>"#.utf8)
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "text/html"]
+            ))
+            return (response, html)
+        }
+
+        let destination = await StreamingDestinationResolver(
+            session: URLSession(configuration: configuration)
+        ).destination(
+            for: provider(name: "Netflix", url: "https://www.netflix.com/watch/99999999"),
+            candidate: candidate(title: "All American", season: 8, episode: 1, episodeTitle: "The First Time")
+        )
+
+        XCTAssertNil(destination)
+    }
+
     private func candidate(
         title: String,
         season: Int,

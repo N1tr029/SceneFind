@@ -84,6 +84,13 @@ struct StreamingDestinationResolver {
         for provider: WatchProvider,
         candidate: SceneCandidate
     ) async -> ResolvedStreamingDestination? {
+        if StreamingProviderKind(provider: provider) == .netflix {
+            guard let direct = Self.directDestination(for: provider, candidate: candidate),
+                  await netflixPageMatchesCandidate(provider.episodeURL, candidate: candidate) else {
+                return nil
+            }
+            return direct
+        }
         if let direct = Self.directDestination(for: provider, candidate: candidate) {
             return direct
         }
@@ -107,6 +114,19 @@ struct StreamingDestinationResolver {
 
         guard let nativeURL = URL(string: "hulu://watch/\(episodeID)") else { return nil }
         return ResolvedStreamingDestination(primaryURL: nativeURL, webFallbackURL: nil)
+    }
+
+    private func netflixPageMatchesCandidate(_ url: URL, candidate: SceneCandidate) async -> Bool {
+        guard url.scheme?.lowercased().hasPrefix("http") == true else { return false }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 12
+        request.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
+            forHTTPHeaderField: "User-Agent"
+        )
+        guard let (data, response) = try? await session.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200 else { return false }
+        return NetflixPageParser.matchesCandidate(in: data, candidate: candidate)
     }
 
     private static func directDestination(
@@ -178,6 +198,51 @@ struct StreamingDestinationResolver {
               components.indices.contains(index + 1),
               !components[index + 1].isEmpty else { return nil }
         return components[index + 1]
+    }
+}
+
+enum NetflixPageParser {
+    static func matchesCandidate(in data: Data, candidate: SceneCandidate) -> Bool {
+        guard let html = String(data: data, encoding: .utf8),
+              let pageTitle = pageTitle(in: html) else { return false }
+        let normalizedPageTitle = normalized(
+            pageTitle
+                .replacingOccurrences(of: "Watch ", with: "", options: [.caseInsensitive, .anchored])
+                .replacingOccurrences(of: " | Netflix", with: "", options: [.caseInsensitive, .backwards])
+        )
+        let expectedTitles = [candidate.mediaTitle, candidate.episodeTitle]
+            .compactMap { $0 }
+            .map(normalized)
+            .filter { !$0.isEmpty }
+        return expectedTitles.contains(normalizedPageTitle)
+    }
+
+    private static func pageTitle(in html: String) -> String? {
+        let patterns = [
+            #"<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["'][^>]*>"#,
+            #"<title[^>]*>([^<]+)</title>"#
+        ]
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+                  let match = regex.firstMatch(
+                    in: html,
+                    range: NSRange(html.startIndex..., in: html)
+                  ),
+                  let range = Range(match.range(at: 1), in: html) else { continue }
+            return String(html[range])
+                .replacingOccurrences(of: "&amp;", with: "&")
+                .replacingOccurrences(of: "&#39;", with: "'")
+                .replacingOccurrences(of: "&quot;", with: "\"")
+        }
+        return nil
+    }
+
+    private static func normalized(_ value: String) -> String {
+        value
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 }
 
