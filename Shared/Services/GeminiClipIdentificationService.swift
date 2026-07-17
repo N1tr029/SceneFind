@@ -21,19 +21,25 @@ final class GeminiClipIdentificationService {
     private let modelProvider: ModelProvider
     private let requestTimeoutSeconds: TimeInterval
     private let artworkService: TitleArtworkService
+    private let fallbackModels: [String]
+    private let retryDelayNanoseconds: UInt64
 
     init(
         session: URLSession = .shared,
         apiKeyProvider: @escaping APIKeyProvider = { GeminiConfiguration.apiKey },
         modelProvider: @escaping ModelProvider = { GeminiConfiguration.model },
         requestTimeoutSeconds: TimeInterval = 120,
-        artworkService: TitleArtworkService? = nil
+        artworkService: TitleArtworkService? = nil,
+        fallbackModels: [String] = ["gemini-3.1-flash-lite", "gemini-2.5-flash"],
+        retryDelayNanoseconds: UInt64 = 1_000_000_000
     ) {
         self.session = session
         self.apiKeyProvider = apiKeyProvider
         self.modelProvider = modelProvider
         self.requestTimeoutSeconds = max(requestTimeoutSeconds, 1)
         self.artworkService = artworkService ?? PublicTitleArtworkService(session: session)
+        self.fallbackModels = fallbackModels
+        self.retryDelayNanoseconds = retryDelayNanoseconds
     }
 
     func identify(
@@ -45,9 +51,7 @@ final class GeminiClipIdentificationService {
         }
 
         let model = GeminiConfiguration.supportedModel(modelProvider())
-        guard !model.isEmpty,
-              model.range(of: #"^[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil,
-              let endpoint = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent") else {
+        guard isValidModelName(model) else {
             throw SceneFindError.geminiRequestFailed("The configured model name is invalid.")
         }
 
@@ -57,18 +61,18 @@ final class GeminiClipIdentificationService {
             metadata: metadata,
             apiKey: apiKey
         )
-        let request = try makeRequest(
-            endpoint: endpoint,
-            apiKey: apiKey,
-            body: researchRequestBody(
-                for: sharedRequest,
-                metadata: metadata,
-                videoReference: videoReference
-            )
+        let requestBody = researchRequestBody(
+            for: sharedRequest,
+            metadata: metadata,
+            videoReference: videoReference
         )
         let data: Data
         do {
-            data = try await responseData(for: request, timeoutSeconds: requestTimeoutSeconds)
+            data = try await generateContent(
+                body: requestBody,
+                preferredModel: model,
+                apiKey: apiKey
+            )
         } catch {
             await deleteUploadedFile(videoReference?.uploadedFileName, apiKey: apiKey)
             throw error
@@ -113,6 +117,47 @@ final class GeminiClipIdentificationService {
                 totalProcessingDuration: Date().timeIntervalSince(startedAt)
             )
         )
+    }
+
+    private func generateContent(
+        body: [String: Any],
+        preferredModel: String,
+        apiKey: String
+    ) async throws -> Data {
+        let models = ([preferredModel] + fallbackModels)
+            .filter(isValidModelName)
+            .reduce(into: [String]()) { uniqueModels, model in
+                if !uniqueModels.contains(model) { uniqueModels.append(model) }
+            }
+
+        for (modelIndex, model) in models.enumerated() {
+            guard let endpoint = URL(
+                string: "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent"
+            ) else { continue }
+
+            for attempt in 0..<2 {
+                do {
+                    let request = try makeRequest(endpoint: endpoint, apiKey: apiKey, body: body)
+                    return try await responseData(for: request, timeoutSeconds: requestTimeoutSeconds)
+                } catch SceneFindError.geminiServiceBusy {
+                    let isLastAttempt = attempt == 1
+                    let isLastModel = modelIndex == models.count - 1
+                    if isLastAttempt, isLastModel {
+                        throw SceneFindError.geminiServiceBusy
+                    }
+                    if !isLastAttempt, retryDelayNanoseconds > 0 {
+                        try await Task.sleep(nanoseconds: retryDelayNanoseconds)
+                    }
+                }
+            }
+        }
+
+        throw SceneFindError.geminiServiceBusy
+    }
+
+    private func isValidModelName(_ model: String) -> Bool {
+        !model.isEmpty
+            && model.range(of: #"^[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil
     }
 
     private func researchRequestBody(
@@ -421,6 +466,9 @@ final class GeminiClipIdentificationService {
                     throw SceneFindError.geminiCreditsDepleted
                 }
                 throw SceneFindError.geminiFreeTierLimitReached
+            }
+            if [500, 502, 503, 504].contains(http.statusCode) {
+                throw SceneFindError.geminiServiceBusy
             }
             throw SceneFindError.geminiRequestFailed(message)
         }

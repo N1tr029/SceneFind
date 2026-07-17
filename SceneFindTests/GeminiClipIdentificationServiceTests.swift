@@ -494,6 +494,78 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         }
     }
 
+    func testBusyPreferredModelRetriesThenUsesFallback() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GeminiStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        var requestedModels: [String] = []
+
+        GeminiStubURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let model = try XCTUnwrap(
+                url.pathComponents.first(where: { $0.hasPrefix("gemini-") })?
+                    .replacingOccurrences(of: ":generateContent", with: "")
+            )
+            requestedModels.append(model)
+
+            if model == "gemini-primary" {
+                let data = try JSONSerialization.data(withJSONObject: [
+                    "error": [
+                        "message": "This model is currently experiencing high demand.",
+                        "status": "UNAVAILABLE"
+                    ]
+                ])
+                let response = try XCTUnwrap(HTTPURLResponse(
+                    url: url,
+                    statusCode: 503,
+                    httpVersion: nil,
+                    headerFields: nil
+                ))
+                return (response, data)
+            }
+
+            let result: [String: Any] = [
+                "match_found": true,
+                "detected_dialogue": "Fallback dialogue",
+                "candidates": [[
+                    "media_title": "Fallback Show",
+                    "media_type": "tv",
+                    "release_year": 2026,
+                    "season_number": 1,
+                    "episode_number": 4,
+                    "episode_title": "Capacity",
+                    "clip_start_seconds": 240,
+                    "clip_end_seconds": 255,
+                    "matching_subtitle": "Fallback dialogue",
+                    "confidence": 0.91,
+                    "hero_image_url": NSNull(),
+                    "watch_providers": []
+                ]]
+            ]
+            let resultData = try JSONSerialization.data(withJSONObject: result)
+            return try Self.geminiResponse(text: String(data: resultData, encoding: .utf8)!)
+        }
+
+        let service = GeminiClipIdentificationService(
+            session: session,
+            apiKeyProvider: { "gemini-test-key" },
+            modelProvider: { "gemini-primary" },
+            artworkService: NoArtworkService(),
+            fallbackModels: ["gemini-backup"],
+            retryDelayNanoseconds: 0
+        )
+        let request = SharedClipRequest(
+            sourceType: .url,
+            sourcePlatform: .tiktok,
+            originalURL: URL(string: "https://www.tiktok.com/t/example")
+        )
+
+        let result = try await service.identify(request: request, metadata: nil)
+
+        XCTAssertEqual(result.topCandidate.mediaTitle, "Fallback Show")
+        XCTAssertEqual(requestedModels, ["gemini-primary", "gemini-primary", "gemini-backup"])
+    }
+
     func testDepletedPrepaidProjectGetsSpecificError() async {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [GeminiStubURLProtocol.self]

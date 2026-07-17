@@ -131,32 +131,52 @@ private struct AnalysisVisual: View {
     let isAnalyzing: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SignalScanner(
-                symbol: stage.symbol,
-                progress: progress,
-                accent: isAnalyzing ? .sceneCyan : .sceneCoral
-            )
+        HStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .stroke(Color.white.opacity(0.08), lineWidth: 5)
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(
+                        isAnalyzing ? Color.sceneCyan : Color.sceneCoral,
+                        style: StrokeStyle(lineWidth: 5, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .animation(.smooth(duration: 0.5), value: progress)
+                Image(systemName: stage.symbol)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(isAnalyzing ? Color.sceneCyan : Color.sceneCoral)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .frame(width: 72, height: 72)
 
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(stage.label)
-                        .font(.title2.bold())
-                        .contentTransition(.opacity)
-                    Text("STEP \(stepNumber) OF \(totalSteps)")
-                        .font(.caption2.bold().monospacedDigit())
-                        .foregroundStyle(Color.sceneCyan)
-                        .contentTransition(.numericText())
-                }
-                Spacer()
-                if isAnalyzing {
-                    TimelineView(.periodic(from: startedAt, by: 1)) { context in
-                        Text(elapsedLabel(at: context.date))
-                            .font(.title3.weight(.semibold).monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(stage.label)
+                    .font(.title3.bold())
+                    .contentTransition(.opacity)
+                Text("STEP \(stepNumber) OF \(totalSteps)")
+                    .font(.caption2.bold().monospacedDigit())
+                    .foregroundStyle(Color.sceneCyan)
+                    .contentTransition(.numericText())
+                ProgressView(value: progress)
+                    .tint(isAnalyzing ? Color.sceneCyan : Color.sceneCoral)
+            }
+
+            Spacer(minLength: 4)
+
+            if isAnalyzing {
+                TimelineView(.periodic(from: startedAt, by: 1)) { context in
+                    Text(elapsedLabel(at: context.date))
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.secondary)
                 }
             }
+        }
+        .padding(16)
+        .background(Color.sceneSurface, in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke((isAnalyzing ? Color.sceneCyan : Color.sceneCoral).opacity(0.2), lineWidth: 1)
         }
     }
 
