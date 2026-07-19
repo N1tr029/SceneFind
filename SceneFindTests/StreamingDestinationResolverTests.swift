@@ -42,6 +42,18 @@ final class StreamingDestinationResolverTests: XCTestCase {
     }
 
     func testHuluWebWatchURLBecomesNativeEpisodeRoute() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StreamingStubURLProtocol.self]
+        StreamingStubURLProtocol.requestHandler = { request in
+            let html = Data(#"<meta property="og:title" content="Episode Four - Any Show | Hulu">"#.utf8)
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "text/html"]
+            ))
+            return (response, html)
+        }
         let hulu = WatchProvider(
             id: "hulu",
             name: "Hulu",
@@ -52,7 +64,9 @@ final class StreamingDestinationResolverTests: XCTestCase {
             brandColorHex: "1CE783"
         )
 
-        let destination = await StreamingDestinationResolver().destination(
+        let destination = await StreamingDestinationResolver(
+            session: URLSession(configuration: configuration)
+        ).destination(
             for: hulu,
             candidate: candidate(title: "Any Show", season: 4, episode: 4, episodeTitle: "Episode Four")
         )
@@ -195,6 +209,78 @@ final class StreamingDestinationResolverTests: XCTestCase {
         )
 
         XCTAssertNil(destination)
+    }
+
+    func testAppleTVDestinationRequiresMatchingEpisodeEvidence() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StreamingStubURLProtocol.self]
+        StreamingStubURLProtocol.requestHandler = { request in
+            let html = Data(#"<meta content="Wrong Turn - Any Show (Season 2, Episode 4) - Apple TV" property="og:title">"#.utf8)
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "text/html"]
+            ))
+            return (response, html)
+        }
+
+        let destination = await StreamingDestinationResolver(
+            session: URLSession(configuration: configuration)
+        ).destination(
+            for: provider(name: "Apple TV", url: "https://tv.apple.com/us/episode/the-episode/umc.cmc.id"),
+            candidate: candidate(title: "Any Show", season: 2, episode: 3, episodeTitle: "The Episode")
+        )
+
+        XCTAssertNil(destination)
+    }
+
+    func testAppleTVDestinationAcceptsMatchingEpisodePage() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StreamingStubURLProtocol.self]
+        StreamingStubURLProtocol.requestHandler = { request in
+            let html = Data(#"<meta content="The Episode - Any Show (Season 2, Episode 3) - Apple TV" property="og:title">"#.utf8)
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "text/html"]
+            ))
+            return (response, html)
+        }
+        let appleTV = provider(name: "Apple TV", url: "https://tv.apple.com/us/episode/the-episode/umc.cmc.id")
+
+        let destination = await StreamingDestinationResolver(
+            session: URLSession(configuration: configuration)
+        ).destination(
+            for: appleTV,
+            candidate: candidate(title: "Any Show", season: 2, episode: 3, episodeTitle: "The Episode")
+        )
+
+        XCTAssertEqual(destination?.primaryURL, appleTV.episodeURL)
+    }
+
+    func testProviderNameCannotDisguiseAnUntrustedHost() {
+        let providers = StreamingProviderCatalog.providers(
+            for: candidate(title: "Any Show", season: 2, episode: 3, episodeTitle: "The Episode"),
+            supplied: [provider(name: "Netflix", url: "https://example.com/watch/81234567")]
+        )
+
+        XCTAssertTrue(providers.isEmpty)
+    }
+
+    func testDifferentSupportedLongTailServicesAreNotCollapsed() {
+        let supplied = [
+            provider(name: "Tubi", url: "https://tubitv.com/tv-shows/123/example"),
+            provider(name: "Crunchyroll", url: "https://www.crunchyroll.com/watch/ABC123/example")
+        ]
+
+        let providers = StreamingProviderCatalog.providers(
+            for: candidate(title: "Any Show", season: 2, episode: 3, episodeTitle: "The Episode"),
+            supplied: supplied
+        )
+
+        XCTAssertEqual(providers.map(\.name), ["Tubi", "Crunchyroll"])
     }
 
     private func candidate(

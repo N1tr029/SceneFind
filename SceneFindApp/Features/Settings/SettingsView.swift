@@ -5,6 +5,7 @@ struct SettingsView: View {
     @State private var apiKey = ""
     @State private var modelName = "gemini-3.5-flash"
     @State private var keyStatus: KeyStatus = .notConfigured
+    @State private var isAPIKeyVisible = false
 
     private enum KeyStatus: Equatable {
         case notConfigured
@@ -18,7 +19,7 @@ struct SettingsView: View {
             case .notConfigured: "Not configured"
             case .keychain: "Stored in Keychain"
             case .debugLocalStorage: "Stored locally for Debug"
-            case .bundledDefault: "Ready"
+            case .bundledDefault: "Bundled prototype key"
             case .failed(let status): "Save failed (\(status))"
             }
         }
@@ -68,14 +69,37 @@ struct SettingsView: View {
             Section("Recognition") {
                 DisclosureGroup("API settings") {
                     VStack(alignment: .leading, spacing: 12) {
-                    SecureField("API key", text: $apiKey)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .privacySensitive()
+                        HStack(spacing: 8) {
+                            Group {
+                                if isAPIKeyVisible {
+                                    TextField("Gemini API key", text: $apiKey)
+                                } else {
+                                    SecureField("Gemini API key", text: $apiKey)
+                                }
+                            }
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .privacySensitive()
 
-                    TextField("Model", text: $modelName)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
+                            Button {
+                                isAPIKeyVisible.toggle()
+                            } label: {
+                                Image(systemName: isAPIKeyVisible ? "eye.slash" : "eye")
+                                    .frame(width: 30, height: 30)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(isAPIKeyVisible ? "Hide API key" : "Show API key")
+                        }
+
+                        Text(keyStatus == .bundledDefault
+                             ? "This is the prototype default. Saving replaces it only on this iPhone."
+                             : "This iPhone is using your saved replacement key.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        TextField("Model", text: $modelName)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
 
                         Button {
                             saveGeminiSettings()
@@ -87,9 +111,9 @@ struct SettingsView: View {
                         .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                         if keyStatus == .keychain || keyStatus == .debugLocalStorage {
-                            Button("Use default API key", role: .destructive) {
-                                GeminiConfiguration.apiKey = nil
-                                apiKey = ""
+                            Button("Restore bundled default", role: .destructive) {
+                                GeminiConfiguration.clearCustomAPIKey()
+                                apiKey = GeminiConfiguration.apiKey ?? ""
                                 keyStatus = GeminiConfiguration.storageLocation == .bundledDefault ? .bundledDefault : .notConfigured
                             }
                         }
@@ -131,7 +155,7 @@ struct SettingsView: View {
                 apiKey = GeminiConfiguration.apiKey ?? ""
                 keyStatus = .debugLocalStorage
             case .bundledDefault:
-                apiKey = ""
+                apiKey = GeminiConfiguration.apiKey ?? ""
                 keyStatus = .bundledDefault
             case .none:
                 apiKey = ""

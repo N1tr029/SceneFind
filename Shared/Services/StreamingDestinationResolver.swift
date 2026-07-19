@@ -54,7 +54,10 @@ enum StreamingProviderCatalog {
             guard StreamingDestinationResolver.canResolve(provider: provider, candidate: candidate) else {
                 return false
             }
-            return seen.insert(kind.rawValue).inserted
+            let key = kind == .other
+                ? provider.episodeURL.host?.lowercased() ?? provider.name.lowercased()
+                : kind.rawValue
+            return seen.insert(key).inserted
         }
     }
 
@@ -84,27 +87,48 @@ struct StreamingDestinationResolver {
         for provider: WatchProvider,
         candidate: SceneCandidate
     ) async -> ResolvedStreamingDestination? {
-        if StreamingProviderKind(provider: provider) == .netflix {
-            guard let direct = Self.directDestination(for: provider, candidate: candidate),
-                  await netflixPageMatchesCandidate(provider.episodeURL, candidate: candidate) else {
-                return nil
-            }
-            return direct
+        let kind = StreamingProviderKind(provider: provider)
+        if kind == .hulu {
+            return await huluDestination(for: provider, candidate: candidate)
         }
+
+        guard let direct = Self.directDestination(for: provider, candidate: candidate),
+              await pageVerification(
+                provider.episodeURL,
+                candidate: candidate,
+                kind: kind
+              ) == .verified else { return nil }
+        return direct
+    }
+
+    private func huluDestination(
+        for provider: WatchProvider,
+        candidate: SceneCandidate
+    ) async -> ResolvedStreamingDestination? {
+        if provider.episodeURL.scheme?.lowercased() == "hulu" {
+            return Self.directDestination(for: provider, candidate: candidate)
+        }
+
         if let direct = Self.directDestination(for: provider, candidate: candidate) {
+            guard await pageVerification(
+                provider.episodeURL,
+                candidate: candidate,
+                kind: .hulu
+            ) == .verified else { return nil }
             return direct
         }
-        guard StreamingProviderKind(provider: provider) == .hulu,
-              Self.isHuluSeriesURL(provider.episodeURL),
+
+        guard Self.isHuluSeriesURL(provider.episodeURL),
               let season = candidate.seasonNumber,
               let episode = candidate.episodeNumber else { return nil }
 
         var request = URLRequest(url: provider.episodeURL)
         request.timeoutInterval = 12
-        request.setValue("Mozilla/5.0 SceneFind/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
 
         guard let (data, response) = try? await session.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200,
+              StreamingPageParser.matchesSeries(in: data, candidate: candidate, url: provider.episodeURL),
               let episodeID = HuluEpisodePageParser.episodeID(
                 in: data,
                 season: season,
@@ -116,18 +140,27 @@ struct StreamingDestinationResolver {
         return ResolvedStreamingDestination(primaryURL: nativeURL, webFallbackURL: nil)
     }
 
-    private func netflixPageMatchesCandidate(_ url: URL, candidate: SceneCandidate) async -> Bool {
-        guard url.scheme?.lowercased().hasPrefix("http") == true else { return false }
+    private func pageVerification(
+        _ url: URL,
+        candidate: SceneCandidate,
+        kind: StreamingProviderKind
+    ) async -> StreamingPageVerification {
+        guard url.scheme?.lowercased() == "https" else { return .unavailable }
         var request = URLRequest(url: url)
         request.timeoutInterval = 12
-        request.setValue(
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
-            forHTTPHeaderField: "User-Agent"
-        )
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         guard let (data, response) = try? await session.data(for: request),
-              (response as? HTTPURLResponse)?.statusCode == 200 else { return false }
-        return NetflixPageParser.matchesCandidate(in: data, candidate: candidate)
+              (response as? HTTPURLResponse)?.statusCode == 200 else { return .unavailable }
+        return StreamingPageParser.verification(
+            in: data,
+            candidate: candidate,
+            kind: kind,
+            url: response.url ?? url
+        )
     }
+
+    private static let userAgent =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148"
 
     private static func directDestination(
         for provider: WatchProvider,
@@ -137,6 +170,11 @@ struct StreamingDestinationResolver {
         let path = url.path.lowercased()
         let kind = StreamingProviderKind(provider: provider)
 
+        if url.scheme?.lowercased() != "hulu" {
+            guard url.scheme?.lowercased() == "https",
+                  isTrustedHost(url.host, for: kind) else { return nil }
+        }
+
         switch kind {
         case .hulu:
             guard let episodeID = huluEpisodeID(in: url),
@@ -144,7 +182,7 @@ struct StreamingDestinationResolver {
             let fallback = url.scheme?.lowercased().hasPrefix("http") == true ? url : nil
             return ResolvedStreamingDestination(primaryURL: nativeURL, webFallbackURL: fallback)
         case .netflix:
-            guard url.scheme?.lowercased() == "nflx" || pathComponent(after: "watch", in: url) != nil else {
+            guard pathComponent(after: "watch", in: url) != nil else {
                 return nil
             }
         case .appleTV:
@@ -173,7 +211,11 @@ struct StreamingDestinationResolver {
         case .youtube:
             guard path.contains("/watch") || url.host?.lowercased() == "youtu.be" else { return nil }
         case .other:
-            guard path.contains("/episode/") || path.contains("/episodes/") || path.contains("/watch/") else {
+            let contentMarkers = [
+                "/episode/", "/episodes/", "/watch/", "/video/", "/detail/", "/details/",
+                "/player/", "/on-demand/", "/tv-shows/", "/movies/"
+            ]
+            guard contentMarkers.contains(where: path.contains) else {
                 return nil
             }
         }
@@ -192,6 +234,29 @@ struct StreamingDestinationResolver {
         url.host?.lowercased().hasSuffix("hulu.com") == true && url.path.lowercased().contains("/series/")
     }
 
+    private static func isTrustedHost(_ rawHost: String?, for kind: StreamingProviderKind) -> Bool {
+        guard let host = rawHost?.lowercased() else { return false }
+        let domains: [String]
+        switch kind {
+        case .hulu: domains = ["hulu.com"]
+        case .netflix: domains = ["netflix.com"]
+        case .appleTV: domains = ["tv.apple.com"]
+        case .disneyPlus: domains = ["disneyplus.com"]
+        case .primeVideo: domains = ["amazon.com", "primevideo.com"]
+        case .max: domains = ["max.com"]
+        case .peacock: domains = ["peacocktv.com"]
+        case .paramountPlus: domains = ["paramountplus.com"]
+        case .youtube: domains = ["youtube.com", "youtu.be"]
+        case .other:
+            domains = [
+                "tubitv.com", "pluto.tv", "roku.com", "fandango.com", "starz.com",
+                "mgmplus.com", "amcplus.com", "britbox.com", "crunchyroll.com",
+                "plex.tv", "philo.com", "sling.com"
+            ]
+        }
+        return domains.contains { host == $0 || host.hasSuffix(".\($0)") }
+    }
+
     private static func pathComponent(after marker: String, in url: URL) -> String? {
         let components = url.pathComponents.filter { $0 != "/" }
         guard let index = components.firstIndex(where: { $0.caseInsensitiveCompare(marker) == .orderedSame }),
@@ -201,40 +266,105 @@ struct StreamingDestinationResolver {
     }
 }
 
-enum NetflixPageParser {
-    static func matchesCandidate(in data: Data, candidate: SceneCandidate) -> Bool {
-        guard let html = String(data: data, encoding: .utf8),
-              let pageTitle = pageTitle(in: html) else { return false }
-        let normalizedPageTitle = normalized(
-            pageTitle
-                .replacingOccurrences(of: "Watch ", with: "", options: [.caseInsensitive, .anchored])
-                .replacingOccurrences(of: " | Netflix", with: "", options: [.caseInsensitive, .backwards])
-        )
-        let expectedTitles = [candidate.mediaTitle, candidate.episodeTitle]
-            .compactMap { $0 }
-            .map(normalized)
-            .filter { !$0.isEmpty }
-        return expectedTitles.contains(normalizedPageTitle)
+enum StreamingPageVerification: Equatable {
+    case verified
+    case mismatch
+    case unavailable
+}
+
+enum StreamingPageParser {
+    static func verification(
+        in data: Data,
+        candidate: SceneCandidate,
+        kind: StreamingProviderKind,
+        url: URL
+    ) -> StreamingPageVerification {
+        guard let html = String(data: data, encoding: .utf8) else { return .unavailable }
+        let titles = pageTitles(in: html)
+        guard !titles.isEmpty else { return .unavailable }
+
+        let showMatch = titles.contains { containsPhrase(candidate.mediaTitle, in: $0) }
+        let episodeMatch = candidate.episodeTitle.map { episodeTitle in
+            titles.contains { containsPhrase(episodeTitle, in: $0) }
+        } ?? false
+        let numberMatch = matchesEpisodeNumber(in: titles, candidate: candidate)
+        let routeShowMatch = containsPhrase(candidate.mediaTitle, in: url.path)
+
+        if candidate.mediaType != .television || kind == .netflix {
+            return showMatch ? .verified : .mismatch
+        }
+        if episodeMatch && (showMatch || routeShowMatch) {
+            return .verified
+        }
+        if showMatch && numberMatch {
+            return .verified
+        }
+        return .mismatch
     }
 
-    private static func pageTitle(in html: String) -> String? {
-        let patterns = [
-            #"<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["'][^>]*>"#,
-            #"<title[^>]*>([^<]+)</title>"#
-        ]
-        for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
-                  let match = regex.firstMatch(
-                    in: html,
-                    range: NSRange(html.startIndex..., in: html)
-                  ),
-                  let range = Range(match.range(at: 1), in: html) else { continue }
-            return String(html[range])
-                .replacingOccurrences(of: "&amp;", with: "&")
-                .replacingOccurrences(of: "&#39;", with: "'")
-                .replacingOccurrences(of: "&quot;", with: "\"")
+    static func matchesSeries(in data: Data, candidate: SceneCandidate, url: URL) -> Bool {
+        guard let html = String(data: data, encoding: .utf8) else { return false }
+        return pageTitles(in: html).contains { containsPhrase(candidate.mediaTitle, in: $0) }
+            || containsPhrase(candidate.mediaTitle, in: url.path)
+    }
+
+    private static func pageTitles(in html: String) -> [String] {
+        var values: [String] = []
+        if let metaRegex = try? NSRegularExpression(pattern: #"<meta\b[^>]*>"#, options: [.caseInsensitive]) {
+            let range = NSRange(html.startIndex..., in: html)
+            for match in metaRegex.matches(in: html, range: range) {
+                guard let tagRange = Range(match.range, in: html) else { continue }
+                let attributes = metaAttributes(in: String(html[tagRange]))
+                let key = (attributes["property"] ?? attributes["name"])?.lowercased()
+                if ["og:title", "twitter:title"].contains(key), let content = attributes["content"] {
+                    values.append(decoded(content))
+                }
+            }
         }
-        return nil
+        if let titleRegex = try? NSRegularExpression(
+            pattern: #"<title[^>]*>([^<]+)</title>"#,
+            options: [.caseInsensitive]
+        ), let match = titleRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+           let range = Range(match.range(at: 1), in: html) {
+            values.append(decoded(String(html[range])))
+        }
+        return Array(Set(values)).filter { !$0.isEmpty }
+    }
+
+    private static func metaAttributes(in tag: String) -> [String: String] {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"([A-Za-z:-]+)\s*=\s*[\"']([^\"']*)[\"']"#
+        ) else { return [:] }
+        return regex.matches(in: tag, range: NSRange(tag.startIndex..., in: tag)).reduce(into: [:]) { values, match in
+            guard let keyRange = Range(match.range(at: 1), in: tag),
+                  let valueRange = Range(match.range(at: 2), in: tag) else { return }
+            values[String(tag[keyRange]).lowercased()] = String(tag[valueRange])
+        }
+    }
+
+    private static func containsPhrase(_ phrase: String, in value: String) -> Bool {
+        let expected = normalized(phrase)
+        let haystack = normalized(value)
+        guard !expected.isEmpty else { return false }
+        return " \(haystack) ".contains(" \(expected) ")
+    }
+
+    private static func matchesEpisodeNumber(in titles: [String], candidate: SceneCandidate) -> Bool {
+        guard let season = candidate.seasonNumber, let episode = candidate.episodeNumber else { return false }
+        let value = normalized(titles.joined(separator: " "))
+        let patterns = [
+            "s\(season) e\(episode)",
+            "\(season)x\(episode)",
+            "season \(season) episode \(episode)"
+        ]
+        return patterns.contains(where: value.contains)
+    }
+
+    private static func decoded(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&quot;", with: "\"")
     }
 
     private static func normalized(_ value: String) -> String {

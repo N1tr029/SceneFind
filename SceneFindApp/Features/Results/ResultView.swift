@@ -536,9 +536,7 @@ private struct WatchOptionsSheet: View {
             }
         var accepted = false
         for destination in destinations {
-            accepted = await withCheckedContinuation { continuation in
-                openURL(destination) { continuation.resume(returning: $0) }
-            }
+            accepted = await openDestination(destination)
             if accepted { break }
         }
         isResolving = false
@@ -546,6 +544,23 @@ private struct WatchOptionsSheet: View {
             dismiss()
         } else {
             openError = "SceneFind could not hand this episode to \(provider.name). Check that the app is installed, then try again."
+        }
+    }
+
+    @MainActor
+    private func openDestination(_ url: URL) async -> Bool {
+        if url.scheme?.lowercased() == "https" {
+            let openedInstalledApp = await withCheckedContinuation { continuation in
+                UIApplication.shared.open(
+                    url,
+                    options: [.universalLinksOnly: true]
+                ) { continuation.resume(returning: $0) }
+            }
+            if openedInstalledApp { return true }
+        }
+
+        return await withCheckedContinuation { continuation in
+            openURL(url) { continuation.resume(returning: $0) }
         }
     }
 }

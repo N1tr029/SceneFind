@@ -16,9 +16,9 @@ enum GeminiConfiguration {
     }
 
     private static let service = "com.example.SceneFind.gemini"
-    private static let account = "prototype-api-key"
+    private static let account = "prototype-api-key-v2"
     private static let modelKey = "geminiModel"
-    private static let debugAPIKey = "debugGeminiAPIKey"
+    private static let debugAPIKey = "debugGeminiAPIKey.v2"
 
     static var apiKey: String? {
         get {
@@ -90,6 +90,13 @@ enum GeminiConfiguration {
             return .bundledDefault
         }
         return .none
+    }
+
+    static func clearCustomAPIKey() {
+        SecItemDelete(baseQuery as CFDictionary)
+        #if DEBUG
+        UserDefaults.standard.removeObject(forKey: debugAPIKey)
+        #endif
     }
 
     static var model: String {
