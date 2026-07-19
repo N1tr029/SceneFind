@@ -109,26 +109,33 @@ struct StreamingDestinationResolver {
             return Self.directDestination(for: provider, candidate: candidate)
         }
 
-        if let direct = Self.directDestination(for: provider, candidate: candidate) {
-            guard await pageVerification(
-                provider.episodeURL,
-                candidate: candidate,
-                kind: .hulu
-            ) == .verified else { return nil }
-            return direct
+        if let episodeID = Self.huluEpisodeID(in: provider.episodeURL) {
+            guard let (data, responseURL) = await huluPage(for: provider.episodeURL),
+                  StreamingPageParser.matchesSeries(
+                    in: data,
+                    candidate: candidate,
+                    url: responseURL
+                  ) else { return nil }
+
+            if candidate.mediaType == .television,
+               let season = candidate.seasonNumber,
+               let episode = candidate.episodeNumber {
+                guard HuluEpisodePageParser.matchesEpisode(
+                    in: data,
+                    id: episodeID,
+                    season: season,
+                    episode: episode
+                ) else { return nil }
+            }
+            return Self.huluEpisodeDestination(episodeID: episodeID)
         }
 
         guard Self.isHuluSeriesURL(provider.episodeURL),
               let season = candidate.seasonNumber,
               let episode = candidate.episodeNumber else { return nil }
 
-        var request = URLRequest(url: provider.episodeURL)
-        request.timeoutInterval = 12
-        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
-
-        guard let (data, response) = try? await session.data(for: request),
-              (response as? HTTPURLResponse)?.statusCode == 200,
-              StreamingPageParser.matchesSeries(in: data, candidate: candidate, url: provider.episodeURL),
+        guard let (data, responseURL) = await huluPage(for: provider.episodeURL),
+              StreamingPageParser.matchesSeries(in: data, candidate: candidate, url: responseURL),
               let episodeID = HuluEpisodePageParser.episodeID(
                 in: data,
                 season: season,
@@ -137,6 +144,16 @@ struct StreamingDestinationResolver {
               ) else { return nil }
 
         return Self.huluEpisodeDestination(episodeID: episodeID)
+    }
+
+    private func huluPage(for url: URL) async -> (Data, URL)? {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 12
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        guard let (data, response) = try? await session.data(for: request),
+              let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else { return nil }
+        return (data, httpResponse.url ?? url)
     }
 
     private func pageVerification(
@@ -229,19 +246,11 @@ struct StreamingDestinationResolver {
     }
 
     private static func huluEpisodeDestination(episodeID: String) -> ResolvedStreamingDestination? {
-        var components = URLComponents()
-        components.scheme = "https"
-        components.host = "dl.hulu.com"
-        components.path = "/videos/\(episodeID)"
-        components.queryItems = [
-            URLQueryItem(name: "source", value: "scenefind"),
-            URLQueryItem(name: "play", value: "true")
-        ]
-        guard let universalLink = components.url,
+        guard let universalLink = URL(string: "https://www.hulu.com/watch/\(episodeID)"),
               let nativeURL = URL(string: "hulu://watch/\(episodeID)") else { return nil }
         return ResolvedStreamingDestination(
-            primaryURL: nativeURL,
-            webFallbackURL: universalLink
+            primaryURL: universalLink,
+            webFallbackURL: nativeURL
         )
     }
 
@@ -393,12 +402,19 @@ enum StreamingPageParser {
 
 enum HuluEpisodePageParser {
     static func episodeID(in data: Data, season: Int, episode: Int, title _: String?) -> String? {
-        guard let html = String(data: data, encoding: .utf8),
-              let jsonData = nextDataJSON(in: html),
-              let root = try? JSONSerialization.jsonObject(with: jsonData) else {
-            return nil
-        }
+        guard let root = rootObject(in: data) else { return nil }
         return episodeID(in: root, season: season, episode: episode)
+    }
+
+    static func matchesEpisode(in data: Data, id: String, season: Int, episode: Int) -> Bool {
+        guard let root = rootObject(in: data) else { return false }
+        return containsEpisode(in: root, id: id, season: season, episode: episode)
+    }
+
+    private static func rootObject(in data: Data) -> Any? {
+        guard let html = String(data: data, encoding: .utf8),
+              let jsonData = nextDataJSON(in: html) else { return nil }
+        return try? JSONSerialization.jsonObject(with: jsonData)
     }
 
     private static func nextDataJSON(in html: String) -> Data? {
@@ -432,6 +448,31 @@ enum HuluEpisodePageParser {
             }
         }
         return nil
+    }
+
+    private static func containsEpisode(
+        in value: Any,
+        id: String,
+        season: Int,
+        episode: Int
+    ) -> Bool {
+        if let dictionary = value as? [String: Any] {
+            if (dictionary["type"] as? String)?.lowercased() == "episode",
+               dictionary["id"] as? String == id,
+               integer(dictionary["season"]) == season,
+               integer(dictionary["number"]) == episode {
+                return true
+            }
+            return dictionary.values.contains {
+                containsEpisode(in: $0, id: id, season: season, episode: episode)
+            }
+        }
+        if let array = value as? [Any] {
+            return array.contains {
+                containsEpisode(in: $0, id: id, season: season, episode: episode)
+            }
+        }
+        return false
     }
 
     private static func integer(_ value: Any?) -> Int? {
