@@ -238,10 +238,10 @@ struct StreamingDestinationResolver {
             URLQueryItem(name: "play", value: "true")
         ]
         guard let universalLink = components.url,
-              let legacyFallback = URL(string: "hulu://watch/\(episodeID)") else { return nil }
+              let nativeURL = URL(string: "hulu://watch/\(episodeID)") else { return nil }
         return ResolvedStreamingDestination(
-            primaryURL: universalLink,
-            webFallbackURL: legacyFallback
+            primaryURL: nativeURL,
+            webFallbackURL: universalLink
         )
     }
 

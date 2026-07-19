@@ -73,11 +73,11 @@ final class StreamingDestinationResolverTests: XCTestCase {
 
         XCTAssertEqual(
             destination?.primaryURL.absoluteString,
-            "https://dl.hulu.com/videos/008ab86a-f287-4275-83d2-d2d7aa605bb5?source=scenefind&play=true"
+            "hulu://watch/008ab86a-f287-4275-83d2-d2d7aa605bb5"
         )
         XCTAssertEqual(
             destination?.webFallbackURL?.absoluteString,
-            "hulu://watch/008ab86a-f287-4275-83d2-d2d7aa605bb5"
+            "https://dl.hulu.com/videos/008ab86a-f287-4275-83d2-d2d7aa605bb5?source=scenefind&play=true"
         )
     }
 
@@ -127,9 +127,12 @@ final class StreamingDestinationResolverTests: XCTestCase {
 
         XCTAssertEqual(
             destination?.primaryURL.absoluteString,
+            "hulu://watch/resolved-episode-id"
+        )
+        XCTAssertEqual(
+            destination?.webFallbackURL?.absoluteString,
             "https://dl.hulu.com/videos/resolved-episode-id?source=scenefind&play=true"
         )
-        XCTAssertEqual(destination?.webFallbackURL?.absoluteString, "hulu://watch/resolved-episode-id")
     }
 
     func testHuluUniversalEpisodeRouteRemainsExact() async throws {
@@ -164,7 +167,7 @@ final class StreamingDestinationResolverTests: XCTestCase {
 
         XCTAssertEqual(
             destination?.primaryURL.absoluteString,
-            "https://dl.hulu.com/videos/3ecda132-7410-4403-849b-c06ba948dafd?source=scenefind&play=true"
+            "hulu://watch/3ecda132-7410-4403-849b-c06ba948dafd"
         )
     }
 
