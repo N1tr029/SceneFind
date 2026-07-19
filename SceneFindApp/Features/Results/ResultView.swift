@@ -566,6 +566,7 @@ private struct WatchOptionsSheet: View {
                 ) { continuation.resume(returning: $0) }
             }
             if openedInstalledApp { return true }
+            if url.host?.lowercased() == "dl.hulu.com" { return false }
         }
 
         return await withCheckedContinuation { continuation in

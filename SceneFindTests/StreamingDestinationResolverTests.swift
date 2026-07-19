@@ -73,6 +73,10 @@ final class StreamingDestinationResolverTests: XCTestCase {
 
         XCTAssertEqual(
             destination?.primaryURL.absoluteString,
+            "https://dl.hulu.com/videos/008ab86a-f287-4275-83d2-d2d7aa605bb5?source=scenefind&play=true"
+        )
+        XCTAssertEqual(
+            destination?.webFallbackURL?.absoluteString,
             "hulu://watch/008ab86a-f287-4275-83d2-d2d7aa605bb5"
         )
     }
@@ -121,7 +125,47 @@ final class StreamingDestinationResolverTests: XCTestCase {
             candidate: candidate(title: "A Show", season: 12, episode: 8, episodeTitle: "Episode Eight")
         )
 
-        XCTAssertEqual(destination?.primaryURL.absoluteString, "hulu://watch/resolved-episode-id")
+        XCTAssertEqual(
+            destination?.primaryURL.absoluteString,
+            "https://dl.hulu.com/videos/resolved-episode-id?source=scenefind&play=true"
+        )
+        XCTAssertEqual(destination?.webFallbackURL?.absoluteString, "hulu://watch/resolved-episode-id")
+    }
+
+    func testHuluUniversalEpisodeRouteRemainsExact() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StreamingStubURLProtocol.self]
+        StreamingStubURLProtocol.requestHandler = { request in
+            let html = Data(#"<meta property="og:title" content="Pilot - Fresh off the Boat | Hulu">"#.utf8)
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "text/html"]
+            ))
+            return (response, html)
+        }
+        let hulu = provider(
+            name: "Hulu",
+            url: "https://dl.hulu.com/videos/3ecda132-7410-4403-849b-c06ba948dafd?play=true"
+        )
+
+        let destination = await StreamingDestinationResolver(
+            session: URLSession(configuration: configuration)
+        ).destination(
+            for: hulu,
+            candidate: candidate(
+                title: "Fresh off the Boat",
+                season: 1,
+                episode: 1,
+                episodeTitle: "Pilot"
+            )
+        )
+
+        XCTAssertEqual(
+            destination?.primaryURL.absoluteString,
+            "https://dl.hulu.com/videos/3ecda132-7410-4403-849b-c06ba948dafd?source=scenefind&play=true"
+        )
     }
 
     func testExactEpisodeRoutesAreAcceptedAcrossProviders() throws {

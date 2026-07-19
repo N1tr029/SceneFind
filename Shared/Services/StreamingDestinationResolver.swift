@@ -136,8 +136,7 @@ struct StreamingDestinationResolver {
                 title: candidate.episodeTitle
               ) else { return nil }
 
-        guard let nativeURL = URL(string: "hulu://watch/\(episodeID)") else { return nil }
-        return ResolvedStreamingDestination(primaryURL: nativeURL, webFallbackURL: nil)
+        return Self.huluEpisodeDestination(episodeID: episodeID)
     }
 
     private func pageVerification(
@@ -177,10 +176,8 @@ struct StreamingDestinationResolver {
 
         switch kind {
         case .hulu:
-            guard let episodeID = huluEpisodeID(in: url),
-                  let nativeURL = URL(string: "hulu://watch/\(episodeID)") else { return nil }
-            let fallback = url.scheme?.lowercased().hasPrefix("http") == true ? url : nil
-            return ResolvedStreamingDestination(primaryURL: nativeURL, webFallbackURL: fallback)
+            guard let episodeID = huluEpisodeID(in: url) else { return nil }
+            return huluEpisodeDestination(episodeID: episodeID)
         case .netflix:
             guard pathComponent(after: "watch", in: url) != nil else {
                 return nil
@@ -228,6 +225,24 @@ struct StreamingDestinationResolver {
         }
         guard url.host?.lowercased().hasSuffix("hulu.com") == true else { return nil }
         return pathComponent(after: "watch", in: url)
+            ?? pathComponent(after: "videos", in: url)
+    }
+
+    private static func huluEpisodeDestination(episodeID: String) -> ResolvedStreamingDestination? {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "dl.hulu.com"
+        components.path = "/videos/\(episodeID)"
+        components.queryItems = [
+            URLQueryItem(name: "source", value: "scenefind"),
+            URLQueryItem(name: "play", value: "true")
+        ]
+        guard let universalLink = components.url,
+              let legacyFallback = URL(string: "hulu://watch/\(episodeID)") else { return nil }
+        return ResolvedStreamingDestination(
+            primaryURL: universalLink,
+            webFallbackURL: legacyFallback
+        )
     }
 
     private static func isHuluSeriesURL(_ url: URL) -> Bool {
