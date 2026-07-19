@@ -89,7 +89,7 @@ final class StreamingDestinationResolverTests: XCTestCase {
 
         XCTAssertEqual(
             destination?.primaryURL.absoluteString,
-            "https://www.hulu.com/watch/46ed69ca-03a6-47f3-a97b-fc59765405b9"
+            "https://dl.hulu.com/watch/46ed69ca-03a6-47f3-a97b-fc59765405b9?source=web_universal_deep_linking&play=true"
         )
         XCTAssertEqual(
             destination?.webFallbackURL?.absoluteString,
@@ -110,6 +110,15 @@ final class StreamingDestinationResolverTests: XCTestCase {
         XCTAssertEqual(providers.map(\.name), ["Hulu"])
     }
 
+    func testHuluRootPlaceholderIsAcceptedForLocalResolution() throws {
+        let providers = StreamingProviderCatalog.providers(
+            for: candidate(title: "The Rookie", season: 1, episode: 7, episodeTitle: "The Ride Along"),
+            supplied: [provider(name: "Hulu", url: "https://www.hulu.com/")]
+        )
+
+        XCTAssertEqual(providers.map(\.name), ["Hulu"])
+    }
+
     func testHuluSeriesPageResolvesRequestedSeasonAndEpisode() async throws {
         let payload: [String: Any] = [
             "props": ["episodes": [[
@@ -125,8 +134,9 @@ final class StreamingDestinationResolverTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StreamingStubURLProtocol.self]
         StreamingStubURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.absoluteString, "https://www.hulu.com/series/a-show")
             let response = try XCTUnwrap(HTTPURLResponse(
-                url: request.url!,
+                url: URL(string: "https://www.hulu.com/series/a-show-canonical-series-id")!,
                 statusCode: 200,
                 httpVersion: nil,
                 headerFields: ["Content-Type": "text/html"]
@@ -137,13 +147,13 @@ final class StreamingDestinationResolverTests: XCTestCase {
         let destination = await StreamingDestinationResolver(
             session: URLSession(configuration: configuration)
         ).destination(
-            for: provider(name: "Hulu", url: "https://www.hulu.com/series/a-show-series-id"),
+            for: provider(name: "Hulu", url: "https://www.hulu.com/series/a-show-invented-series-id"),
             candidate: candidate(title: "A Show", season: 12, episode: 8, episodeTitle: "Episode Eight")
         )
 
         XCTAssertEqual(
             destination?.primaryURL.absoluteString,
-            "https://www.hulu.com/watch/resolved-episode-id"
+            "https://dl.hulu.com/watch/resolved-episode-id?source=web_universal_deep_linking&play=true"
         )
         XCTAssertEqual(
             destination?.webFallbackURL?.absoluteString,
@@ -199,7 +209,7 @@ final class StreamingDestinationResolverTests: XCTestCase {
 
         XCTAssertEqual(
             destination?.primaryURL.absoluteString,
-            "https://www.hulu.com/watch/3ecda132-7410-4403-849b-c06ba948dafd"
+            "https://dl.hulu.com/watch/3ecda132-7410-4403-849b-c06ba948dafd?source=web_universal_deep_linking&play=true"
         )
     }
 
@@ -388,12 +398,17 @@ final class StreamingDestinationResolverTests: XCTestCase {
     }
 
     func testProviderNameCannotDisguiseAnUntrustedHost() {
-        let providers = StreamingProviderCatalog.providers(
+        let netflixProviders = StreamingProviderCatalog.providers(
             for: candidate(title: "Any Show", season: 2, episode: 3, episodeTitle: "The Episode"),
             supplied: [provider(name: "Netflix", url: "https://example.com/watch/81234567")]
         )
+        let huluProviders = StreamingProviderCatalog.providers(
+            for: candidate(title: "Any Show", season: 2, episode: 3, episodeTitle: "The Episode"),
+            supplied: [provider(name: "Hulu", url: "https://example.com/")]
+        )
 
-        XCTAssertTrue(providers.isEmpty)
+        XCTAssertTrue(netflixProviders.isEmpty)
+        XCTAssertTrue(huluProviders.isEmpty)
     }
 
     func testDifferentSupportedLongTailServicesAreNotCollapsed() {

@@ -415,7 +415,6 @@ private struct ProviderRow: View {
 
 private struct WatchOptionsSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
     @State private var isResolving = false
     @State private var openError: String?
 
@@ -573,7 +572,9 @@ private struct WatchOptionsSheet: View {
         }
 
         return await withCheckedContinuation { continuation in
-            openURL(url) { continuation.resume(returning: $0) }
+            UIApplication.shared.open(url, options: [:]) {
+                continuation.resume(returning: $0)
+            }
         }
     }
 }

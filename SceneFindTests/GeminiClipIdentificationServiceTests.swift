@@ -116,6 +116,10 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         XCTAssertEqual(result.topCandidate.sceneTimestampSeconds, 732)
         XCTAssertEqual(result.topCandidate.clipEndTimestampSeconds, 748)
         XCTAssertEqual(result.topCandidate.watchProviders?.first?.name, "Hulu")
+        XCTAssertEqual(
+            result.topCandidate.watchProviders?.first?.episodeURL.absoluteString,
+            "https://www.hulu.com/"
+        )
         XCTAssertEqual(result.topCandidate.heroImageURL, metadata.thumbnailURL)
         XCTAssertEqual(result.topCandidate.subtitleScore, 0.91)
         XCTAssertEqual(result.topCandidate.visualScore, 0.84)

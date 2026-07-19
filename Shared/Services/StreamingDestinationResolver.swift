@@ -78,7 +78,7 @@ struct StreamingDestinationResolver {
     static func canResolve(provider: WatchProvider, candidate: SceneCandidate) -> Bool {
         if directDestination(for: provider, candidate: candidate) != nil { return true }
         return StreamingProviderKind(provider: provider) == .hulu
-            && isHuluSeriesURL(provider.episodeURL)
+            && isTrustedHuluURL(provider.episodeURL)
             && candidate.seasonNumber != nil
             && candidate.episodeNumber != nil
     }
@@ -130,11 +130,14 @@ struct StreamingDestinationResolver {
             return Self.huluEpisodeDestination(episodeID: episodeID)
         }
 
-        guard Self.isHuluSeriesURL(provider.episodeURL),
+        guard Self.isTrustedHuluURL(provider.episodeURL),
               let season = candidate.seasonNumber,
-              let episode = candidate.episodeNumber else { return nil }
+              let episode = candidate.episodeNumber,
+              let canonicalLookupURL = Self.huluSeriesLookupURL(title: candidate.mediaTitle) else {
+            return nil
+        }
 
-        guard let (data, responseURL) = await huluPage(for: provider.episodeURL),
+        guard let (data, responseURL) = await huluPage(for: canonicalLookupURL),
               StreamingPageParser.matchesSeries(in: data, candidate: candidate, url: responseURL),
               let episodeID = HuluEpisodePageParser.episodeID(
                 in: data,
@@ -246,7 +249,15 @@ struct StreamingDestinationResolver {
     }
 
     private static func huluEpisodeDestination(episodeID: String) -> ResolvedStreamingDestination? {
-        guard let universalLink = URL(string: "https://www.hulu.com/watch/\(episodeID)"),
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "dl.hulu.com"
+        components.path = "/watch/\(episodeID)"
+        components.queryItems = [
+            URLQueryItem(name: "source", value: "web_universal_deep_linking"),
+            URLQueryItem(name: "play", value: "true")
+        ]
+        guard let universalLink = components.url,
               let nativeURL = URL(string: "hulu://watch/\(episodeID)") else { return nil }
         return ResolvedStreamingDestination(
             primaryURL: universalLink,
@@ -254,8 +265,19 @@ struct StreamingDestinationResolver {
         )
     }
 
-    private static func isHuluSeriesURL(_ url: URL) -> Bool {
-        url.host?.lowercased().hasSuffix("hulu.com") == true && url.path.lowercased().contains("/series/")
+    private static func isTrustedHuluURL(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == "https"
+            && isTrustedHost(url.host, for: .hulu)
+    }
+
+    private static func huluSeriesLookupURL(title: String) -> URL? {
+        let slug = title
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US"))
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+        guard !slug.isEmpty else { return nil }
+        return URL(string: "https://www.hulu.com/series/\(slug)")
     }
 
     private static func isTrustedHost(_ rawHost: String?, for kind: StreamingProviderKind) -> Bool {
