@@ -42,6 +42,8 @@ final class GeminiClipIdentificationService {
     private let fallbackModels: [String]
     private let retryDelayNanoseconds: UInt64
 
+    static let maximumUploadSizeBytes = 100 * 1_024 * 1_024
+
     init(
         session: URLSession = .shared,
         apiKeyProvider: @escaping APIKeyProvider = { GeminiConfiguration.apiKey },
@@ -84,9 +86,9 @@ final class GeminiClipIdentificationService {
             metadata: metadata,
             videoReference: videoReference
         )
-        let data: Data
+        let payload: GeminiIdentificationPayload
         do {
-            data = try await generateContent(
+            payload = try await generateIdentificationPayload(
                 body: requestBody,
                 preferredModel: model,
                 apiKey: apiKey
@@ -96,8 +98,6 @@ final class GeminiClipIdentificationService {
             throw error
         }
         await deleteUploadedFile(videoReference?.uploadedFileName, apiKey: apiKey)
-
-        let payload = try decodePayload(from: data)
         guard payload.matchFound, !payload.candidates.isEmpty else {
             throw SceneFindError.noLikelyMatch
         }
@@ -323,6 +323,26 @@ final class GeminiClipIdentificationService {
         throw SceneFindError.geminiServiceBusy
     }
 
+    private func generateIdentificationPayload(
+        body: [String: Any],
+        preferredModel: String,
+        apiKey: String
+    ) async throws -> GeminiIdentificationPayload {
+        for attempt in 0..<2 {
+            let data = try await generateContent(
+                body: body,
+                preferredModel: preferredModel,
+                apiKey: apiKey
+            )
+            do {
+                return try decodePayload(from: data)
+            } catch SceneFindError.geminiInvalidResponse where attempt == 0 {
+                continue
+            }
+        }
+        throw SceneFindError.geminiInvalidResponse
+    }
+
     private func isValidModelName(_ model: String) -> Bool {
         !model.isEmpty
             && model.range(of: #"^[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil
@@ -374,8 +394,9 @@ final class GeminiClipIdentificationService {
             ],
             "contents": [["role": "user", "parts": parts]],
             "generationConfig": [
+                "thinkingConfig": ["thinkingLevel": "LOW"],
                 "temperature": 0.2,
-                "maxOutputTokens": 4_096,
+                "maxOutputTokens": 8_192,
                 "responseFormat": [
                     "text": [
                         "mimeType": "APPLICATION_JSON",
@@ -519,7 +540,7 @@ final class GeminiClipIdentificationService {
         apiKey: String
     ) async throws -> VideoReference {
         var downloadRequest = URLRequest(url: videoURL)
-        downloadRequest.timeoutInterval = min(requestTimeoutSeconds, 45)
+        downloadRequest.timeoutInterval = min(requestTimeoutSeconds, 90)
         downloadRequest.setValue(
             "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
             forHTTPHeaderField: "User-Agent"
@@ -529,7 +550,7 @@ final class GeminiClipIdentificationService {
         }
         let downloaded = try await data(
             for: downloadRequest,
-            timeoutSeconds: min(requestTimeoutSeconds, 45)
+            timeoutSeconds: min(requestTimeoutSeconds, 90)
         )
         guard let http = downloaded.response as? HTTPURLResponse,
               200..<300 ~= http.statusCode,
@@ -551,8 +572,8 @@ final class GeminiClipIdentificationService {
         displayName: String,
         apiKey: String
     ) async throws -> VideoReference {
-        guard mediaData.count <= 30 * 1_024 * 1_024 else {
-            throw SceneFindError.geminiRequestFailed("This clip is too large to analyze. Choose a clip under 30 MB.")
+        guard mediaData.count <= Self.maximumUploadSizeBytes else {
+            throw SceneFindError.geminiRequestFailed("This clip is too large to analyze. Choose a clip under 100 MB.")
         }
         guard let startURL = URL(string: "https://generativelanguage.googleapis.com/upload/v1beta/files") else {
             throw SceneFindError.geminiRequestFailed("The Gemini upload endpoint is invalid.")
@@ -596,7 +617,7 @@ final class GeminiClipIdentificationService {
 
     private func waitForActiveFile(_ initialFile: GeminiFile, apiKey: String) async throws -> GeminiFile {
         var file = initialFile
-        for _ in 0..<20 {
+        for _ in 0..<60 {
             if file.state?.uppercased() == "ACTIVE" { return file }
             if file.state?.uppercased() == "FAILED" {
                 throw SceneFindError.geminiRequestFailed("Gemini could not process the TikTok video.")

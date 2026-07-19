@@ -54,6 +54,9 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
             XCTAssertTrue(instructions.contains("Analyze evidence before choosing a title"))
             XCTAssertTrue(instructions.contains("captions, hashtags, usernames"))
             let generationConfig = try XCTUnwrap(json["generationConfig"] as? [String: Any])
+            let thinkingConfig = try XCTUnwrap(generationConfig["thinkingConfig"] as? [String: Any])
+            XCTAssertEqual(thinkingConfig["thinkingLevel"] as? String, "LOW")
+            XCTAssertEqual(generationConfig["maxOutputTokens"] as? Int, 8_192)
             let responseFormat = try XCTUnwrap(generationConfig["responseFormat"] as? [String: Any])
             let textFormat = try XCTUnwrap(responseFormat["text"] as? [String: Any])
             XCTAssertEqual(textFormat["mimeType"] as? String, "APPLICATION_JSON")
@@ -127,6 +130,78 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         XCTAssertEqual(result.analysisDetails.visualEvidence, ["Two characters argue in a hospital corridor."])
         XCTAssertEqual(result.analysisDetails.directMediaAnalyzed, true)
         XCTAssertEqual(requestCount, 1)
+    }
+
+    func testEmptyGeminiResponseRetriesOnce() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GeminiStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        var requestCount = 0
+
+        GeminiStubURLProtocol.requestHandler = { request in
+            requestCount += 1
+            if requestCount == 1 {
+                let response = try XCTUnwrap(HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                ))
+                let data = Data(
+                    #"{"candidates":[{"content":{"parts":[]},"finishReason":"MAX_TOKENS"}]}"#.utf8
+                )
+                return (response, data)
+            }
+            return try Self.geminiResponse(text: """
+                {
+                  "match_found": true,
+                  "detected_dialogue": "That is the plan.",
+                  "visual_evidence": ["Two people talk in a kitchen."],
+                  "candidates": [{
+                    "media_title": "Recovered Show",
+                    "media_type": "tv",
+                    "release_year": 2024,
+                    "season_number": 1,
+                    "episode_number": 2,
+                    "episode_title": "The Plan",
+                    "clip_start_seconds": null,
+                    "clip_end_seconds": null,
+                    "matching_subtitle": "That is the plan.",
+                    "confidence": 0.8,
+                    "dialogue_score": 0.8,
+                    "visual_score": 0.7,
+                    "metadata_score": 0.1,
+                    "hero_image_url": null,
+                    "watch_providers": []
+                  }]
+                }
+                """)
+        }
+
+        let service = GeminiClipIdentificationService(
+            session: session,
+            apiKeyProvider: { "gemini-test-key" },
+            modelProvider: { "gemini-test" },
+            artworkService: NoArtworkService()
+        )
+        let result = try await service.identify(
+            request: SharedClipRequest(
+                sourceType: .url,
+                sourcePlatform: .youtube,
+                originalURL: URL(string: "https://www.youtube.com/shorts/example")
+            ),
+            metadata: nil
+        )
+
+        XCTAssertEqual(result.topCandidate.mediaTitle, "Recovered Show")
+        XCTAssertEqual(requestCount, 2)
+    }
+
+    func testTikTokUploadLimitCoversLargePublicClips() {
+        XCTAssertGreaterThanOrEqual(
+            GeminiClipIdentificationService.maximumUploadSizeBytes,
+            35 * 1_024 * 1_024
+        )
     }
 
     func testCommonJSONTypeVariationsAreRecovered() async throws {
