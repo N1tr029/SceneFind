@@ -26,6 +26,7 @@
 		2AAF29101D8E23BE13CC7781 /* SubtitleMatchingEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44B30EFCC82014B5312275A0 /* SubtitleMatchingEngine.swift */; };
 		2D0B649521AE19B509A537AE /* SharedContainerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D40BB961A6803FBE6183E02 /* SharedContainerStore.swift */; };
 		30679113012EE20F789E6821 /* AnalysisModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B10982E4D5FCCE2C44945FE /* AnalysisModels.swift */; };
+		353E31ABD9160E4B711A058B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2FCFDD9A6E6C149968FF7681 /* Assets.xcassets */; };
 		35795F3A482446984BDCAF2F /* KnownClipCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA69A90CB6659809AC49E56A /* KnownClipCatalog.swift */; };
 		35DDB5DEDD9E2A97BD007159 /* GeminiConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 574A7CBCE92330CF38158294 /* GeminiConfiguration.swift */; };
 		365462FA8E7BFD6E1E091CCC /* AppGroupConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D2EEF19C24D77FCBAF05F24 /* AppGroupConfiguration.swift */; };
@@ -136,6 +137,7 @@
 		21B8938B737E6B2B7D2CAC41 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		2466D94DFC0F28D100F60BBC /* MediaModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaModels.swift; sourceTree = "<group>"; };
 		2AA7A699673FAC1E7EB45DA5 /* ShareExtensionViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareExtensionViewModel.swift; sourceTree = "<group>"; };
+		2FCFDD9A6E6C149968FF7681 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		399636CCF2B2FF744E0C4BAF /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		39D565CBBD1EFBF60F18609E /* SharedURLExtractorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedURLExtractorTests.swift; sourceTree = "<group>"; };
 		3AAFE66E592C751DCC1776EB /* ResultRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultRepository.swift; sourceTree = "<group>"; };
@@ -291,6 +293,7 @@
 		C8832142CEED8C9002C28957 /* SceneFindApp */ = {
 			isa = PBXGroup;
 			children = (
+				2FCFDD9A6E6C149968FF7681 /* Assets.xcassets */,
 				97655876A8BE956A74A41873 /* Info.plist */,
 				B4BFC8EF51F0010E59EF91CA /* SceneFind.entitlements */,
 				A5612D9CAC63B4AC53F9F424 /* App */,
@@ -408,6 +411,7 @@
 			buildConfigurationList = 868E103BE24C460996E61E65 /* Build configuration list for PBXNativeTarget "SceneFind" */;
 			buildPhases = (
 				E0948EBC23499FD191559D3B /* Sources */,
+				79042F972C269BC7FB0F9B1F /* Resources */,
 				BEE3A20D47F444EB728FE70A /* Embed Foundation Extensions */,
 				3AC23887FD809C88B6316664 /* Embed Local Prototype Secrets */,
 			);
@@ -433,26 +437,16 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					239A35AA739FA10354ABC673 = {
-						DevelopmentTeam = "";
+						DevelopmentTeam = T4VT6R837D;
 						ProvisioningStyle = Automatic;
 					};
 					26173BCDEE3B2FED31EFAD77 = {
-						DevelopmentTeam = "";
+						DevelopmentTeam = T4VT6R837D;
 						ProvisioningStyle = Automatic;
-						SystemCapabilities = {
-							com.apple.ApplicationGroups.iOS = {
-								enabled = 1;
-							};
-						};
 					};
 					EF200D55D1735256BC050C32 = {
-						DevelopmentTeam = "";
+						DevelopmentTeam = T4VT6R837D;
 						ProvisioningStyle = Automatic;
-						SystemCapabilities = {
-							com.apple.ApplicationGroups.iOS = {
-								enabled = 1;
-							};
-						};
 					};
 				};
 			};
@@ -476,6 +470,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		79042F972C269BC7FB0F9B1F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				353E31ABD9160E4B711A058B /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
 		3AC23887FD809C88B6316664 /* Embed Local Prototype Secrets */ = {
@@ -655,7 +660,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = T4VT6R837D;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -687,7 +692,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.SceneFindTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kavigandham.scenefind.Tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SceneFind.app/SceneFind";
@@ -705,7 +710,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.SceneFind;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kavigandham.scenefind;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -721,7 +726,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.SceneFindTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kavigandham.scenefind.Tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SceneFind.app/SceneFind";
@@ -738,7 +743,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.SceneFind.ShareExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kavigandham.scenefind.ShareExtension;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -780,7 +785,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = T4VT6R837D;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -819,7 +824,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.SceneFind.ShareExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kavigandham.scenefind.ShareExtension;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -836,7 +841,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.SceneFind;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kavigandham.scenefind;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
 			};

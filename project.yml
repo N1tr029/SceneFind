@@ -1,13 +1,13 @@
 name: SceneFind
 options:
-  bundleIdPrefix: com.example
+  bundleIdPrefix: com.kavigandham
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    DEVELOPMENT_TEAM: ""
+    DEVELOPMENT_TEAM: T4VT6R837D
     CODE_SIGN_STYLE: Automatic
 targets:
   SceneFind:
@@ -29,7 +29,7 @@ targets:
           fi
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.SceneFind
+        PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.scenefind
         INFOPLIST_FILE: SceneFindApp/Info.plist
         CODE_SIGN_ENTITLEMENTS: SceneFindApp/SceneFind.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -45,7 +45,7 @@ targets:
       - Shared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.SceneFind.ShareExtension
+        PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.scenefind.ShareExtension
         INFOPLIST_FILE: SceneFindShareExtension/Info.plist
         CODE_SIGN_ENTITLEMENTS: SceneFindShareExtension/SceneFindShareExtension.entitlements
   SceneFindTests:
@@ -56,7 +56,7 @@ targets:
       - Shared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.SceneFindTests
+        PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.scenefind.Tests
         INFOPLIST_FILE: SceneFindTests/Info.plist
     dependencies:
       - target: SceneFind
