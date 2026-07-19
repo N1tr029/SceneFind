@@ -112,6 +112,29 @@ struct AnalysisDetails: Codable, Hashable {
     let extractedFrameCount: Int
     let subtitleCandidatesCompared: Int
     let totalProcessingDuration: Double
+    let directMediaAnalyzed: Bool?
+    let visualEvidence: [String]?
+    let episodeVerificationEvidence: String?
+
+    init(
+        sourcePlatform: SharedPlatform,
+        sourceType: SharedSourceType,
+        extractedFrameCount: Int,
+        subtitleCandidatesCompared: Int,
+        totalProcessingDuration: Double,
+        directMediaAnalyzed: Bool? = nil,
+        visualEvidence: [String]? = nil,
+        episodeVerificationEvidence: String? = nil
+    ) {
+        self.sourcePlatform = sourcePlatform
+        self.sourceType = sourceType
+        self.extractedFrameCount = extractedFrameCount
+        self.subtitleCandidatesCompared = subtitleCandidatesCompared
+        self.totalProcessingDuration = totalProcessingDuration
+        self.directMediaAnalyzed = directMediaAnalyzed
+        self.visualEvidence = visualEvidence
+        self.episodeVerificationEvidence = episodeVerificationEvidence
+    }
 }
 
 struct VisualMatchScore: Codable, Hashable {

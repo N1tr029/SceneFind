@@ -131,6 +131,15 @@ struct ResultView: View {
                     Divider()
                     detailRow("Heard", result.detectedDialogue)
                     detailRow("Matched", result.topCandidate.matchedSubtitleText ?? "No subtitle line matched")
+                    if result.analysisDetails.directMediaAnalyzed == true {
+                        let observations = result.analysisDetails.visualEvidence ?? []
+                        detailRow("Saw", observations.isEmpty
+                            ? "No visual observations returned"
+                            : observations.joined(separator: "\n"))
+                    }
+                    if let verification = result.analysisDetails.episodeVerificationEvidence {
+                        detailRow("Episode check", verification)
+                    }
                     detailRow("Source", "\(result.analysisDetails.sourcePlatform.label) · \(result.analysisDetails.sourceType.label)")
                 }
                 .padding(.top, 14)

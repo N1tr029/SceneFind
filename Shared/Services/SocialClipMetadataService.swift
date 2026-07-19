@@ -31,11 +31,13 @@ final class OEmbedSocialClipMetadataService: SocialClipMetadataService {
         let title: String?
         let authorName: String?
         let thumbnailURL: URL?
+        let html: String?
 
         enum CodingKeys: String, CodingKey {
             case title
             case authorName = "author_name"
             case thumbnailURL = "thumbnail_url"
+            case html
         }
     }
 
@@ -59,7 +61,7 @@ final class OEmbedSocialClipMetadataService: SocialClipMetadataService {
         }
         let decoded = try JSONDecoder().decode(Response.self, from: data)
         let pageMetadata = SharedPlatform.detect(url: url) == .tiktok
-            ? await tiktokPageMetadata(for: url)
+            ? await tiktokPageMetadata(for: url, oEmbedHTML: decoded.html)
             : nil
         return SocialClipMetadata(
             title: decoded.title,
@@ -70,7 +72,17 @@ final class OEmbedSocialClipMetadataService: SocialClipMetadataService {
         )
     }
 
-    private func tiktokPageMetadata(for url: URL) async -> TikTokPageMetadata? {
+    private func tiktokPageMetadata(for url: URL, oEmbedHTML: String?) async -> TikTokPageMetadata? {
+        if let videoID = oEmbedHTML.flatMap({ Self.tiktokVideoID(in: $0) })
+            ?? Self.tiktokVideoID(in: url.absoluteString),
+           let embedURL = URL(string: "https://www.tiktok.com/embed/v2/\(videoID)"),
+           let metadata = await tiktokPageMetadata(at: embedURL) {
+            return metadata
+        }
+        return await tiktokPageMetadata(at: url)
+    }
+
+    private func tiktokPageMetadata(at url: URL) async -> TikTokPageMetadata? {
         var request = URLRequest(url: url)
         request.timeoutInterval = 12
         request.setValue(
@@ -81,6 +93,17 @@ final class OEmbedSocialClipMetadataService: SocialClipMetadataService {
               let http = response as? HTTPURLResponse,
               200..<300 ~= http.statusCode else { return nil }
         return TikTokPageParser.metadata(from: data)
+    }
+
+    private static func tiktokVideoID(in value: String) -> String? {
+        let patterns = [#"data-video-id=[\"'](\d+)[\"']"#, #"/video/(\d+)"#]
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern),
+                  let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
+                  let range = Range(match.range(at: 1), in: value) else { continue }
+            return String(value[range])
+        }
+        return nil
     }
 
     private func endpoint(for url: URL) -> URL? {
@@ -111,21 +134,29 @@ struct TikTokPageMetadata: Equatable {
 
 enum TikTokPageParser {
     static func metadata(from data: Data) -> TikTokPageMetadata? {
-        guard let html = String(data: data, encoding: .utf8),
-              let scriptData = scriptJSON(in: html),
-              let root = try? JSONSerialization.jsonObject(with: scriptData) as? [String: Any],
-              let scope = root["__DEFAULT_SCOPE__"] as? [String: Any],
-              let detail = scope["webapp.video-detail"] as? [String: Any],
-              let itemInfo = detail["itemInfo"] as? [String: Any],
-              let item = itemInfo["itemStruct"] as? [String: Any] else { return nil }
+        guard let html = String(data: data, encoding: .utf8) else { return nil }
+        if let item = universalItem(in: html) {
+            return metadata(from: item)
+        }
+        if let item = embedItem(in: html) {
+            return metadata(from: item)
+        }
+        return nil
+    }
 
+    private static func metadata(from item: [String: Any]) -> TikTokPageMetadata? {
         let video = item["video"] as? [String: Any]
-        let videoURL = (video?["playAddr"] as? String).flatMap(URL.init(string:))
+        let videoURL = ((video?["urls"] as? [String])?.first).flatMap(URL.init(string:))
+            ?? (video?["playAddr"] as? String).flatMap(URL.init(string:))
             ?? (((video?["PlayAddrStruct"] as? [String: Any])?["UrlList"] as? [String])?.first)
                 .flatMap(URL.init(string:))
-        let thumbnailURL = (video?["originCover"] as? String).flatMap(URL.init(string:))
+        let thumbnailURL = ((item["coversOrigin"] as? [String])?.first).flatMap(URL.init(string:))
+            ?? ((item["covers"] as? [String])?.first).flatMap(URL.init(string:))
+            ?? (video?["originCover"] as? String).flatMap(URL.init(string:))
             ?? (video?["cover"] as? String).flatMap(URL.init(string:))
-        let hints = (item["suggestedWords"] as? [String] ?? [])
+        let challengeHints = (item["challengeInfoList"] as? [[String: Any]] ?? [])
+            .compactMap { $0["challengeName"] as? String }
+        let hints = ((item["suggestedWords"] as? [String] ?? []) + challengeHints)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
@@ -137,8 +168,31 @@ enum TikTokPageParser {
         )
     }
 
-    private static func scriptJSON(in html: String) -> Data? {
-        guard let idRange = html.range(of: "id=\"__UNIVERSAL_DATA_FOR_REHYDRATION__\""),
+    private static func universalItem(in html: String) -> [String: Any]? {
+        guard let scriptData = scriptJSON(id: "__UNIVERSAL_DATA_FOR_REHYDRATION__", in: html),
+              let root = try? JSONSerialization.jsonObject(with: scriptData) as? [String: Any],
+              let scope = root["__DEFAULT_SCOPE__"] as? [String: Any],
+              let detail = scope["webapp.video-detail"] as? [String: Any],
+              let itemInfo = detail["itemInfo"] as? [String: Any] else { return nil }
+        return itemInfo["itemStruct"] as? [String: Any]
+    }
+
+    private static func embedItem(in html: String) -> [String: Any]? {
+        guard let scriptData = scriptJSON(id: "__FRONTITY_CONNECT_STATE__", in: html),
+              let root = try? JSONSerialization.jsonObject(with: scriptData) as? [String: Any],
+              let source = root["source"] as? [String: Any],
+              let data = source["data"] as? [String: Any] else { return nil }
+        for value in data.values {
+            guard let page = value as? [String: Any],
+                  let videoData = page["videoData"] as? [String: Any],
+                  let item = videoData["itemInfos"] as? [String: Any] else { continue }
+            return item
+        }
+        return nil
+    }
+
+    private static func scriptJSON(id: String, in html: String) -> Data? {
+        guard let idRange = html.range(of: "id=\"\(id)\""),
               let openingTagEnd = html[idRange.upperBound...].firstIndex(of: ">"),
               let closingTag = html.range(of: "</script>", range: openingTagEnd..<html.endIndex) else {
             return nil

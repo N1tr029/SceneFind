@@ -22,6 +22,7 @@ enum SceneFindError: LocalizedError {
     case geminiCreditsDepleted
     case geminiServiceBusy
     case geminiRequestTimedOut
+    case directVideoUnavailable
     case geminiInvalidResponse
     case geminiRequestFailed(String)
 
@@ -48,6 +49,7 @@ enum SceneFindError: LocalizedError {
         case .geminiCreditsDepleted: "This Gemini key belongs to a project with depleted prepaid credits. Replace it with a key from a free-tier AI Studio project or add credits."
         case .geminiServiceBusy: "Gemini is temporarily busy. SceneFind tried the available fallback models; wait a moment and try again."
         case .geminiRequestTimedOut: "Gemini took too long to analyze this video. Try again or use a shorter public clip."
+        case .directVideoUnavailable: "SceneFind could not read the TikTok video itself, so it stopped instead of guessing from its caption. Try again or import the clip."
         case .geminiInvalidResponse: "Gemini answered, but SceneFind could not finish reading the result. Try again."
         case .geminiRequestFailed(let message): "Gemini request failed: \(message)"
         }
@@ -66,6 +68,7 @@ enum SceneFindError: LocalizedError {
         case .geminiCreditsDepleted: "Gemini project needs credits"
         case .geminiServiceBusy: "Gemini is busy"
         case .geminiRequestTimedOut: "Video analysis timed out"
+        case .directVideoUnavailable: "Video unavailable"
         case .geminiInvalidResponse: "Couldn't read the result"
         case .geminiRequestFailed: "Gemini unavailable"
         default: "Analysis failed"
