@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 final class GeminiClipIdentificationService {
     typealias APIKeyProvider = () -> String?
     typealias ModelProvider = () -> String
+    typealias DeepSeekAPIKeyProvider = () -> String?
 
     private struct NetworkResponse {
         let data: Data
@@ -41,6 +42,7 @@ final class GeminiClipIdentificationService {
     private let artworkService: TitleArtworkService
     private let fallbackModels: [String]
     private let retryDelayNanoseconds: UInt64
+    private let deepSeekAPIKeyProvider: DeepSeekAPIKeyProvider
 
     static let maximumUploadSizeBytes = 100 * 1_024 * 1_024
 
@@ -51,7 +53,8 @@ final class GeminiClipIdentificationService {
         requestTimeoutSeconds: TimeInterval = 120,
         artworkService: TitleArtworkService? = nil,
         fallbackModels: [String] = ["gemini-3.1-flash-lite", "gemini-2.5-flash"],
-        retryDelayNanoseconds: UInt64 = 1_000_000_000
+        retryDelayNanoseconds: UInt64 = 1_000_000_000,
+        deepSeekAPIKeyProvider: @escaping DeepSeekAPIKeyProvider = { DeepSeekConfiguration.apiKey }
     ) {
         self.session = session
         self.apiKeyProvider = apiKeyProvider
@@ -60,6 +63,7 @@ final class GeminiClipIdentificationService {
         self.artworkService = artworkService ?? PublicTitleArtworkService(session: session)
         self.fallbackModels = fallbackModels
         self.retryDelayNanoseconds = retryDelayNanoseconds
+        self.deepSeekAPIKeyProvider = deepSeekAPIKeyProvider
     }
 
     func identify(
@@ -203,6 +207,18 @@ final class GeminiClipIdentificationService {
 
             Set match_verified=true only when the dialogue and visual events clearly agree with one guide entry. Treat the preliminary episode as an untrusted guess. Copy the season, episode, and exact title from the selected guide entry. If no entry is a clear fit, return match_verified=false and null episode fields. clip_start_seconds and clip_end_seconds are positions in the full episode and must be null unless directly supported. verification_evidence must briefly explain which dialogue, visual details, and guide summary facts agree. Return only the requested JSON object.
             """
+
+        if let deepSeekKey = deepSeekAPIKeyProvider()?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !deepSeekKey.isEmpty {
+            do {
+                return try await verifyEpisodeWithDeepSeek(prompt: prompt, apiKey: deepSeekKey)
+            } catch {
+                #if DEBUG
+                print("DeepSeek verification unavailable; falling back to Gemini: \(error.localizedDescription)")
+                #endif
+            }
+        }
+
         let body: [String: Any] = [
             "contents": [["role": "user", "parts": [["text": prompt]]]],
             "generationConfig": [
@@ -219,6 +235,48 @@ final class GeminiClipIdentificationService {
         let request = try makeRequest(endpoint: endpoint, apiKey: apiKey, body: body)
         let data = try await responseData(for: request, timeoutSeconds: min(requestTimeoutSeconds, 60))
         guard let json = try jsonObjectData(from: outputText(from: data)) else {
+            throw SceneFindError.geminiInvalidResponse
+        }
+        return try JSONDecoder().decode(GeminiEpisodeVerificationPayload.self, from: json)
+    }
+
+    private func verifyEpisodeWithDeepSeek(
+        prompt: String,
+        apiKey: String
+    ) async throws -> GeminiEpisodeVerificationPayload {
+        guard let endpoint = URL(string: "https://api.deepseek.com/chat/completions") else {
+            throw URLError(.badURL)
+        }
+        let body: [String: Any] = [
+            "model": DeepSeekConfiguration.model,
+            "messages": [
+                [
+                    "role": "system",
+                    "content": "Return only one valid JSON object with the exact keys requested by the user."
+                ],
+                ["role": "user", "content": prompt]
+            ],
+            "thinking": ["type": "disabled"],
+            "response_format": ["type": "json_object"],
+            "temperature": 0.1,
+            "max_tokens": 2_048
+        ]
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = min(requestTimeoutSeconds, 60)
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let response = try await data(for: request, timeoutSeconds: min(requestTimeoutSeconds, 60))
+        guard let http = response.response as? HTTPURLResponse,
+              200..<300 ~= http.statusCode else {
+            throw URLError(.badServerResponse)
+        }
+        let envelope = try JSONDecoder().decode(DeepSeekChatResponse.self, from: response.data)
+        guard let content = envelope.choices.first?.message.content,
+              let json = jsonObjectData(from: content) else {
             throw SceneFindError.geminiInvalidResponse
         }
         return try JSONDecoder().decode(GeminiEpisodeVerificationPayload.self, from: json)
@@ -880,6 +938,14 @@ private struct GeminiGenerateContentResponse: Decodable {
 private struct GeminiAPIErrorEnvelope: Decodable {
     struct APIError: Decodable { let message: String }
     let error: APIError
+}
+
+private struct DeepSeekChatResponse: Decodable {
+    struct Choice: Decodable {
+        struct Message: Decodable { let content: String? }
+        let message: Message
+    }
+    let choices: [Choice]
 }
 
 private struct GeminiFileEnvelope: Decodable {

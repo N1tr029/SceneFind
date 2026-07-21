@@ -465,6 +465,40 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
                 let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
                 return (response, try JSONSerialization.data(withJSONObject: guide))
             }
+            if url.host == "api.deepseek.com" {
+                verificationCallCount += 1
+                XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer deepseek-test-key")
+                let body = try XCTUnwrap(Self.bodyData(from: request))
+                let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+                XCTAssertEqual(json["model"] as? String, "deepseek-v4-flash")
+                XCTAssertEqual((json["thinking"] as? [String: Any])?["type"] as? String, "disabled")
+                XCTAssertEqual((json["response_format"] as? [String: Any])?["type"] as? String, "json_object")
+                let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
+                XCTAssertTrue((messages.last?["content"] as? String)?.contains("Episode guide entries:") == true)
+
+                let verification: [String: Any] = [
+                    "match_verified": true,
+                    "season_number": 2,
+                    "episode_number": 2,
+                    "episode_title": "Mama Drama",
+                    "clip_start_seconds": NSNull(),
+                    "clip_end_seconds": NSNull(),
+                    "matching_subtitle": "Ron Hextall scores the final goal!",
+                    "verification_evidence": "The Flyers, traffic, and unprecedented goal match the Mama Drama guide summary."
+                ]
+                let verificationData = try JSONSerialization.data(withJSONObject: verification)
+                let content = try XCTUnwrap(String(data: verificationData, encoding: .utf8))
+                let envelope: [String: Any] = [
+                    "choices": [["message": ["content": content]]]
+                ]
+                let response = try XCTUnwrap(HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                ))
+                return (response, try JSONSerialization.data(withJSONObject: envelope))
+            }
 
             let requestBody = try XCTUnwrap(Self.bodyData(from: request))
             let requestJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
@@ -538,7 +572,8 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
             session: session,
             apiKeyProvider: { "gemini-test-key" },
             modelProvider: { "gemini-test" },
-            artworkService: NoArtworkService()
+            artworkService: NoArtworkService(),
+            deepSeekAPIKeyProvider: { "deepseek-test-key" }
         )
         let clipThumbnail = try XCTUnwrap(URL(string: "https://cdn.example/tiktok-thumbnail.jpg"))
         let metadata = SocialClipMetadata(

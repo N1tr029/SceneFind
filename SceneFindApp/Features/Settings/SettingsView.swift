@@ -6,6 +6,9 @@ struct SettingsView: View {
     @State private var modelName = "gemini-3.5-flash"
     @State private var keyStatus: KeyStatus = .notConfigured
     @State private var isAPIKeyVisible = false
+    @State private var deepSeekAPIKey = ""
+    @State private var deepSeekKeyStatus: KeyStatus = .notConfigured
+    @State private var isDeepSeekAPIKeyVisible = false
 
     private enum KeyStatus: Equatable {
         case notConfigured
@@ -117,6 +120,59 @@ struct SettingsView: View {
                                 keyStatus = GeminiConfiguration.storageLocation == .bundledDefault ? .bundledDefault : .notConfigured
                             }
                         }
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("DeepSeek episode verification", systemImage: "checkmark.seal.fill")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Optional. Uses DeepSeek credits when available and falls back to Gemini automatically.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        HStack(spacing: 8) {
+                            Group {
+                                if isDeepSeekAPIKeyVisible {
+                                    TextField("DeepSeek API key", text: $deepSeekAPIKey)
+                                } else {
+                                    SecureField("DeepSeek API key", text: $deepSeekAPIKey)
+                                }
+                            }
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .privacySensitive()
+
+                            Button {
+                                isDeepSeekAPIKeyVisible.toggle()
+                            } label: {
+                                Image(systemName: isDeepSeekAPIKeyVisible ? "eye.slash" : "eye")
+                                    .frame(width: 30, height: 30)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(isDeepSeekAPIKeyVisible ? "Hide DeepSeek API key" : "Show DeepSeek API key")
+                        }
+
+                        Label(deepSeekKeyStatus.label, systemImage: deepSeekKeyStatus.symbol)
+                            .font(.caption)
+                            .foregroundStyle(deepSeekKeyStatus.color)
+
+                        Button {
+                            saveDeepSeekSettings()
+                        } label: {
+                            Label("Save DeepSeek key", systemImage: "key.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(deepSeekAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                        if deepSeekKeyStatus == .keychain || deepSeekKeyStatus == .debugLocalStorage {
+                            Button("Remove DeepSeek key", role: .destructive) {
+                                DeepSeekConfiguration.clearAPIKey()
+                                deepSeekAPIKey = ""
+                                deepSeekKeyStatus = .notConfigured
+                            }
+                        }
                     }
                 }
             }
@@ -128,7 +184,7 @@ struct SettingsView: View {
             Section("Privacy") {
                 LabeledContent("Social accounts", value: "Not accessed")
                 LabeledContent("Streaming accounts", value: "Not accessed")
-                Text("Public clip data is sent to Gemini for identification. Service access selections stay on this device.")
+                Text("Public clip data is sent to Gemini for identification. When configured, transcripts and episode evidence may be sent to DeepSeek for verification. Service access selections stay on this device.")
                     .font(.footnote)
             }
 
@@ -161,6 +217,7 @@ struct SettingsView: View {
                 apiKey = ""
                 keyStatus = .notConfigured
             }
+            loadDeepSeekSettings()
         }
     }
 
@@ -182,6 +239,24 @@ struct SettingsView: View {
         case .keychain: keyStatus = .keychain
         case .debugLocalStorage: keyStatus = .debugLocalStorage
         case .failed(let status): keyStatus = .failed(status)
+        }
+    }
+
+    private func loadDeepSeekSettings() {
+        deepSeekAPIKey = DeepSeekConfiguration.apiKey ?? ""
+        switch DeepSeekConfiguration.storageLocation {
+        case .keychain: deepSeekKeyStatus = .keychain
+        case .debugLocalStorage: deepSeekKeyStatus = .debugLocalStorage
+        case .none: deepSeekKeyStatus = .notConfigured
+        }
+    }
+
+    private func saveDeepSeekSettings() {
+        let result = DeepSeekConfiguration.saveAPIKey(deepSeekAPIKey)
+        switch result {
+        case .keychain: deepSeekKeyStatus = .keychain
+        case .debugLocalStorage: deepSeekKeyStatus = .debugLocalStorage
+        case .failed(let status): deepSeekKeyStatus = .failed(status)
         }
     }
 }
