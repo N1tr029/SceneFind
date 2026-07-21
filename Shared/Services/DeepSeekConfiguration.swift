@@ -11,6 +11,7 @@ enum DeepSeekConfiguration {
     enum StorageLocation: Equatable {
         case keychain
         case debugLocalStorage
+        case bundledDefault
         case none
     }
 
@@ -38,7 +39,7 @@ enum DeepSeekConfiguration {
             return value
         }
         #endif
-        return nil
+        return bundledAPIKey
     }
 
     @discardableResult
@@ -75,6 +76,7 @@ enum DeepSeekConfiguration {
             return .debugLocalStorage
         }
         #endif
+        if bundledAPIKey != nil { return .bundledDefault }
         return .none
     }
 
@@ -86,6 +88,17 @@ enum DeepSeekConfiguration {
     }
 
     static var isConfigured: Bool { apiKey != nil }
+
+    private static var bundledAPIKey: String? {
+        guard let url = Bundle.main.url(forResource: "PrototypeSecrets", withExtension: "plist"),
+              let data = try? Data(contentsOf: url),
+              let values = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let value = values["DeepSeekAPIKey"] as? String else {
+            return nil
+        }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 
     private static var baseQuery: [String: Any] {
         [

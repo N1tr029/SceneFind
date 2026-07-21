@@ -167,10 +167,9 @@ struct SettingsView: View {
                         .disabled(deepSeekAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                         if deepSeekKeyStatus == .keychain || deepSeekKeyStatus == .debugLocalStorage {
-                            Button("Remove DeepSeek key", role: .destructive) {
+                            Button("Restore bundled DeepSeek default", role: .destructive) {
                                 DeepSeekConfiguration.clearAPIKey()
-                                deepSeekAPIKey = ""
-                                deepSeekKeyStatus = .notConfigured
+                                loadDeepSeekSettings()
                             }
                         }
                     }
@@ -247,6 +246,7 @@ struct SettingsView: View {
         switch DeepSeekConfiguration.storageLocation {
         case .keychain: deepSeekKeyStatus = .keychain
         case .debugLocalStorage: deepSeekKeyStatus = .debugLocalStorage
+        case .bundledDefault: deepSeekKeyStatus = .bundledDefault
         case .none: deepSeekKeyStatus = .notConfigured
         }
     }
