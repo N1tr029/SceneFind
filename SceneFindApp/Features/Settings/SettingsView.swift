@@ -6,9 +6,9 @@ struct SettingsView: View {
     @State private var modelName = "gemini-3.5-flash"
     @State private var keyStatus: KeyStatus = .notConfigured
     @State private var isAPIKeyVisible = false
-    @State private var deepSeekAPIKey = ""
-    @State private var deepSeekKeyStatus: KeyStatus = .notConfigured
-    @State private var isDeepSeekAPIKeyVisible = false
+    @State private var groqAPIKey = ""
+    @State private var groqKeyStatus: KeyStatus = .notConfigured
+    @State private var isGroqAPIKeyVisible = false
 
     private enum KeyStatus: Equatable {
         case notConfigured
@@ -124,19 +124,19 @@ struct SettingsView: View {
                         Divider()
 
                         VStack(alignment: .leading, spacing: 4) {
-                            Label("DeepSeek episode verification", systemImage: "checkmark.seal.fill")
+                            Label("Groq episode verification", systemImage: "checkmark.seal.fill")
                                 .font(.subheadline.weight(.semibold))
-                            Text("Optional. Uses DeepSeek credits when available and falls back to Gemini automatically.")
+                            Text("Uses Groq's free plan when available and falls back to Gemini automatically.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
 
                         HStack(spacing: 8) {
                             Group {
-                                if isDeepSeekAPIKeyVisible {
-                                    TextField("DeepSeek API key", text: $deepSeekAPIKey)
+                                if isGroqAPIKeyVisible {
+                                    TextField("Groq API key", text: $groqAPIKey)
                                 } else {
-                                    SecureField("DeepSeek API key", text: $deepSeekAPIKey)
+                                    SecureField("Groq API key", text: $groqAPIKey)
                                 }
                             }
                             .textInputAutocapitalization(.never)
@@ -144,32 +144,32 @@ struct SettingsView: View {
                             .privacySensitive()
 
                             Button {
-                                isDeepSeekAPIKeyVisible.toggle()
+                                isGroqAPIKeyVisible.toggle()
                             } label: {
-                                Image(systemName: isDeepSeekAPIKeyVisible ? "eye.slash" : "eye")
+                                Image(systemName: isGroqAPIKeyVisible ? "eye.slash" : "eye")
                                     .frame(width: 30, height: 30)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel(isDeepSeekAPIKeyVisible ? "Hide DeepSeek API key" : "Show DeepSeek API key")
+                            .accessibilityLabel(isGroqAPIKeyVisible ? "Hide Groq API key" : "Show Groq API key")
                         }
 
-                        Label(deepSeekKeyStatus.label, systemImage: deepSeekKeyStatus.symbol)
+                        Label(groqKeyStatus.label, systemImage: groqKeyStatus.symbol)
                             .font(.caption)
-                            .foregroundStyle(deepSeekKeyStatus.color)
+                            .foregroundStyle(groqKeyStatus.color)
 
                         Button {
-                            saveDeepSeekSettings()
+                            saveGroqSettings()
                         } label: {
-                            Label("Save DeepSeek key", systemImage: "key.fill")
+                            Label("Save Groq key", systemImage: "key.fill")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
-                        .disabled(deepSeekAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(groqAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-                        if deepSeekKeyStatus == .keychain || deepSeekKeyStatus == .debugLocalStorage {
-                            Button("Restore bundled DeepSeek default", role: .destructive) {
-                                DeepSeekConfiguration.clearAPIKey()
-                                loadDeepSeekSettings()
+                        if groqKeyStatus == .keychain || groqKeyStatus == .debugLocalStorage {
+                            Button("Restore bundled Groq default", role: .destructive) {
+                                GroqConfiguration.clearAPIKey()
+                                loadGroqSettings()
                             }
                         }
                     }
@@ -183,7 +183,7 @@ struct SettingsView: View {
             Section("Privacy") {
                 LabeledContent("Social accounts", value: "Not accessed")
                 LabeledContent("Streaming accounts", value: "Not accessed")
-                Text("Public clip data is sent to Gemini for identification. When configured, transcripts and episode evidence may be sent to DeepSeek for verification. Service access selections stay on this device.")
+                Text("Public clip data is sent to Gemini for identification. Transcripts and episode evidence may be sent to Groq for verification. Service access selections stay on this device.")
                     .font(.footnote)
             }
 
@@ -216,7 +216,7 @@ struct SettingsView: View {
                 apiKey = ""
                 keyStatus = .notConfigured
             }
-            loadDeepSeekSettings()
+            loadGroqSettings()
         }
     }
 
@@ -241,22 +241,22 @@ struct SettingsView: View {
         }
     }
 
-    private func loadDeepSeekSettings() {
-        deepSeekAPIKey = DeepSeekConfiguration.apiKey ?? ""
-        switch DeepSeekConfiguration.storageLocation {
-        case .keychain: deepSeekKeyStatus = .keychain
-        case .debugLocalStorage: deepSeekKeyStatus = .debugLocalStorage
-        case .bundledDefault: deepSeekKeyStatus = .bundledDefault
-        case .none: deepSeekKeyStatus = .notConfigured
+    private func loadGroqSettings() {
+        groqAPIKey = GroqConfiguration.apiKey ?? ""
+        switch GroqConfiguration.storageLocation {
+        case .keychain: groqKeyStatus = .keychain
+        case .debugLocalStorage: groqKeyStatus = .debugLocalStorage
+        case .bundledDefault: groqKeyStatus = .bundledDefault
+        case .none: groqKeyStatus = .notConfigured
         }
     }
 
-    private func saveDeepSeekSettings() {
-        let result = DeepSeekConfiguration.saveAPIKey(deepSeekAPIKey)
+    private func saveGroqSettings() {
+        let result = GroqConfiguration.saveAPIKey(groqAPIKey)
         switch result {
-        case .keychain: deepSeekKeyStatus = .keychain
-        case .debugLocalStorage: deepSeekKeyStatus = .debugLocalStorage
-        case .failed(let status): deepSeekKeyStatus = .failed(status)
+        case .keychain: groqKeyStatus = .keychain
+        case .debugLocalStorage: groqKeyStatus = .debugLocalStorage
+        case .failed(let status): groqKeyStatus = .failed(status)
         }
     }
 }

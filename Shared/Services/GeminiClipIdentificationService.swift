@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 final class GeminiClipIdentificationService {
     typealias APIKeyProvider = () -> String?
     typealias ModelProvider = () -> String
-    typealias DeepSeekAPIKeyProvider = () -> String?
+    typealias GroqAPIKeyProvider = () -> String?
 
     private struct NetworkResponse {
         let data: Data
@@ -42,7 +42,7 @@ final class GeminiClipIdentificationService {
     private let artworkService: TitleArtworkService
     private let fallbackModels: [String]
     private let retryDelayNanoseconds: UInt64
-    private let deepSeekAPIKeyProvider: DeepSeekAPIKeyProvider
+    private let groqAPIKeyProvider: GroqAPIKeyProvider
 
     static let maximumUploadSizeBytes = 100 * 1_024 * 1_024
 
@@ -54,7 +54,7 @@ final class GeminiClipIdentificationService {
         artworkService: TitleArtworkService? = nil,
         fallbackModels: [String] = ["gemini-3.1-flash-lite", "gemini-2.5-flash"],
         retryDelayNanoseconds: UInt64 = 1_000_000_000,
-        deepSeekAPIKeyProvider: @escaping DeepSeekAPIKeyProvider = { DeepSeekConfiguration.apiKey }
+        groqAPIKeyProvider: @escaping GroqAPIKeyProvider = { GroqConfiguration.apiKey }
     ) {
         self.session = session
         self.apiKeyProvider = apiKeyProvider
@@ -63,7 +63,7 @@ final class GeminiClipIdentificationService {
         self.artworkService = artworkService ?? PublicTitleArtworkService(session: session)
         self.fallbackModels = fallbackModels
         self.retryDelayNanoseconds = retryDelayNanoseconds
-        self.deepSeekAPIKeyProvider = deepSeekAPIKeyProvider
+        self.groqAPIKeyProvider = groqAPIKeyProvider
     }
 
     func identify(
@@ -208,13 +208,13 @@ final class GeminiClipIdentificationService {
             Set match_verified=true only when the dialogue and visual events clearly agree with one guide entry. Treat the preliminary episode as an untrusted guess. Copy the season, episode, and exact title from the selected guide entry. If no entry is a clear fit, return match_verified=false and null episode fields. clip_start_seconds and clip_end_seconds are positions in the full episode and must be null unless directly supported. verification_evidence must briefly explain which dialogue, visual details, and guide summary facts agree. Return only the requested JSON object.
             """
 
-        if let deepSeekKey = deepSeekAPIKeyProvider()?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !deepSeekKey.isEmpty {
+        if let groqKey = groqAPIKeyProvider()?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !groqKey.isEmpty {
             do {
-                return try await verifyEpisodeWithDeepSeek(prompt: prompt, apiKey: deepSeekKey)
+                return try await verifyEpisodeWithGroq(prompt: prompt, apiKey: groqKey)
             } catch {
                 #if DEBUG
-                print("DeepSeek verification unavailable; falling back to Gemini: \(error.localizedDescription)")
+                print("Groq verification unavailable; falling back to Gemini: \(error.localizedDescription)")
                 #endif
             }
         }
@@ -240,15 +240,15 @@ final class GeminiClipIdentificationService {
         return try JSONDecoder().decode(GeminiEpisodeVerificationPayload.self, from: json)
     }
 
-    private func verifyEpisodeWithDeepSeek(
+    private func verifyEpisodeWithGroq(
         prompt: String,
         apiKey: String
     ) async throws -> GeminiEpisodeVerificationPayload {
-        guard let endpoint = URL(string: "https://api.deepseek.com/chat/completions") else {
+        guard let endpoint = URL(string: "https://api.groq.com/openai/v1/chat/completions") else {
             throw URLError(.badURL)
         }
         let body: [String: Any] = [
-            "model": DeepSeekConfiguration.model,
+            "model": GroqConfiguration.model,
             "messages": [
                 [
                     "role": "system",
@@ -256,10 +256,17 @@ final class GeminiClipIdentificationService {
                 ],
                 ["role": "user", "content": prompt]
             ],
-            "thinking": ["type": "disabled"],
-            "response_format": ["type": "json_object"],
+            "reasoning_effort": "low",
+            "response_format": [
+                "type": "json_schema",
+                "json_schema": [
+                    "name": "episode_verification",
+                    "strict": true,
+                    "schema": episodeVerificationResponseSchema
+                ]
+            ],
             "temperature": 0.1,
-            "max_tokens": 2_048
+            "max_completion_tokens": 2_048
         ]
 
         var request = URLRequest(url: endpoint)
@@ -274,7 +281,7 @@ final class GeminiClipIdentificationService {
               200..<300 ~= http.statusCode else {
             throw URLError(.badServerResponse)
         }
-        let envelope = try JSONDecoder().decode(DeepSeekChatResponse.self, from: response.data)
+        let envelope = try JSONDecoder().decode(GroqChatResponse.self, from: response.data)
         guard let content = envelope.choices.first?.message.content,
               let json = jsonObjectData(from: content) else {
             throw SceneFindError.geminiInvalidResponse
@@ -940,7 +947,7 @@ private struct GeminiAPIErrorEnvelope: Decodable {
     let error: APIError
 }
 
-private struct DeepSeekChatResponse: Decodable {
+private struct GroqChatResponse: Decodable {
     struct Choice: Decodable {
         struct Message: Decodable { let content: String? }
         let message: Message

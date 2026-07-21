@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-enum DeepSeekConfiguration {
+enum GroqConfiguration {
     enum SaveResult: Equatable {
         case keychain
         case debugLocalStorage
@@ -15,11 +15,11 @@ enum DeepSeekConfiguration {
         case none
     }
 
-    static let model = "deepseek-v4-flash"
+    static let model = "openai/gpt-oss-120b"
 
-    private static let service = "com.example.SceneFind.deepseek"
+    private static let service = "com.example.SceneFind.groq"
     private static let account = "episode-verification-api-key"
-    private static let debugAPIKey = "debugDeepSeekAPIKey.v1"
+    private static let debugAPIKey = "debugGroqAPIKey.v1"
 
     static var apiKey: String? {
         var query: [String: Any] = baseQuery
@@ -93,7 +93,7 @@ enum DeepSeekConfiguration {
         guard let url = Bundle.main.url(forResource: "PrototypeSecrets", withExtension: "plist"),
               let data = try? Data(contentsOf: url),
               let values = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              let value = values["DeepSeekAPIKey"] as? String else {
+              let value = values["GroqAPIKey"] as? String else {
             return nil
         }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
