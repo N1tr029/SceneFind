@@ -2,7 +2,7 @@ import Foundation
 
 enum ClipIdentificationServiceFactory {
     static func makeDefault() -> ClipIdentificationService {
-        #if DEBUG
+        #if DEBUG || SCENEFIND_TESTFLIGHT
         HybridClipIdentificationService()
         #else
         BackendClipIdentificationService()

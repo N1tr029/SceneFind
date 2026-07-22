@@ -1,9 +1,12 @@
 import Foundation
 import StoreKit
+#if SCENEFIND_TESTFLIGHT
+import CryptoKit
+#endif
 
 enum SubscriptionProductIDs {
-    static let monthly = "com.example.SceneFind.premium.monthly"
-    static let yearly = "com.example.SceneFind.premium.yearly"
+    static let monthly = "com.kavigandham.scenefind.premium.monthly"
+    static let yearly = "com.kavigandham.scenefind.premium.yearly"
     static let all = [monthly, yearly]
 }
 
@@ -45,13 +48,23 @@ final class SubscriptionManager: ObservableObject {
     @Published private(set) var accessState: SubscriptionAccessState = .loading
     @Published private(set) var purchaseInProgress = false
     @Published var lastErrorMessage: String?
+    #if SCENEFIND_TESTFLIGHT
+    @Published private(set) var testerAccessUnlocked: Bool
+    #endif
 
     private let defaults: UserDefaults
     private var updatesTask: Task<Void, Never>?
     private static let lastKnownPremiumKey = "subscription.lastKnownPremium.v1"
+    #if SCENEFIND_TESTFLIGHT
+    private static let testerAccessKey = "subscription.testFlightAccess.v1"
+    private static let testerCodeHash = "37afe9f64f07c42fd8dcecb0b3cc9917fdf98442f84022749f9762fcf2d5948f"
+    #endif
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        #if SCENEFIND_TESTFLIGHT
+        testerAccessUnlocked = defaults.bool(forKey: Self.testerAccessKey)
+        #endif
         updatesTask = observeTransactions()
         Task { await refresh() }
     }
@@ -60,7 +73,34 @@ final class SubscriptionManager: ObservableObject {
         updatesTask?.cancel()
     }
 
-    var hasPremiumAccess: Bool { accessState.hasPremiumAccess }
+    var hasPremiumAccess: Bool {
+        #if SCENEFIND_TESTFLIGHT
+        accessState.hasPremiumAccess || testerAccessUnlocked
+        #else
+        accessState.hasPremiumAccess
+        #endif
+    }
+
+    var accessLabel: String {
+        #if SCENEFIND_TESTFLIGHT
+        if testerAccessUnlocked { return "TestFlight full access" }
+        #endif
+        return accessState.label
+    }
+
+    #if SCENEFIND_TESTFLIGHT
+    @discardableResult
+    func unlockTesterAccess(code: String) -> Bool {
+        let normalized = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let digest = SHA256.hash(data: Data(normalized.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        guard digest == Self.testerCodeHash else { return false }
+        testerAccessUnlocked = true
+        defaults.set(true, forKey: Self.testerAccessKey)
+        return true
+    }
+    #endif
 
     func refresh() async {
         do {

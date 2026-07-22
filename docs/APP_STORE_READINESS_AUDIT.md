@@ -20,7 +20,7 @@
 
 ## P2 / External
 
-- Replace `com.example` identifiers, App Group, product IDs, and empty Development Team using the final Apple account.
+- Confirm the provisional monthly/yearly product IDs, prices, and subscription group in App Store Connect.
 - Deploy the backend proxy, StoreKit server notifications, App Attest, privacy policy, terms, account/data deletion, retention controls, and support URLs.
 - Add authenticated availability data. SceneFind currently records a user’s service access but does not connect to streaming accounts.
 - Complete App Store Connect products, prices, screenshots, privacy labels, review notes, and subscription localization.

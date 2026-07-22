@@ -21,20 +21,6 @@
                ReferencedContainer = "container:SceneFind.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "NO"
-            buildForProfiling = "NO"
-            buildForArchiving = "NO"
-            buildForAnalyzing = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "239A35AA739FA10354ABC673"
-               BuildableName = "SceneFindTests.xctest"
-               BlueprintName = "SceneFindTests"
-               ReferencedContainer = "container:SceneFind.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -53,23 +39,10 @@
          </BuildableReference>
       </MacroExpansion>
       <Testables>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "239A35AA739FA10354ABC673"
-               BuildableName = "SceneFindTests.xctest"
-               BlueprintName = "SceneFindTests"
-               ReferencedContainer = "container:SceneFind.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
       </Testables>
-      <CommandLineArguments>
-      </CommandLineArguments>
    </TestAction>
    <LaunchAction
-      buildConfiguration = "Debug"
+      buildConfiguration = "TestFlight"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       launchStyle = "0"
@@ -90,9 +63,6 @@
       </BuildableProductRunnable>
       <CommandLineArguments>
       </CommandLineArguments>
-      <StoreKitConfigurationFileReference
-         identifier = "../../SceneFindApp/Resources/SceneFind.storekit">
-      </StoreKitConfigurationFileReference>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"

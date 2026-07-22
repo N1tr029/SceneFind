@@ -11,6 +11,10 @@ struct SettingsView: View {
     @State private var groqAPIKey = ""
     @State private var groqKeyStatus: KeyStatus = .notConfigured
     @State private var isGroqAPIKeyVisible = false
+    #if SCENEFIND_TESTFLIGHT
+    @State private var testerCode = ""
+    @State private var testerCodeRejected = false
+    #endif
 
     private enum KeyStatus: Equatable {
         case notConfigured
@@ -63,7 +67,7 @@ struct SettingsView: View {
                     PaywallView()
                 } label: {
                     LabeledContent {
-                        Text(subscription.accessState.label)
+                        Text(subscription.accessLabel)
                             .foregroundStyle(.secondary)
                     } label: {
                         Label("SceneFind Premium", systemImage: "sparkles")
@@ -79,6 +83,30 @@ struct SettingsView: View {
                     Task { await subscription.restorePurchases() }
                 }
                 .disabled(subscription.purchaseInProgress)
+
+                #if SCENEFIND_TESTFLIGHT
+                if subscription.testerAccessUnlocked {
+                    Label("Tester access unlocked", systemImage: "checkmark.seal.fill")
+                        .foregroundStyle(.green)
+                } else {
+                    SecureField("TestFlight access code", text: $testerCode)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                        .privacySensitive()
+                    Button {
+                        testerCodeRejected = !subscription.unlockTesterAccess(code: testerCode)
+                        if !testerCodeRejected { testerCode = "" }
+                    } label: {
+                        Label("Unlock full access", systemImage: "lock.open.fill")
+                    }
+                    .disabled(testerCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if testerCodeRejected {
+                        Label("That access code is not valid.", systemImage: "exclamationmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+                #endif
             }
 
             Section("Streaming") {
@@ -94,7 +122,7 @@ struct SettingsView: View {
                 }
             }
 
-            #if DEBUG
+            #if DEBUG || SCENEFIND_TESTFLIGHT
             Section("Recognition") {
                 DisclosureGroup("API settings") {
                     VStack(alignment: .leading, spacing: 12) {

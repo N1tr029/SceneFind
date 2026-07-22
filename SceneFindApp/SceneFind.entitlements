@@ -4,7 +4,7 @@
 <dict>
   <key>com.apple.security.application-groups</key>
   <array>
-    <string>group.com.example.SceneFind</string>
+    <string>group.com.kavigandham.scenefind</string>
   </array>
 </dict>
 </plist>

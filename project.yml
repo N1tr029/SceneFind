@@ -1,14 +1,23 @@
 name: SceneFind
+configs:
+  Debug: debug
+  Release: release
+  TestFlight: release
 options:
-  bundleIdPrefix: com.example
+  bundleIdPrefix: com.kavigandham
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    DEVELOPMENT_TEAM: ""
+    DEVELOPMENT_TEAM: T4VT6R837D
     CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "7"
+  configs:
+    TestFlight:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) SCENEFIND_TESTFLIGHT"
 targets:
   SceneFind:
     type: application
@@ -40,7 +49,7 @@ targets:
           fi
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.SceneFind
+        PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.scenefind
         INFOPLIST_FILE: SceneFindApp/Info.plist
         CODE_SIGN_ENTITLEMENTS: SceneFindApp/SceneFind.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -56,7 +65,7 @@ targets:
       - Shared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.SceneFind.ShareExtension
+        PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.scenefind.ShareExtension
         INFOPLIST_FILE: SceneFindShareExtension/Info.plist
         CODE_SIGN_ENTITLEMENTS: SceneFindShareExtension/SceneFindShareExtension.entitlements
   SceneFindTests:
@@ -68,7 +77,7 @@ targets:
       - SceneFindApp/Services/DailyUsageLimiter.swift
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.SceneFindTests
+        PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.scenefindTests
         INFOPLIST_FILE: SceneFindTests/Info.plist
     dependencies:
       - target: SceneFind
@@ -81,6 +90,9 @@ schemes:
     run:
       config: Debug
       storeKitConfiguration: SceneFindApp/Resources/SceneFind.storekit
+    archive:
+      config: TestFlight
+      customArchiveName: SceneFind
     test:
       config: Debug
       targets:
@@ -96,3 +108,12 @@ schemes:
         - SceneFindTests
       environmentVariables:
         SCENEFIND_RUN_LIVE_CORPUS: "1"
+  SceneFindTestFlight:
+    build:
+      targets:
+        SceneFind: all
+    run:
+      config: TestFlight
+    archive:
+      config: TestFlight
+      customArchiveName: SceneFind
