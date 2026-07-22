@@ -41,6 +41,10 @@ xcodebuild -project SceneFind.xcodeproj -scheme SceneFind -destination 'platform
 
 Use a different simulator name if needed.
 
+## TestFlight deployment
+
+Xcode Cloud builds `main` with the `TestFlight` workflow and distributes successful archives to the internal testing group.
+
 ## Simulator test flow
 
 1. Run the main app.
