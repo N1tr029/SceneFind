@@ -6,19 +6,22 @@ struct SocialClipMetadata: Hashable {
     let thumbnailURL: URL?
     let videoURL: URL?
     let searchHints: [String]
+    let canonicalURL: URL?
 
     init(
         title: String?,
         authorName: String?,
         thumbnailURL: URL?,
         videoURL: URL? = nil,
-        searchHints: [String] = []
+        searchHints: [String] = [],
+        canonicalURL: URL? = nil
     ) {
         self.title = title
         self.authorName = authorName
         self.thumbnailURL = thumbnailURL
         self.videoURL = videoURL
         self.searchHints = searchHints
+        self.canonicalURL = canonicalURL
     }
 }
 
@@ -48,28 +51,56 @@ final class OEmbedSocialClipMetadataService: SocialClipMetadataService {
     }
 
     func metadata(for url: URL) async throws -> SocialClipMetadata {
-        guard let endpoint = endpoint(for: url) else {
+        let platform = SharedPlatform.detect(url: url)
+        let page = platform == .tiktok ? await resolvedTikTokPage(for: url) : nil
+        let canonicalURL = page?.url ?? url
+        guard let endpoint = endpoint(for: canonicalURL) else {
             throw SceneFindError.invalidURL
         }
 
         var request = URLRequest(url: endpoint)
         request.timeoutInterval = 8
         request.setValue("SceneFind/1.0", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
-            throw SceneFindError.invalidURL
+        let decoded: Response?
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
+                throw SceneFindError.invalidURL
+            }
+            decoded = try JSONDecoder().decode(Response.self, from: data)
+        } catch {
+            guard platform == .tiktok, page?.metadata != nil else { throw error }
+            decoded = nil
         }
-        let decoded = try JSONDecoder().decode(Response.self, from: data)
-        let pageMetadata = SharedPlatform.detect(url: url) == .tiktok
-            ? await tiktokPageMetadata(for: url, oEmbedHTML: decoded.html)
-            : nil
+        let pageMetadata: TikTokPageMetadata?
+        if let resolvedMetadata = page?.metadata {
+            pageMetadata = resolvedMetadata
+        } else if platform == .tiktok {
+            pageMetadata = await tiktokPageMetadata(for: canonicalURL, oEmbedHTML: decoded?.html)
+        } else {
+            pageMetadata = nil
+        }
         return SocialClipMetadata(
-            title: decoded.title,
-            authorName: decoded.authorName,
-            thumbnailURL: decoded.thumbnailURL ?? pageMetadata?.thumbnailURL,
+            title: decoded?.title,
+            authorName: decoded?.authorName,
+            thumbnailURL: decoded?.thumbnailURL ?? pageMetadata?.thumbnailURL,
             videoURL: pageMetadata?.videoURL,
-            searchHints: pageMetadata?.searchHints ?? []
+            searchHints: pageMetadata?.searchHints ?? [],
+            canonicalURL: canonicalURL
         )
+    }
+
+    private func resolvedTikTokPage(for url: URL) async -> (url: URL, metadata: TikTokPageMetadata?)? {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 12
+        request.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
+            forHTTPHeaderField: "User-Agent"
+        )
+        guard let (data, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse,
+              200..<400 ~= http.statusCode else { return nil }
+        return (response.url ?? url, TikTokPageParser.metadata(from: data))
     }
 
     private func tiktokPageMetadata(for url: URL, oEmbedHTML: String?) async -> TikTokPageMetadata? {
@@ -141,7 +172,35 @@ enum TikTokPageParser {
         if let item = embedItem(in: html) {
             return metadata(from: item)
         }
-        return nil
+        return openGraphMetadata(in: html)
+    }
+
+    private static func openGraphMetadata(in html: String) -> TikTokPageMetadata? {
+        guard let regex = try? NSRegularExpression(pattern: #"<meta\b[^>]*>"#, options: [.caseInsensitive]) else {
+            return nil
+        }
+        var values: [String: String] = [:]
+        for match in regex.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
+            guard let range = Range(match.range, in: html) else { continue }
+            let tag = String(html[range])
+            guard let attributeRegex = try? NSRegularExpression(
+                pattern: #"([A-Za-z:-]+)\s*=\s*[\"']([^\"']*)[\"']"#
+            ) else { continue }
+            var attributes: [String: String] = [:]
+            for attribute in attributeRegex.matches(in: tag, range: NSRange(tag.startIndex..., in: tag)) {
+                guard let keyRange = Range(attribute.range(at: 1), in: tag),
+                      let valueRange = Range(attribute.range(at: 2), in: tag) else { continue }
+                attributes[String(tag[keyRange]).lowercased()] = String(tag[valueRange])
+            }
+            if let key = (attributes["property"] ?? attributes["name"])?.lowercased(),
+               let content = attributes["content"] {
+                values[key] = content.replacingOccurrences(of: "&amp;", with: "&")
+            }
+        }
+        let videoURL = (values["og:video"] ?? values["og:video:url"]).flatMap(URL.init(string:))
+        let thumbnailURL = (values["og:image"] ?? values["twitter:image"]).flatMap(URL.init(string:))
+        guard videoURL != nil || thumbnailURL != nil else { return nil }
+        return TikTokPageMetadata(videoURL: videoURL, thumbnailURL: thumbnailURL, searchHints: [])
     }
 
     private static func metadata(from item: [String: Any]) -> TikTokPageMetadata? {

@@ -4,7 +4,14 @@ protocol ClipIdentificationService {
     func identify(request: SharedClipRequest) async throws -> ClipAnalysisResult
 }
 
-final class HybridClipIdentificationService: ClipIdentificationService {
+protocol ProgressReportingClipIdentificationService: ClipIdentificationService {
+    func identify(
+        request: SharedClipRequest,
+        progress: @escaping (AnalysisProgressEvent) -> Void
+    ) async throws -> ClipAnalysisResult
+}
+
+final class HybridClipIdentificationService: ProgressReportingClipIdentificationService {
     private let metadataService: SocialClipMetadataService
     private let geminiService: GeminiClipIdentificationService
 
@@ -17,27 +24,63 @@ final class HybridClipIdentificationService: ClipIdentificationService {
     }
 
     func identify(request: SharedClipRequest) async throws -> ClipAnalysisResult {
+        try await identify(request: request, progress: { _ in })
+    }
+
+    func identify(
+        request: SharedClipRequest,
+        progress: @escaping (AnalysisProgressEvent) -> Void
+    ) async throws -> ClipAnalysisResult {
         let start = Date()
-        if let known = KnownClipCatalog.result(for: request) {
-            return known
+        let events = AnalysisEventCollector()
+        let emit: (AnalysisProgressEvent) -> Void = { event in
+            let stamped = event.stamped(elapsedSeconds: Date().timeIntervalSince(start))
+            events.append(stamped)
+            progress(stamped)
         }
+        emit(AnalysisProgressEvent(
+            kind: .requestRead,
+            title: "Clip received",
+            detail: request.originalURL?.host() ?? request.sourceType.label
+        ))
 
         let metadata: SocialClipMetadata?
         if let url = request.originalURL {
             metadata = try? await metadataService.metadata(for: url)
-            if let known = KnownClipCatalog.result(
-                for: request,
-                metadata: metadata,
-                processingDuration: Date().timeIntervalSince(start)
-            ) {
-                return known
-            }
+            emit(AnalysisProgressEvent(
+                kind: .metadataRetrieved,
+                title: metadata == nil ? "Public metadata unavailable" : "Public metadata found",
+                detail: metadata?.title
+            ))
         } else {
             metadata = nil
         }
 
         guard GeminiConfiguration.isConfigured else { throw SceneFindError.geminiKeyMissing }
-        return try await geminiService.identify(request: request, metadata: metadata)
+        let result = try await geminiService.identify(
+            request: request,
+            metadata: metadata,
+            progress: emit
+        )
+        emit(AnalysisProgressEvent(kind: .completed, title: "Match ready"))
+        return result.recordingProgress(events.snapshot(), totalDuration: Date().timeIntervalSince(start))
+    }
+}
+
+private final class AnalysisEventCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var events: [AnalysisProgressEvent] = []
+
+    func append(_ event: AnalysisProgressEvent) {
+        lock.lock()
+        events.append(event)
+        lock.unlock()
+    }
+
+    func snapshot() -> [AnalysisProgressEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        return events
     }
 }
 

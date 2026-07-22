@@ -56,7 +56,7 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
             let generationConfig = try XCTUnwrap(json["generationConfig"] as? [String: Any])
             let thinkingConfig = try XCTUnwrap(generationConfig["thinkingConfig"] as? [String: Any])
             XCTAssertEqual(thinkingConfig["thinkingLevel"] as? String, "LOW")
-            XCTAssertEqual(generationConfig["maxOutputTokens"] as? Int, 8_192)
+            XCTAssertEqual(generationConfig["maxOutputTokens"] as? Int, 4_096)
             let responseFormat = try XCTUnwrap(generationConfig["responseFormat"] as? [String: Any])
             let textFormat = try XCTUnwrap(responseFormat["text"] as? [String: Any])
             XCTAssertEqual(textFormat["mimeType"] as? String, "APPLICATION_JSON")
@@ -99,7 +99,8 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
             session: session,
             apiKeyProvider: { "gemini-test-key" },
             modelProvider: { "gemini-test" },
-            artworkService: NoArtworkService()
+            artworkService: NoArtworkService(),
+            groqAPIKeyProvider: { nil }
         )
         let request = SharedClipRequest(
             sourceType: .url,
@@ -132,7 +133,7 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         XCTAssertEqual(requestCount, 1)
     }
 
-    func testEmptyGeminiResponseRetriesOnce() async throws {
+    func testEmptyGeminiResponseDoesNotRepeatExpensiveRequest() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [GeminiStubURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -140,61 +141,36 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
 
         GeminiStubURLProtocol.requestHandler = { request in
             requestCount += 1
-            if requestCount == 1 {
-                let response = try XCTUnwrap(HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: 200,
-                    httpVersion: nil,
-                    headerFields: ["Content-Type": "application/json"]
-                ))
-                let data = Data(
-                    #"{"candidates":[{"content":{"parts":[]},"finishReason":"MAX_TOKENS"}]}"#.utf8
-                )
-                return (response, data)
-            }
-            return try Self.geminiResponse(text: """
-                {
-                  "match_found": true,
-                  "detected_dialogue": "That is the plan.",
-                  "visual_evidence": ["Two people talk in a kitchen."],
-                  "candidates": [{
-                    "media_title": "Recovered Show",
-                    "media_type": "tv",
-                    "release_year": 2024,
-                    "season_number": 1,
-                    "episode_number": 2,
-                    "episode_title": "The Plan",
-                    "clip_start_seconds": null,
-                    "clip_end_seconds": null,
-                    "matching_subtitle": "That is the plan.",
-                    "confidence": 0.8,
-                    "dialogue_score": 0.8,
-                    "visual_score": 0.7,
-                    "metadata_score": 0.1,
-                    "hero_image_url": null,
-                    "watch_providers": []
-                  }]
-                }
-                """)
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+            return (response, Data(#"{"candidates":[{"content":{"parts":[]}}]}"#.utf8))
         }
 
         let service = GeminiClipIdentificationService(
             session: session,
             apiKeyProvider: { "gemini-test-key" },
             modelProvider: { "gemini-test" },
-            artworkService: NoArtworkService()
+            artworkService: NoArtworkService(),
+            groqAPIKeyProvider: { nil }
         )
-        let result = try await service.identify(
-            request: SharedClipRequest(
-                sourceType: .url,
-                sourcePlatform: .youtube,
-                originalURL: URL(string: "https://www.youtube.com/shorts/example")
-            ),
-            metadata: nil
-        )
-
-        XCTAssertEqual(result.topCandidate.mediaTitle, "Recovered Show")
-        XCTAssertEqual(requestCount, 2)
+        do {
+            _ = try await service.identify(
+                request: SharedClipRequest(
+                    sourceType: .url,
+                    sourcePlatform: .youtube,
+                    originalURL: URL(string: "https://www.youtube.com/shorts/example")
+                ),
+                metadata: nil
+            )
+            XCTFail("Expected an invalid structured response")
+        } catch let error as SceneFindError {
+            XCTAssertEqual(error.failureTitle, "Couldn't read the result")
+        }
+        XCTAssertEqual(requestCount, 1)
     }
 
     func testTikTokUploadLimitCoversLargePublicClips() {
@@ -235,7 +211,8 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
             session: session,
             apiKeyProvider: { "gemini-test-key" },
             modelProvider: { "gemini-test" },
-            artworkService: NoArtworkService()
+            artworkService: NoArtworkService(),
+            groqAPIKeyProvider: { nil }
         )
         let request = SharedClipRequest(
             sourceType: .url,
@@ -327,6 +304,10 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
                 let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
                 return (response, try JSONSerialization.data(withJSONObject: payload))
             }
+            if url.path.contains("/t/") {
+                let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+                return (response, Data("<html></html>".utf8))
+            }
             XCTAssertEqual(url.absoluteString, "https://www.tiktok.com/embed/v2/7655625118344957214")
             requestedEmbed = true
             let state: [String: Any] = [
@@ -393,7 +374,7 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         XCTAssertEqual(artwork?.absoluteString, "https://images.example/show-cover.jpg")
     }
 
-    func testTikTokVideoIsUploadedAndEpisodeIsVerifiedAgainstGuide() async throws {
+    func testTikTokVideoIsAttachedInlineAndEpisodeIsVerifiedAgainstGuide() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [GeminiStubURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -530,12 +511,9 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
             generateCallCount += 1
             let json = requestJSON
             let parts = requestParts
-            let fileData = try XCTUnwrap(parts.first?["file_data"] as? [String: Any])
-            XCTAssertEqual(
-                fileData["file_uri"] as? String,
-                "https://generativelanguage.googleapis.com/v1beta/files/tiktok-test"
-            )
-            XCTAssertEqual(fileData["mime_type"] as? String, "video/mp4")
+            let inlineData = try XCTUnwrap(parts.first?["inline_data"] as? [String: Any])
+            XCTAssertEqual(inlineData["mime_type"] as? String, "video/mp4")
+            XCTAssertNotNil(inlineData["data"] as? String)
             XCTAssertTrue((parts.last?["text"] as? String)?.contains("dacademy") == true)
             let systemInstruction = try XCTUnwrap(json["systemInstruction"] as? [String: Any])
             let systemParts = try XCTUnwrap(systemInstruction["parts"] as? [[String: Any]])
@@ -681,11 +659,9 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
             let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
             let contents = try XCTUnwrap(json["contents"] as? [[String: Any]])
             let parts = try XCTUnwrap(contents.first?["parts"] as? [[String: Any]])
-            let fileData = try XCTUnwrap(parts.first?["file_data"] as? [String: Any])
-            XCTAssertEqual(
-                fileData["file_uri"] as? String,
-                "https://generativelanguage.googleapis.com/v1beta/files/imported-test"
-            )
+            let inlineData = try XCTUnwrap(parts.first?["inline_data"] as? [String: Any])
+            XCTAssertEqual(inlineData["mime_type"] as? String, "video/quicktime")
+            XCTAssertNotNil(inlineData["data"] as? String)
             generatedWithFile = true
 
             let result: [String: Any] = [
@@ -714,7 +690,8 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
             session: session,
             apiKeyProvider: { "gemini-test-key" },
             modelProvider: { "gemini-test" },
-            artworkService: NoArtworkService()
+            artworkService: NoArtworkService(),
+            groqAPIKeyProvider: { nil }
         )
         let request = SharedClipRequest(
             sourceType: .video,
@@ -844,7 +821,8 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
             modelProvider: { "gemini-primary" },
             artworkService: NoArtworkService(),
             fallbackModels: ["gemini-backup"],
-            retryDelayNanoseconds: 0
+            retryDelayNanoseconds: 0,
+            groqAPIKeyProvider: { nil }
         )
         let request = SharedClipRequest(
             sourceType: .url,
@@ -855,7 +833,7 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         let result = try await service.identify(request: request, metadata: nil)
 
         XCTAssertEqual(result.topCandidate.mediaTitle, "Fallback Show")
-        XCTAssertEqual(requestedModels, ["gemini-primary", "gemini-primary", "gemini-backup"])
+        XCTAssertEqual(requestedModels, ["gemini-primary", "gemini-backup"])
     }
 
     func testDepletedPrepaidProjectGetsSpecificError() async {

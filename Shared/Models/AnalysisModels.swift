@@ -1,5 +1,57 @@
 import Foundation
 
+enum AnalysisProgressKind: String, Codable, Hashable, Sendable {
+    case requestRead
+    case metadataRetrieved
+    case mediaRetrieved
+    case mediaAnalysisStarted
+    case dialogueDetected
+    case showIdentified
+    case episodeCandidatesFound
+    case episodeVerified
+    case episodeUnverified
+    case providersChecked
+    case artworkRetrieved
+    case completed
+}
+
+struct AnalysisProgressEvent: Codable, Identifiable, Hashable, Sendable {
+    let id: UUID
+    let kind: AnalysisProgressKind
+    let title: String
+    let detail: String?
+    let elapsedSeconds: Double
+
+    init(
+        id: UUID = UUID(),
+        kind: AnalysisProgressKind,
+        title: String,
+        detail: String? = nil,
+        elapsedSeconds: Double = 0
+    ) {
+        self.id = id
+        self.kind = kind
+        self.title = title
+        self.detail = detail
+        self.elapsedSeconds = elapsedSeconds
+    }
+
+    func stamped(elapsedSeconds: Double) -> AnalysisProgressEvent {
+        AnalysisProgressEvent(
+            id: id,
+            kind: kind,
+            title: title,
+            detail: detail,
+            elapsedSeconds: elapsedSeconds
+        )
+    }
+}
+
+struct AnalysisStageTiming: Codable, Hashable, Sendable {
+    let stage: AnalysisProgressKind
+    let durationSeconds: Double
+}
+
 struct ClipAnalysisResult: Codable, Identifiable, Hashable {
     let id: UUID
     let requestID: UUID
@@ -97,8 +149,46 @@ struct WatchProvider: Codable, Identifiable, Hashable {
     let sceneURL: URL?
     let symbolName: String
     let brandColorHex: String
+    let destinationLevel: StreamingDestinationLevel?
+    let destinationDiagnostic: String?
+
+    init(
+        id: String,
+        name: String,
+        offer: String,
+        episodeURL: URL,
+        sceneURL: URL?,
+        symbolName: String,
+        brandColorHex: String,
+        destinationLevel: StreamingDestinationLevel? = nil,
+        destinationDiagnostic: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.offer = offer
+        self.episodeURL = episodeURL
+        self.sceneURL = sceneURL
+        self.symbolName = symbolName
+        self.brandColorHex = brandColorHex
+        self.destinationLevel = destinationLevel
+        self.destinationDiagnostic = destinationDiagnostic
+    }
 
     var supportsSceneDeepLink: Bool { sceneURL != nil }
+}
+
+enum StreamingDestinationLevel: String, Codable, Hashable {
+    case exactEpisode
+    case show
+    case search
+
+    var actionLabel: String {
+        switch self {
+        case .exactEpisode: "Watch episode"
+        case .show: "Open show"
+        case .search: "Search"
+        }
+    }
 }
 
 enum WatchStartChoice: String, Hashable {
@@ -115,6 +205,8 @@ struct AnalysisDetails: Codable, Hashable {
     let directMediaAnalyzed: Bool?
     let visualEvidence: [String]?
     let episodeVerificationEvidence: String?
+    let progressEvents: [AnalysisProgressEvent]?
+    let stageTimings: [AnalysisStageTiming]?
 
     init(
         sourcePlatform: SharedPlatform,
@@ -124,7 +216,9 @@ struct AnalysisDetails: Codable, Hashable {
         totalProcessingDuration: Double,
         directMediaAnalyzed: Bool? = nil,
         visualEvidence: [String]? = nil,
-        episodeVerificationEvidence: String? = nil
+        episodeVerificationEvidence: String? = nil,
+        progressEvents: [AnalysisProgressEvent]? = nil,
+        stageTimings: [AnalysisStageTiming]? = nil
     ) {
         self.sourcePlatform = sourcePlatform
         self.sourceType = sourceType
@@ -134,6 +228,43 @@ struct AnalysisDetails: Codable, Hashable {
         self.directMediaAnalyzed = directMediaAnalyzed
         self.visualEvidence = visualEvidence
         self.episodeVerificationEvidence = episodeVerificationEvidence
+        self.progressEvents = progressEvents
+        self.stageTimings = stageTimings
+    }
+}
+
+extension ClipAnalysisResult {
+    func recordingProgress(
+        _ events: [AnalysisProgressEvent],
+        totalDuration: Double
+    ) -> ClipAnalysisResult {
+        let timings = zip(events, events.dropFirst()).map { current, next in
+            AnalysisStageTiming(
+                stage: current.kind,
+                durationSeconds: max(0, next.elapsedSeconds - current.elapsedSeconds)
+            )
+        }
+        let details = AnalysisDetails(
+            sourcePlatform: analysisDetails.sourcePlatform,
+            sourceType: analysisDetails.sourceType,
+            extractedFrameCount: analysisDetails.extractedFrameCount,
+            subtitleCandidatesCompared: analysisDetails.subtitleCandidatesCompared,
+            totalProcessingDuration: totalDuration,
+            directMediaAnalyzed: analysisDetails.directMediaAnalyzed,
+            visualEvidence: analysisDetails.visualEvidence,
+            episodeVerificationEvidence: analysisDetails.episodeVerificationEvidence,
+            progressEvents: events,
+            stageTimings: timings
+        )
+        return ClipAnalysisResult(
+            id: id,
+            requestID: requestID,
+            createdAt: createdAt,
+            detectedDialogue: detectedDialogue,
+            topCandidate: topCandidate,
+            alternativeCandidates: alternativeCandidates,
+            analysisDetails: details
+        )
     }
 }
 

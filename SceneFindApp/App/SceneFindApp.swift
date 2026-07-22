@@ -4,12 +4,16 @@ import SwiftUI
 struct SceneFindApp: App {
     @StateObject private var router = AppRouter()
     @StateObject private var model = SceneFindModel()
+    @StateObject private var subscription = SubscriptionManager()
+    @StateObject private var usage = DailyUsageLimiter()
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(router)
                 .environmentObject(model)
+                .environmentObject(subscription)
+                .environmentObject(usage)
                 .preferredColorScheme(.dark)
                 .onOpenURL { router.handle(url: $0) }
         }
@@ -74,6 +78,8 @@ struct RootView: View {
             SettingsView()
         case .services:
             MyServicesView()
+        case .paywall:
+            PaywallView()
         }
     }
 }

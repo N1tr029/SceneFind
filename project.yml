@@ -23,9 +23,20 @@ targets:
         basedOnDependencyAnalysis: false
         script: |
           SECRETS_FILE="${SRCROOT}/SceneFindApp/Resources/PrototypeSecrets.plist"
-          if [ -f "${SECRETS_FILE}" ]; then
+          BUNDLE_PATH="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          if [ "${CONFIGURATION}" = "Debug" ] && [ -f "${SECRETS_FILE}" ]; then
             mkdir -p "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
-            cp "${SECRETS_FILE}" "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/PrototypeSecrets.plist"
+            cp "${SECRETS_FILE}" "${BUNDLE_PATH}/PrototypeSecrets.plist"
+          else
+            rm -f "${BUNDLE_PATH}/PrototypeSecrets.plist"
+            if [ -f "${BUNDLE_PATH}/PrototypeSecrets.plist" ]; then
+              echo "error: Release build contains PrototypeSecrets.plist"
+              exit 1
+            fi
+            if grep -R -a -E -q '(gsk_[A-Za-z0-9_-]{20,}|AQ\.[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,})' "${TARGET_BUILD_DIR}/${WRAPPER_NAME}"; then
+              echo "error: Release build appears to contain a provider secret"
+              exit 1
+            fi
           fi
     settings:
       base:
@@ -54,9 +65,34 @@ targets:
     sources:
       - SceneFindTests
       - Shared
+      - SceneFindApp/Services/DailyUsageLimiter.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.SceneFindTests
         INFOPLIST_FILE: SceneFindTests/Info.plist
     dependencies:
       - target: SceneFind
+schemes:
+  SceneFind:
+    build:
+      targets:
+        SceneFind: all
+        SceneFindTests: [test]
+    run:
+      config: Debug
+      storeKitConfiguration: SceneFindApp/Resources/SceneFind.storekit
+    test:
+      config: Debug
+      targets:
+        - SceneFindTests
+  SceneFindLiveRegression:
+    build:
+      targets:
+        SceneFind: all
+        SceneFindTests: [test]
+    test:
+      config: Debug
+      targets:
+        - SceneFindTests
+      environmentVariables:
+        SCENEFIND_RUN_LIVE_CORPUS: "1"

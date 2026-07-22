@@ -402,12 +402,16 @@ private struct ProviderRow: View {
             Spacer(minLength: 8)
 
             Button(action: action) {
-                Image(systemName: "play.fill")
-                    .frame(width: 30, height: 30)
+                Label(
+                    (provider.destinationLevel ?? .exactEpisode).actionLabel,
+                    systemImage: (provider.destinationLevel ?? .exactEpisode) == .exactEpisode
+                        ? "play.fill" : "arrow.up.right"
+                )
+                .font(.subheadline.weight(.semibold))
             }
             .buttonStyle(.borderedProminent)
             .tint(Color(hex: provider.brandColorHex))
-            .accessibilityLabel("Watch on \(provider.name)")
+            .accessibilityLabel("\((provider.destinationLevel ?? .exactEpisode).actionLabel) on \(provider.name)")
         }
         .padding(.vertical, 12)
     }
@@ -415,7 +419,9 @@ private struct ProviderRow: View {
 
 private struct WatchOptionsSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var isResolving = false
+    @State private var isResolving = true
+    @State private var isOpening = false
+    @State private var resolvedDestination: ResolvedStreamingDestination?
     @State private var openError: String?
 
     let provider: WatchProvider
@@ -435,29 +441,53 @@ private struct WatchOptionsSheet: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Button {
-                    Task { await open(.beginning) }
-                } label: {
-                    optionLabel(
-                        title: "Start from the beginning",
-                        subtitle: "Open the full episode at 00:00",
-                        symbol: "backward.end.fill"
-                    )
-                }
-                .buttonStyle(.borderedProminent)
+                if isResolving {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Verifying the destination on \(provider.name)...")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let resolvedDestination {
+                    if resolvedDestination.level == .exactEpisode {
+                        Button {
+                            Task { await open(.beginning) }
+                        } label: {
+                            optionLabel(
+                                title: "Start from the beginning",
+                                subtitle: "Open the full episode at 00:00",
+                                symbol: "backward.end.fill"
+                            )
+                        }
+                        .buttonStyle(.borderedProminent)
 
-                Button {
-                    Task { await open(.afterClip) }
-                } label: {
-                    optionLabel(
-                        title: "Continue after this clip",
-                        subtitle: afterClipSubtitle,
-                        symbol: "forward.end.fill"
-                    )
+                        Button {
+                            Task { await open(.afterClip) }
+                        } label: {
+                            optionLabel(
+                                title: "Continue after this clip",
+                                subtitle: afterClipSubtitle,
+                                symbol: "forward.end.fill"
+                            )
+                        }
+                        .buttonStyle(.bordered)
+                    } else {
+                        Button {
+                            Task { await open(.beginning) }
+                        } label: {
+                            optionLabel(
+                                title: resolvedDestination.level.actionLabel + " on \(provider.name)",
+                                subtitle: resolvedDestination.diagnostic,
+                                symbol: "arrow.up.right"
+                            )
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                 }
-                .buttonStyle(.bordered)
 
-                if !provider.supportsSceneDeepLink, let timestamp = afterClipTimestamp {
+                if resolvedDestination?.level == .exactEpisode,
+                   !provider.supportsSceneDeepLink,
+                   let timestamp = afterClipTimestamp {
                     Label(
                         "\(provider.name) does not expose timestamp links. SceneFind will open the episode and copy \(timestamp.timestampString) so you can seek there.",
                         systemImage: "info.circle"
@@ -466,10 +496,10 @@ private struct WatchOptionsSheet: View {
                     .foregroundStyle(.secondary)
                 }
 
-                if isResolving {
+                if isOpening {
                     HStack(spacing: 10) {
                         ProgressView()
-                        Text("Finding the exact episode on \(provider.name)...")
+                        Text("Opening \(provider.name)...")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -479,7 +509,7 @@ private struct WatchOptionsSheet: View {
                 Spacer()
             }
             .padding()
-            .disabled(isResolving)
+            .disabled(isResolving || isOpening)
             .navigationTitle("How do you want to watch?")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -488,6 +518,7 @@ private struct WatchOptionsSheet: View {
                 }
             }
         }
+        .task { await resolveDestination() }
         .alert("Could not open \(provider.name)", isPresented: Binding(
             get: { openError != nil },
             set: { if !$0 { openError = nil } }
@@ -522,18 +553,26 @@ private struct WatchOptionsSheet: View {
     }
 
     @MainActor
-    private func open(_ choice: WatchStartChoice) async {
+    private func resolveDestination() async {
         isResolving = true
-        guard let resolved = await StreamingDestinationResolver().destination(
+        resolvedDestination = await StreamingDestinationResolver().destination(
             for: provider,
             candidate: candidate
-        ) else {
-            isResolving = false
-            openError = "SceneFind could not verify an exact episode link for \(provider.name). It will not send you to the wrong show page."
-            return
+        )
+        isResolving = false
+        if resolvedDestination == nil {
+            openError = "SceneFind rejected this destination because it could not verify that it belongs to the identified title and episode."
         }
+    }
 
-        if choice == .afterClip, let timestamp = afterClipTimestamp {
+    @MainActor
+    private func open(_ choice: WatchStartChoice) async {
+        guard let resolved = resolvedDestination else { return }
+        isOpening = true
+
+        if resolved.level == .exactEpisode,
+           choice == .afterClip,
+           let timestamp = afterClipTimestamp {
             UIPasteboard.general.string = timestamp.timestampString
         }
 
@@ -547,7 +586,7 @@ private struct WatchOptionsSheet: View {
             accepted = await openDestination(destination)
             if accepted { break }
         }
-        isResolving = false
+        isOpening = false
         if accepted {
             dismiss()
         } else {

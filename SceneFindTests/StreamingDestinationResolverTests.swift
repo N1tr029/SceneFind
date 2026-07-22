@@ -134,7 +134,7 @@ final class StreamingDestinationResolverTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StreamingStubURLProtocol.self]
         StreamingStubURLProtocol.requestHandler = { request in
-            XCTAssertEqual(request.url?.absoluteString, "https://www.hulu.com/series/a-show")
+            XCTAssertEqual(request.url?.absoluteString, "https://www.hulu.com/series/a-show-invented-series-id")
             let response = try XCTUnwrap(HTTPURLResponse(
                 url: URL(string: "https://www.hulu.com/series/a-show-canonical-series-id")!,
                 statusCode: 200,
@@ -281,7 +281,7 @@ final class StreamingDestinationResolverTests: XCTestCase {
         XCTAssertEqual(providers.map(\.name), supplied.map(\.name))
     }
 
-    func testShowAndSearchPagesAreNotPresentedAsEpisodeLinks() throws {
+    func testShowAndSearchPagesAreKeptWithHonestDestinationLevels() throws {
         let supplied = [
             provider(name: "Netflix", url: "https://www.netflix.com/title/81234567"),
             provider(name: "Apple TV", url: "https://tv.apple.com/us/show/example/umc.cmc.show"),
@@ -296,14 +296,17 @@ final class StreamingDestinationResolverTests: XCTestCase {
             supplied: supplied
         )
 
-        XCTAssertTrue(providers.isEmpty)
+        XCTAssertEqual(
+            providers.map { $0.destinationLevel },
+            [.show, .show, .show, .show, .search, .search]
+        )
     }
 
     func testNetflixDestinationOpensWhenPageMatchesIdentifiedTitle() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StreamingStubURLProtocol.self]
         StreamingStubURLProtocol.requestHandler = { request in
-            let html = Data(#"<html><head><meta property="og:title" content="Watch All American | Netflix"></head></html>"#.utf8)
+            let html = Data(#"<html><head><meta property="og:title" content="The First Time - All American (Season 8, Episode 1) | Netflix"></head></html>"#.utf8)
             let response = try XCTUnwrap(HTTPURLResponse(
                 url: request.url!,
                 statusCode: 200,
@@ -365,7 +368,7 @@ final class StreamingDestinationResolverTests: XCTestCase {
         let destination = await StreamingDestinationResolver(
             session: URLSession(configuration: configuration)
         ).destination(
-            for: provider(name: "Apple TV", url: "https://tv.apple.com/us/episode/the-episode/umc.cmc.id"),
+            for: provider(name: "Apple TV", url: "https://tv.apple.com/us/episode/the-episode/umc.cmc.wrong"),
             candidate: candidate(title: "Any Show", season: 2, episode: 3, episodeTitle: "The Episode")
         )
 

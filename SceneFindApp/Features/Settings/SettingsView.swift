@@ -2,6 +2,8 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var model: SceneFindModel
+    @EnvironmentObject private var subscription: SubscriptionManager
+    @EnvironmentObject private var usage: DailyUsageLimiter
     @State private var apiKey = ""
     @State private var modelName = "gemini-3.5-flash"
     @State private var keyStatus: KeyStatus = .notConfigured
@@ -56,6 +58,29 @@ struct SettingsView: View {
                 )
             }
 
+            Section("Plan") {
+                NavigationLink {
+                    PaywallView()
+                } label: {
+                    LabeledContent {
+                        Text(subscription.accessState.label)
+                            .foregroundStyle(.secondary)
+                    } label: {
+                        Label("SceneFind Premium", systemImage: "sparkles")
+                    }
+                }
+                if !subscription.hasPremiumAccess {
+                    LabeledContent(
+                        "Free uses remaining",
+                        value: "\(usage.remainingFreeUses) of \(DailyUsageLimiter.freeSuccessLimit)"
+                    )
+                }
+                Button("Restore purchases") {
+                    Task { await subscription.restorePurchases() }
+                }
+                .disabled(subscription.purchaseInProgress)
+            }
+
             Section("Streaming") {
                 NavigationLink {
                     MyServicesView()
@@ -69,6 +94,7 @@ struct SettingsView: View {
                 }
             }
 
+            #if DEBUG
             Section("Recognition") {
                 DisclosureGroup("API settings") {
                     VStack(alignment: .leading, spacing: 12) {
@@ -175,6 +201,7 @@ struct SettingsView: View {
                     }
                 }
             }
+            #endif
 
             Section("Results") {
                 Toggle("Show match evidence", isOn: $model.showAnalysisDetails)
