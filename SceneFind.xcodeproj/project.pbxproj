@@ -565,7 +565,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "SECRETS_FILE=\"${SRCROOT}/SceneFindApp/Resources/PrototypeSecrets.plist\"\nBUNDLE_PATH=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nif [ \"${CONFIGURATION}\" = \"Debug\" ] && [ -f \"${SECRETS_FILE}\" ]; then\n  mkdir -p \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n  cp \"${SECRETS_FILE}\" \"${BUNDLE_PATH}/PrototypeSecrets.plist\"\nelse\n  rm -f \"${BUNDLE_PATH}/PrototypeSecrets.plist\"\n  if [ -f \"${BUNDLE_PATH}/PrototypeSecrets.plist\" ]; then\n    echo \"error: Release build contains PrototypeSecrets.plist\"\n    exit 1\n  fi\n  if grep -R -a -E -q '(gsk_[A-Za-z0-9_-]{20,}|AQ\\.[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,})' \"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"; then\n    echo \"error: Release build appears to contain a provider secret\"\n    exit 1\n  fi\nfi\n";
+			shellScript = "SECRETS_FILE=\"${SRCROOT}/SceneFindApp/Resources/PrototypeSecrets.plist\"\nBUNDLE_PATH=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n# Debug and TestFlight embed provider keys (local dev + INTERNAL\n# TestFlight testing). Release stays keyless and is guarded below so\n# the eventual public App Store build can never ship a secret.\n# Before public release, switch the archive to Release + backend proxy.\nif { [ \"${CONFIGURATION}\" = \"Debug\" ] || [ \"${CONFIGURATION}\" = \"TestFlight\" ]; } && [ -f \"${SECRETS_FILE}\" ]; then\n  mkdir -p \"${BUNDLE_PATH}\"\n  cp \"${SECRETS_FILE}\" \"${BUNDLE_PATH}/PrototypeSecrets.plist\"\nelse\n  rm -f \"${BUNDLE_PATH}/PrototypeSecrets.plist\"\n  if [ -f \"${BUNDLE_PATH}/PrototypeSecrets.plist\" ]; then\n    echo \"error: Release build contains PrototypeSecrets.plist\"\n    exit 1\n  fi\n  if grep -R -a -E -q '(gsk_[A-Za-z0-9_-]{20,}|AQ\\.[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,})' \"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"; then\n    echo \"error: Release build appears to contain a provider secret\"\n    exit 1\n  fi\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -733,7 +733,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = T4VT6R837D;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -810,7 +810,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = T4VT6R837D;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -971,7 +971,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = T4VT6R837D;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;

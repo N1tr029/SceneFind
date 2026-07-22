@@ -14,7 +14,7 @@ settings:
     DEVELOPMENT_TEAM: T4VT6R837D
     CODE_SIGN_STYLE: Automatic
     MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "8"
+    CURRENT_PROJECT_VERSION: "9"
   configs:
     TestFlight:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) SCENEFIND_TESTFLIGHT"
@@ -33,8 +33,12 @@ targets:
         script: |
           SECRETS_FILE="${SRCROOT}/SceneFindApp/Resources/PrototypeSecrets.plist"
           BUNDLE_PATH="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
-          if [ "${CONFIGURATION}" = "Debug" ] && [ -f "${SECRETS_FILE}" ]; then
-            mkdir -p "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          # Debug and TestFlight embed provider keys (local dev + INTERNAL
+          # TestFlight testing). Release stays keyless and is guarded below so
+          # the eventual public App Store build can never ship a secret.
+          # Before public release, switch the archive to Release + backend proxy.
+          if { [ "${CONFIGURATION}" = "Debug" ] || [ "${CONFIGURATION}" = "TestFlight" ]; } && [ -f "${SECRETS_FILE}" ]; then
+            mkdir -p "${BUNDLE_PATH}"
             cp "${SECRETS_FILE}" "${BUNDLE_PATH}/PrototypeSecrets.plist"
           else
             rm -f "${BUNDLE_PATH}/PrototypeSecrets.plist"
