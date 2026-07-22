@@ -67,6 +67,7 @@
 		86DBF76552EB4AD729C78FFF /* AnalyzeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A94389880C5D2B1865E7668 /* AnalyzeView.swift */; };
 		8C1675330FC852CB6663EB2C /* MediaModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2466D94DFC0F28D100F60BBC /* MediaModels.swift */; };
 		8E47A547CB5517160664A1B8 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C90378FBAC8242B739BC4346 /* SettingsView.swift */; };
+		8ECA5B0CB998ABDF90E6B2C8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E7BC83CE29F5C7E777D523B6 /* Assets.xcassets */; };
 		8F4FCCE72444073DEB338117 /* OpenAIClipIdentificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EF20A7E8249128CF104275F /* OpenAIClipIdentificationService.swift */; };
 		923D22041D1B5888BE1CEE73 /* SharedContainerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D40BB961A6803FBE6183E02 /* SharedContainerStore.swift */; };
 		92772F29D88DB9062A19A511 /* GeminiClipIdentificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F976BA40A6317377D186CB /* GeminiClipIdentificationService.swift */; };
@@ -186,6 +187,7 @@
 		D258EC66D4600E076F0FAE0E /* SubtitleMatchingEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleMatchingEngineTests.swift; sourceTree = "<group>"; };
 		DBC00544F5E68CA3B7BAA347 /* AlternativesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlternativesView.swift; sourceTree = "<group>"; };
 		DD220C739747F97245BE53AE /* SceneFindError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneFindError.swift; sourceTree = "<group>"; };
+		E7BC83CE29F5C7E777D523B6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		ECAA6E72D984C4F059872517 /* SocialClipMetadataServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocialClipMetadataServiceTests.swift; sourceTree = "<group>"; };
 		EECB93E4E06DDF887B49531B /* DailyUsageLimiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyUsageLimiter.swift; sourceTree = "<group>"; };
 		F2DAA16057D3E43ABE1A3F24 /* SocialClipMetadataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocialClipMetadataService.swift; sourceTree = "<group>"; };
@@ -271,6 +273,7 @@
 		707D266CA904C6A37C5F5419 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				E7BC83CE29F5C7E777D523B6 /* Assets.xcassets */,
 				AEFED3211FFF6DFED6CA4100 /* PrivacyInfo.xcprivacy */,
 				0E9889E667D4BC45D1A2A862 /* SceneFind.storekit */,
 			);
@@ -528,6 +531,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8ECA5B0CB998ABDF90E6B2C8 /* Assets.xcassets in Resources */,
 				3D6359E523DA8D8ABDFC888A /* PrivacyInfo.xcprivacy in Resources */,
 				4282A2EEB2AE5ADAD3776248 /* SceneFind.storekit in Resources */,
 			);
