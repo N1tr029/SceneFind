@@ -4,6 +4,8 @@ import SwiftUI
 struct HomeView: View {
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var model: SceneFindModel
+    @EnvironmentObject private var subscription: SubscriptionManager
+    @EnvironmentObject private var usage: DailyUsageLimiter
     @State private var selectedVideo: PhotosPickerItem?
     @State private var pastedURL = ""
     @State private var errorMessage: String?
@@ -15,6 +17,12 @@ struct HomeView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 22) {
                     HomeHeader()
+                    UsageAllowanceBanner(
+                        isPremium: subscription.hasPremiumAccess,
+                        remaining: usage.remainingFreeUses
+                    ) {
+                        router.navigate(to: .paywall)
+                    }
                     ClipInputPanel(
                         pastedURL: $pastedURL,
                         selectedVideo: $selectedVideo,
@@ -101,6 +109,33 @@ struct HomeView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+}
+
+private struct UsageAllowanceBanner: View {
+    let isPremium: Bool
+    let remaining: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: isPremium ? "checkmark.seal.fill" : "sparkles")
+                    .foregroundStyle(isPremium ? Color.sceneGreen : Color.sceneGold)
+                Text(isPremium ? "Premium · Unlimited identifications" : "Free · \(remaining) identifications left today")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                if !isPremium {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(12)
+            .background(Color.sceneSurface, in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(isPremium ? "Shows premium status" : "Opens premium plans")
     }
 }
 

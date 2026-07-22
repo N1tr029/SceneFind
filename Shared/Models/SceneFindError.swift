@@ -25,6 +25,7 @@ enum SceneFindError: LocalizedError {
     case directVideoUnavailable
     case geminiInvalidResponse
     case geminiRequestFailed(String)
+    case productionBackendUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -52,6 +53,7 @@ enum SceneFindError: LocalizedError {
         case .directVideoUnavailable: "SceneFind could not read the TikTok video itself, so it stopped instead of guessing from its caption. Try again or import the clip."
         case .geminiInvalidResponse: "Gemini answered, but SceneFind could not finish reading the result. Try again."
         case .geminiRequestFailed(let message): "Gemini request failed: \(message)"
+        case .productionBackendUnavailable: "SceneFind's production analysis service is not configured in this build."
         }
     }
 
@@ -71,6 +73,7 @@ enum SceneFindError: LocalizedError {
         case .directVideoUnavailable: "Video unavailable"
         case .geminiInvalidResponse: "Couldn't read the result"
         case .geminiRequestFailed: "Gemini unavailable"
+        case .productionBackendUnavailable: "Service unavailable"
         default: "Analysis failed"
         }
     }

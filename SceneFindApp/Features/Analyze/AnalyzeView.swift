@@ -3,28 +3,26 @@ import SwiftUI
 struct AnalyzeView: View {
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var model: SceneFindModel
+    @EnvironmentObject private var subscription: SubscriptionManager
+    @EnvironmentObject private var usage: DailyUsageLimiter
     @Environment(\.dismiss) private var dismiss
 
     let requestID: UUID
 
     @State private var request: SharedClipRequest?
-    @State private var currentStep = 0
+    @State private var events: [AnalysisProgressEvent] = []
     @State private var isAnalyzing = false
     @State private var analysisStartedAt = Date()
     @State private var errorTitle = "Analysis failed"
     @State private var errorMessage: String?
+    @State private var runToken = UUID()
 
-    private let steps = [
-        AnalysisStage(label: "Reading the clip", symbol: "link"),
-        AnalysisStage(label: "Checking known scenes", symbol: "film.stack"),
-        AnalysisStage(label: "Scanning video and audio", symbol: "waveform"),
-        AnalysisStage(label: "Finding the episode", symbol: "sparkle.magnifyingglass"),
-        AnalysisStage(label: "Locating the moment", symbol: "scope"),
-        AnalysisStage(label: "Preparing watch options", symbol: "play.tv")
-    ]
-
-    private var progress: Double {
-        min(Double(currentStep + 1) / Double(steps.count), isAnalyzing ? 0.92 : 1)
+    private var currentEvent: AnalysisProgressEvent {
+        events.last ?? AnalysisProgressEvent(
+            kind: .requestRead,
+            title: "Reading shared clip",
+            detail: "Preparing the link for analysis"
+        )
     }
 
     var body: some View {
@@ -33,19 +31,12 @@ struct AnalyzeView: View {
             ScrollView {
                 VStack(spacing: 22) {
                     AnalysisVisual(
-                        stage: steps[currentStep],
-                        stepNumber: currentStep + 1,
-                        totalSteps: steps.count,
-                        progress: progress,
+                        event: currentEvent,
                         startedAt: analysisStartedAt,
                         isAnalyzing: isAnalyzing
                     )
 
-                    AnalysisProgressRail(
-                        stages: steps,
-                        currentStep: currentStep,
-                        hasError: errorMessage != nil
-                    )
+                    AnalysisEventTimeline(events: events, isAnalyzing: isAnalyzing)
 
                     if let request {
                         AnalysisSourceSummary(request: request)
@@ -74,12 +65,12 @@ struct AnalyzeView: View {
         }
         .navigationTitle("Analyzing clip")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await runAnalysis() }
-        .animation(.smooth(duration: 0.45), value: currentStep)
+        .task(id: runToken) { await runAnalysis() }
+        .animation(.smooth(duration: 0.35), value: events)
     }
 
     private func retry() {
-        Task { await runAnalysis() }
+        runToken = UUID()
     }
 
     @MainActor
@@ -87,27 +78,37 @@ struct AnalyzeView: View {
         guard !isAnalyzing else { return }
         isAnalyzing = true
         analysisStartedAt = Date()
-        currentStep = 0
+        events = []
         errorMessage = nil
 
-        let progressTask = Task { @MainActor in
-            let delays: [UInt64] = [1, 2, 4, 7, 10]
-            for (offset, seconds) in delays.enumerated() {
-                try await Task.sleep(nanoseconds: seconds * 1_000_000_000)
-                guard isAnalyzing else { return }
-                currentStep = offset + 1
-            }
+        guard usage.canStartAnalysis(hasPremium: subscription.hasPremiumAccess) else {
+            isAnalyzing = false
+            router.navigate(to: .paywall)
+            return
         }
-        defer { progressTask.cancel() }
 
         do {
             let loaded = try model.store.loadRequest(id: requestID)
             request = loaded
-            let result = try await model.identificationService.identify(request: loaded)
+            let result: ClipAnalysisResult
+            if let service = model.identificationService as? ProgressReportingClipIdentificationService {
+                result = try await service.identify(request: loaded) { event in
+                    Task { @MainActor in
+                        guard isAnalyzing else { return }
+                        events.append(event)
+                    }
+                }
+            } else {
+                result = try await model.identificationService.identify(request: loaded)
+            }
+            try Task.checkCancellation()
             model.record(result)
+            usage.recordSuccessfulIdentification(hasPremium: subscription.hasPremiumAccess)
             router.resultsByID[result.id] = result
             isAnalyzing = false
             router.finishAnalysis(requestID: requestID, resultID: result.id)
+        } catch is CancellationError {
+            isAnalyzing = false
         } catch {
             isAnalyzing = false
             errorTitle = (error as? SceneFindError)?.failureTitle ?? "Analysis failed"
@@ -116,17 +117,8 @@ struct AnalyzeView: View {
     }
 }
 
-private struct AnalysisStage: Identifiable {
-    let id = UUID()
-    let label: String
-    let symbol: String
-}
-
 private struct AnalysisVisual: View {
-    let stage: AnalysisStage
-    let stepNumber: Int
-    let totalSteps: Int
-    let progress: Double
+    let event: AnalysisProgressEvent
     let startedAt: Date
     let isAnalyzing: Bool
 
@@ -135,31 +127,28 @@ private struct AnalysisVisual: View {
             ZStack {
                 Circle()
                     .stroke(Color.white.opacity(0.08), lineWidth: 5)
-                Circle()
-                    .trim(from: 0, to: progress)
-                    .stroke(
-                        isAnalyzing ? Color.sceneCyan : Color.sceneCoral,
-                        style: StrokeStyle(lineWidth: 5, lineCap: .round)
-                    )
-                    .rotationEffect(.degrees(-90))
-                    .animation(.smooth(duration: 0.5), value: progress)
-                Image(systemName: stage.symbol)
+                if isAnalyzing {
+                    ProgressView()
+                        .controlSize(.large)
+                        .tint(Color.sceneCyan)
+                }
+                Image(systemName: event.kind.symbolName)
                     .font(.title2.weight(.semibold))
-                    .foregroundStyle(isAnalyzing ? Color.sceneCyan : Color.sceneCoral)
+                    .foregroundStyle(isAnalyzing ? Color.sceneCyan : Color.sceneGreen)
                     .contentTransition(.symbolEffect(.replace))
             }
             .frame(width: 72, height: 72)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text(stage.label)
+                Text(event.title)
                     .font(.title3.bold())
                     .contentTransition(.opacity)
-                Text("STEP \(stepNumber) OF \(totalSteps)")
-                    .font(.caption2.bold().monospacedDigit())
-                    .foregroundStyle(Color.sceneCyan)
-                    .contentTransition(.numericText())
-                ProgressView(value: progress)
-                    .tint(isAnalyzing ? Color.sceneCyan : Color.sceneCoral)
+                if let detail = event.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
             }
 
             Spacer(minLength: 4)
@@ -176,7 +165,7 @@ private struct AnalysisVisual: View {
         .background(Color.sceneSurface, in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
-                .stroke((isAnalyzing ? Color.sceneCyan : Color.sceneCoral).opacity(0.2), lineWidth: 1)
+                .stroke((isAnalyzing ? Color.sceneCyan : Color.sceneGreen).opacity(0.2), lineWidth: 1)
         }
     }
 
@@ -185,43 +174,70 @@ private struct AnalysisVisual: View {
     }
 }
 
-private struct AnalysisProgressRail: View {
-    let stages: [AnalysisStage]
-    let currentStep: Int
-    let hasError: Bool
+private struct AnalysisEventTimeline: View {
+    let events: [AnalysisProgressEvent]
+    let isAnalyzing: Bool
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(Array(stages.enumerated()), id: \.element.id) { index, stage in
-                Image(systemName: symbol(for: index, stage: stage))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(color(for: index))
-                    .frame(width: 34, height: 34)
-                    .background(color(for: index).opacity(index <= currentStep ? 0.14 : 0.06), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(color(for: index).opacity(index == currentStep ? 0.6 : 0.12), lineWidth: 1)
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(spacing: 0) {
+                        Image(systemName: index == events.count - 1 && isAnalyzing
+                              ? event.kind.symbolName : "checkmark")
+                            .font(.caption.bold())
+                            .foregroundStyle(index == events.count - 1 && isAnalyzing ? Color.sceneCyan : Color.sceneGreen)
+                            .frame(width: 28, height: 28)
+                            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+                        if index < events.count - 1 {
+                            Rectangle()
+                                .fill(Color.sceneGreen.opacity(0.35))
+                                .frame(width: 2, height: 28)
+                        }
                     }
-                    .accessibilityLabel(stage.label)
-                if index < stages.count - 1 {
-                    Rectangle()
-                        .fill(index < currentStep ? Color.sceneGreen : .white.opacity(0.08))
-                        .frame(height: 2)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(event.title)
+                            .font(.subheadline.weight(.semibold))
+                        if let detail = event.detail, !detail.isEmpty {
+                            Text(detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    Text(String(format: "%.1fs", event.elapsedSeconds))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
                 }
+                .accessibilityElement(children: .combine)
             }
         }
+        .padding(14)
+        .background(Color.sceneSurface, in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(.white.opacity(0.06), lineWidth: 1)
+        }
     }
+}
 
-    private func symbol(for index: Int, stage: AnalysisStage) -> String {
-        if index < currentStep { return "checkmark" }
-        if index == currentStep, hasError { return "exclamationmark" }
-        return stage.symbol
-    }
-
-    private func color(for index: Int) -> Color {
-        if index < currentStep { return .sceneGreen }
-        if index == currentStep { return hasError ? .sceneCoral : .sceneCyan }
-        return .secondary
+private extension AnalysisProgressKind {
+    var symbolName: String {
+        switch self {
+        case .requestRead: "link"
+        case .metadataRetrieved: "doc.text.magnifyingglass"
+        case .mediaRetrieved: "video.fill"
+        case .mediaAnalysisStarted: "waveform"
+        case .dialogueDetected: "captions.bubble.fill"
+        case .showIdentified: "tv.fill"
+        case .episodeCandidatesFound: "list.bullet.rectangle"
+        case .episodeVerified: "checkmark.seal.fill"
+        case .episodeUnverified: "questionmark.diamond.fill"
+        case .providersChecked: "play.tv.fill"
+        case .artworkRetrieved: "photo.fill"
+        case .completed: "checkmark.circle.fill"
+        }
     }
 }
 

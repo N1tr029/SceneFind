@@ -6,7 +6,7 @@ SceneFind is a locally testable iPhone MVP for "Shazam for movie and TV clips." 
 
 - Main SwiftUI iOS app target
 - iOS Share Extension target
-- App Group entitlements using `group.com.example.SceneFind`
+- App Group entitlements using `group.com.kavigandham.scenefind`
 - `scenefind://analyze?requestID=<uuid>` deep link handling
 - TikTok/YouTube URL and caption capture from the Share Extension
 - Public oEmbed metadata lookup for supported social links

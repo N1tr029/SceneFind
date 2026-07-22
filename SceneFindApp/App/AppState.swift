@@ -8,6 +8,7 @@ enum AppRoute: Hashable {
     case savedDetail(UUID)
     case settings
     case services
+    case paywall
 }
 
 enum AppTab: Hashable {
@@ -122,7 +123,7 @@ final class AppRouter: ObservableObject {
         case .settings:
             selectedTab = .settings
             settingsPath = []
-        case .services:
+        case .services, .paywall:
             selectedTab = .settings
             if settingsPath.last != route { settingsPath.append(route) }
         default:
@@ -188,12 +189,12 @@ final class SceneFindModel: ObservableObject {
     init(
         repository: ResultRepository = LocalJSONResultRepository.shared,
         store: SharedContainerStore = .shared,
-        identificationService: ClipIdentificationService = HybridClipIdentificationService(),
+        identificationService: ClipIdentificationService? = nil,
         defaults: UserDefaults = UserDefaults(suiteName: AppGroupConfiguration.identifier) ?? .standard
     ) {
         self.repository = repository
         self.store = store
-        self.identificationService = identificationService
+        self.identificationService = identificationService ?? ClipIdentificationServiceFactory.makeDefault()
         self.defaults = defaults
         if defaults.object(forKey: Self.showAnalysisDetailsKey) != nil {
             showAnalysisDetails = defaults.bool(forKey: Self.showAnalysisDetailsKey)

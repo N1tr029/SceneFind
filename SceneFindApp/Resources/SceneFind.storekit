@@ -1,0 +1,83 @@
+{
+  "identifier" : "85B2AD4D-25AD-4D7B-AEFA-A6818DA42BC7",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_applicationInternalID" : "SceneFind",
+    "_developerTeamID" : "",
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 0,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "4B4CF0E8-DC5C-4B62-A6A8-5204CE15AEF9",
+      "localizations" : [
+
+      ],
+      "name" : "SceneFind Premium",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "4.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "EEC2F8E5-97BD-4F55-B2D6-F23F55F9BA9A",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Unlimited clip identifications",
+              "displayName" : "Premium Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.kavigandham.scenefind.premium.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Premium Monthly",
+          "subscriptionGroupID" : "4B4CF0E8-DC5C-4B62-A6A8-5204CE15AEF9"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "39.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "677227EE-E378-4F82-B046-D49314584B7E",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Unlimited clip identifications with annual billing",
+              "displayName" : "Premium Yearly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.kavigandham.scenefind.premium.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Premium Yearly",
+          "subscriptionGroupID" : "4B4CF0E8-DC5C-4B62-A6A8-5204CE15AEF9"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

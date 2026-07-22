@@ -2,6 +2,8 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var model: SceneFindModel
+    @EnvironmentObject private var subscription: SubscriptionManager
+    @EnvironmentObject private var usage: DailyUsageLimiter
     @State private var apiKey = ""
     @State private var modelName = "gemini-3.5-flash"
     @State private var keyStatus: KeyStatus = .notConfigured
@@ -9,6 +11,10 @@ struct SettingsView: View {
     @State private var groqAPIKey = ""
     @State private var groqKeyStatus: KeyStatus = .notConfigured
     @State private var isGroqAPIKeyVisible = false
+    #if SCENEFIND_TESTFLIGHT
+    @State private var testerCode = ""
+    @State private var testerCodeRejected = false
+    #endif
 
     private enum KeyStatus: Equatable {
         case notConfigured
@@ -56,6 +62,53 @@ struct SettingsView: View {
                 )
             }
 
+            Section("Plan") {
+                NavigationLink {
+                    PaywallView()
+                } label: {
+                    LabeledContent {
+                        Text(subscription.accessLabel)
+                            .foregroundStyle(.secondary)
+                    } label: {
+                        Label("SceneFind Premium", systemImage: "sparkles")
+                    }
+                }
+                if !subscription.hasPremiumAccess {
+                    LabeledContent(
+                        "Free uses remaining",
+                        value: "\(usage.remainingFreeUses) of \(DailyUsageLimiter.freeSuccessLimit)"
+                    )
+                }
+                Button("Restore purchases") {
+                    Task { await subscription.restorePurchases() }
+                }
+                .disabled(subscription.purchaseInProgress)
+
+                #if SCENEFIND_TESTFLIGHT
+                if subscription.testerAccessUnlocked {
+                    Label("Tester access unlocked", systemImage: "checkmark.seal.fill")
+                        .foregroundStyle(.green)
+                } else {
+                    SecureField("TestFlight access code", text: $testerCode)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                        .privacySensitive()
+                    Button {
+                        testerCodeRejected = !subscription.unlockTesterAccess(code: testerCode)
+                        if !testerCodeRejected { testerCode = "" }
+                    } label: {
+                        Label("Unlock full access", systemImage: "lock.open.fill")
+                    }
+                    .disabled(testerCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if testerCodeRejected {
+                        Label("That access code is not valid.", systemImage: "exclamationmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+                #endif
+            }
+
             Section("Streaming") {
                 NavigationLink {
                     MyServicesView()
@@ -69,6 +122,7 @@ struct SettingsView: View {
                 }
             }
 
+            #if DEBUG || SCENEFIND_TESTFLIGHT
             Section("Recognition") {
                 DisclosureGroup("API settings") {
                     VStack(alignment: .leading, spacing: 12) {
@@ -175,6 +229,7 @@ struct SettingsView: View {
                     }
                 }
             }
+            #endif
 
             Section("Results") {
                 Toggle("Show match evidence", isOn: $model.showAnalysisDetails)
