@@ -6,6 +6,9 @@ struct SettingsView: View {
     @State private var modelName = "gemini-3.5-flash"
     @State private var keyStatus: KeyStatus = .notConfigured
     @State private var isAPIKeyVisible = false
+    @State private var groqAPIKey = ""
+    @State private var groqKeyStatus: KeyStatus = .notConfigured
+    @State private var isGroqAPIKeyVisible = false
 
     private enum KeyStatus: Equatable {
         case notConfigured
@@ -117,6 +120,58 @@ struct SettingsView: View {
                                 keyStatus = GeminiConfiguration.storageLocation == .bundledDefault ? .bundledDefault : .notConfigured
                             }
                         }
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("Groq episode verification", systemImage: "checkmark.seal.fill")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Uses Groq's free plan when available and falls back to Gemini automatically.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        HStack(spacing: 8) {
+                            Group {
+                                if isGroqAPIKeyVisible {
+                                    TextField("Groq API key", text: $groqAPIKey)
+                                } else {
+                                    SecureField("Groq API key", text: $groqAPIKey)
+                                }
+                            }
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .privacySensitive()
+
+                            Button {
+                                isGroqAPIKeyVisible.toggle()
+                            } label: {
+                                Image(systemName: isGroqAPIKeyVisible ? "eye.slash" : "eye")
+                                    .frame(width: 30, height: 30)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(isGroqAPIKeyVisible ? "Hide Groq API key" : "Show Groq API key")
+                        }
+
+                        Label(groqKeyStatus.label, systemImage: groqKeyStatus.symbol)
+                            .font(.caption)
+                            .foregroundStyle(groqKeyStatus.color)
+
+                        Button {
+                            saveGroqSettings()
+                        } label: {
+                            Label("Save Groq key", systemImage: "key.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(groqAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                        if groqKeyStatus == .keychain || groqKeyStatus == .debugLocalStorage {
+                            Button("Restore bundled Groq default", role: .destructive) {
+                                GroqConfiguration.clearAPIKey()
+                                loadGroqSettings()
+                            }
+                        }
                     }
                 }
             }
@@ -128,7 +183,7 @@ struct SettingsView: View {
             Section("Privacy") {
                 LabeledContent("Social accounts", value: "Not accessed")
                 LabeledContent("Streaming accounts", value: "Not accessed")
-                Text("Public clip data is sent to Gemini for identification. Service access selections stay on this device.")
+                Text("Public clip data is sent to Gemini for identification. Transcripts and episode evidence may be sent to Groq for verification. Service access selections stay on this device.")
                     .font(.footnote)
             }
 
@@ -161,6 +216,7 @@ struct SettingsView: View {
                 apiKey = ""
                 keyStatus = .notConfigured
             }
+            loadGroqSettings()
         }
     }
 
@@ -182,6 +238,25 @@ struct SettingsView: View {
         case .keychain: keyStatus = .keychain
         case .debugLocalStorage: keyStatus = .debugLocalStorage
         case .failed(let status): keyStatus = .failed(status)
+        }
+    }
+
+    private func loadGroqSettings() {
+        groqAPIKey = GroqConfiguration.apiKey ?? ""
+        switch GroqConfiguration.storageLocation {
+        case .keychain: groqKeyStatus = .keychain
+        case .debugLocalStorage: groqKeyStatus = .debugLocalStorage
+        case .bundledDefault: groqKeyStatus = .bundledDefault
+        case .none: groqKeyStatus = .notConfigured
+        }
+    }
+
+    private func saveGroqSettings() {
+        let result = GroqConfiguration.saveAPIKey(groqAPIKey)
+        switch result {
+        case .keychain: groqKeyStatus = .keychain
+        case .debugLocalStorage: groqKeyStatus = .debugLocalStorage
+        case .failed(let status): groqKeyStatus = .failed(status)
         }
     }
 }

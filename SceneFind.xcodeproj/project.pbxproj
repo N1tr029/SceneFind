@@ -73,6 +73,7 @@
 		A6E7D67D4BA0A32E62763C77 /* TranscriptionServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80EEE09A3D927CBD730B0CB5 /* TranscriptionServices.swift */; };
 		AD8C84BA383B8B4E31022B27 /* KnownClipCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA69A90CB6659809AC49E56A /* KnownClipCatalog.swift */; };
 		AE441601D4178D7E99832088 /* StreamingDestinationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43A1A506AE1A2597BDD3DFE0 /* StreamingDestinationResolver.swift */; };
+		AF57B26A90168C51189675AD /* GroqConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B99609E5908ED6F2539B8CA /* GroqConfiguration.swift */; };
 		B08273986BF23E58A35C310A /* KnownClipCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B2279B44DB1BCB8C773F946 /* KnownClipCatalogTests.swift */; };
 		B0912DA92E349EA7D19CE6B1 /* GeminiConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 574A7CBCE92330CF38158294 /* GeminiConfiguration.swift */; };
 		B0FA3304300026F51367FA3E /* SceneFindError.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD220C739747F97245BE53AE /* SceneFindError.swift */; };
@@ -84,6 +85,7 @@
 		C9C98A7861DDBC72EEE3605F /* StreamingDestinationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43A1A506AE1A2597BDD3DFE0 /* StreamingDestinationResolver.swift */; };
 		D17381B27A7E971BF4ACD37E /* OpenAIClipIdentificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EF20A7E8249128CF104275F /* OpenAIClipIdentificationService.swift */; };
 		D5DBE60B7E309A0FDEDCCE54 /* SharedURLExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E0B8452F27D86ADA35BDF91 /* SharedURLExtractor.swift */; };
+		D6BEE0906DFE34331B7E94AC /* GroqConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B99609E5908ED6F2539B8CA /* GroqConfiguration.swift */; };
 		DBDD515A8B9B2F34C85E0FB0 /* OpenAIClipIdentificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EF20A7E8249128CF104275F /* OpenAIClipIdentificationService.swift */; };
 		E49575712EF1369B0909E72D /* SharedURLExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39D565CBBD1EFBF60F18609E /* SharedURLExtractorTests.swift */; };
 		E8560571AEFF87AFC9022628 /* GeminiClipIdentificationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B32EAE565D0A552F0D8073F /* GeminiClipIdentificationServiceTests.swift */; };
@@ -91,6 +93,7 @@
 		F5611D2F0C30E8C416DFB1C1 /* SharedClipRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1970012BB9898A867E45BC3D /* SharedClipRequest.swift */; };
 		F811BCCF51ABBD6361A2F81B /* ClipAnalysisPipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EF8BAC114819CBCF28C3C08 /* ClipAnalysisPipelineTests.swift */; };
 		FBA9F7ADCB599D19BA79F0B4 /* SceneFindShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 439A9766A2B679DCA687907F /* SceneFindShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		FFC89A263F3AFC2620BB3482 /* GroqConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B99609E5908ED6F2539B8CA /* GroqConfiguration.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -148,6 +151,7 @@
 		43A1A506AE1A2597BDD3DFE0 /* StreamingDestinationResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingDestinationResolver.swift; sourceTree = "<group>"; };
 		44B30EFCC82014B5312275A0 /* SubtitleMatchingEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleMatchingEngine.swift; sourceTree = "<group>"; };
 		46324C5A4771F76FB6B13107 /* ShareExtensionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareExtensionView.swift; sourceTree = "<group>"; };
+		4B99609E5908ED6F2539B8CA /* GroqConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroqConfiguration.swift; sourceTree = "<group>"; };
 		4D2EEF19C24D77FCBAF05F24 /* AppGroupConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppGroupConfiguration.swift; sourceTree = "<group>"; };
 		534A23DBAD85140AC5BCFBE6 /* OpenAIConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIConfiguration.swift; sourceTree = "<group>"; };
 		574A7CBCE92330CF38158294 /* GeminiConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiConfiguration.swift; sourceTree = "<group>"; };
@@ -205,6 +209,7 @@
 				A38061D468F4886A2F7843B6 /* FutureServiceProtocols.swift */,
 				20F976BA40A6317377D186CB /* GeminiClipIdentificationService.swift */,
 				574A7CBCE92330CF38158294 /* GeminiConfiguration.swift */,
+				4B99609E5908ED6F2539B8CA /* GroqConfiguration.swift */,
 				7EF20A7E8249128CF104275F /* OpenAIClipIdentificationService.swift */,
 				534A23DBAD85140AC5BCFBE6 /* OpenAIConfiguration.swift */,
 				F2DAA16057D3E43ABE1A3F24 /* SocialClipMetadataService.swift */,
@@ -517,6 +522,7 @@
 				92772F29D88DB9062A19A511 /* GeminiClipIdentificationService.swift in Sources */,
 				E8560571AEFF87AFC9022628 /* GeminiClipIdentificationServiceTests.swift in Sources */,
 				B9DDBAB959166D23606CC59C /* GeminiConfiguration.swift in Sources */,
+				FFC89A263F3AFC2620BB3482 /* GroqConfiguration.swift in Sources */,
 				35795F3A482446984BDCAF2F /* KnownClipCatalog.swift in Sources */,
 				B08273986BF23E58A35C310A /* KnownClipCatalogTests.swift in Sources */,
 				9BA3172F5973C843543210DA /* MediaModels.swift in Sources */,
@@ -550,6 +556,7 @@
 				384DB2FDB7285B3BC360865D /* FutureServiceProtocols.swift in Sources */,
 				38BD635F44A8DBCA3CA66DED /* GeminiClipIdentificationService.swift in Sources */,
 				B0912DA92E349EA7D19CE6B1 /* GeminiConfiguration.swift in Sources */,
+				AF57B26A90168C51189675AD /* GroqConfiguration.swift in Sources */,
 				3AA1B42DC0B006C95CEF3BE2 /* KnownClipCatalog.swift in Sources */,
 				1395D545F3A0530A0E399F3E /* MediaModels.swift in Sources */,
 				21B2B2B9DAC18BFF13C383AC /* MockMediaLibrary.swift in Sources */,
@@ -584,6 +591,7 @@
 				942106F6010A0D0AE9121999 /* FutureServiceProtocols.swift in Sources */,
 				9C45B93D73FE835FB4872CA5 /* GeminiClipIdentificationService.swift in Sources */,
 				35DDB5DEDD9E2A97BD007159 /* GeminiConfiguration.swift in Sources */,
+				D6BEE0906DFE34331B7E94AC /* GroqConfiguration.swift in Sources */,
 				6104CDD9D53A13EE2B7F6A05 /* HomeView.swift in Sources */,
 				AD8C84BA383B8B4E31022B27 /* KnownClipCatalog.swift in Sources */,
 				8C1675330FC852CB6663EB2C /* MediaModels.swift in Sources */,

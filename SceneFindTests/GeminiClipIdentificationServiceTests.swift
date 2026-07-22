@@ -465,6 +465,44 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
                 let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
                 return (response, try JSONSerialization.data(withJSONObject: guide))
             }
+            if url.host == "api.groq.com" {
+                verificationCallCount += 1
+                XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer groq-test-key")
+                let body = try XCTUnwrap(Self.bodyData(from: request))
+                let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+                XCTAssertEqual(json["model"] as? String, "openai/gpt-oss-120b")
+                XCTAssertEqual(json["reasoning_effort"] as? String, "low")
+                let responseFormat = try XCTUnwrap(json["response_format"] as? [String: Any])
+                XCTAssertEqual(responseFormat["type"] as? String, "json_schema")
+                let jsonSchema = try XCTUnwrap(responseFormat["json_schema"] as? [String: Any])
+                XCTAssertEqual(jsonSchema["strict"] as? Bool, true)
+                XCTAssertNotNil(jsonSchema["schema"])
+                let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
+                XCTAssertTrue((messages.last?["content"] as? String)?.contains("Episode guide entries:") == true)
+
+                let verification: [String: Any] = [
+                    "match_verified": true,
+                    "season_number": 2,
+                    "episode_number": 2,
+                    "episode_title": "Mama Drama",
+                    "clip_start_seconds": NSNull(),
+                    "clip_end_seconds": NSNull(),
+                    "matching_subtitle": "Ron Hextall scores the final goal!",
+                    "verification_evidence": "The Flyers, traffic, and unprecedented goal match the Mama Drama guide summary."
+                ]
+                let verificationData = try JSONSerialization.data(withJSONObject: verification)
+                let content = try XCTUnwrap(String(data: verificationData, encoding: .utf8))
+                let envelope: [String: Any] = [
+                    "choices": [["message": ["content": content]]]
+                ]
+                let response = try XCTUnwrap(HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                ))
+                return (response, try JSONSerialization.data(withJSONObject: envelope))
+            }
 
             let requestBody = try XCTUnwrap(Self.bodyData(from: request))
             let requestJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
@@ -538,7 +576,8 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
             session: session,
             apiKeyProvider: { "gemini-test-key" },
             modelProvider: { "gemini-test" },
-            artworkService: NoArtworkService()
+            artworkService: NoArtworkService(),
+            groqAPIKeyProvider: { "groq-test-key" }
         )
         let clipThumbnail = try XCTUnwrap(URL(string: "https://cdn.example/tiktok-thumbnail.jpg"))
         let metadata = SocialClipMetadata(
