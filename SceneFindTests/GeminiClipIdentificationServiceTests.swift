@@ -8,6 +8,32 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         XCTAssertEqual(MediaType(apiValue: "youtube"), .other)
     }
 
+    func testYouTubeVideoIDParsesWellFormedLinks() {
+        func id(_ string: String) -> String? {
+            URL(string: string).flatMap(GeminiClipIdentificationService.youTubeVideoID(from:))
+        }
+        XCTAssertEqual(id("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), "dQw4w9WgXcQ")
+        XCTAssertEqual(id("https://youtube.com/watch?v=dQw4w9WgXcQ&t=42s"), "dQw4w9WgXcQ")
+        XCTAssertEqual(id("https://youtu.be/dQw4w9WgXcQ"), "dQw4w9WgXcQ")
+        XCTAssertEqual(id("https://www.youtube.com/shorts/dQw4w9WgXcQ"), "dQw4w9WgXcQ")
+        XCTAssertEqual(id("https://www.youtube.com/embed/dQw4w9WgXcQ"), "dQw4w9WgXcQ")
+    }
+
+    func testYouTubeVideoIDRejectsMalformedOrNonVideoLinks() {
+        func id(_ string: String) -> String? {
+            URL(string: string).flatMap(GeminiClipIdentificationService.youTubeVideoID(from:))
+        }
+        // Missing/short/oversized ids — the class of hallucinated links that
+        // used to become dead "watch" destinations.
+        XCTAssertNil(id("https://www.youtube.com/watch?v="))
+        XCTAssertNil(id("https://www.youtube.com/watch?v=short"))
+        XCTAssertNil(id("https://www.youtube.com/watch?list=PL123"))
+        // Search / channel / playlist pages are not a specific video.
+        XCTAssertNil(id("https://www.youtube.com/results?search_query=dhar+mann"))
+        XCTAssertNil(id("https://www.youtube.com/@DharMann"))
+        XCTAssertNil(id("https://www.youtube.com/playlist?list=PL123"))
+    }
+
     func testRetiredModelIsMigrated() {
         XCTAssertEqual(
             GeminiConfiguration.supportedModel("gemini-2.5-flash-lite"),

@@ -948,13 +948,24 @@ final class GeminiClipIdentificationService {
         let matchingSubtitle = isVerified
             ? episodeVerification?.matchingSubtitle ?? payload.matchingSubtitle
             : payload.matchingSubtitle
-        let confidence = episodeVerificationAttempted && !isVerified
-            ? min(payload.confidence, 0.65)
-            : payload.confidence
+        // Cap confidence when nothing externally confirmed the guess: a TV match
+        // whose episode verification failed, or any .other/online result (which
+        // is never verified against a catalog). Prevents presenting an
+        // unverified guess — e.g. a YouTube/creator video — as high confidence.
+        let mediaType = MediaType(apiValue: payload.mediaType)
+        let unverifiedCap = 0.65
+        let confidence: Double
+        if episodeVerificationAttempted && !isVerified {
+            confidence = min(payload.confidence, unverifiedCap)
+        } else if mediaType == .other {
+            confidence = min(payload.confidence, unverifiedCap)
+        } else {
+            confidence = payload.confidence
+        }
         return SceneCandidate(
             id: UUID(),
             mediaTitle: payload.mediaTitle,
-            mediaType: MediaType(apiValue: payload.mediaType),
+            mediaType: mediaType,
             releaseYear: payload.releaseYear,
             seasonNumber: seasonNumber,
             episodeNumber: episodeNumber,
@@ -976,7 +987,14 @@ final class GeminiClipIdentificationService {
     private func makeWatchProvider(_ payload: GeminiProviderPayload) -> WatchProvider? {
         guard let suppliedURL = URL(string: payload.url),
               let scheme = suppliedURL.scheme,
-              ["http", "https"].contains(scheme) else {
+              ["http", "https"].contains(scheme.lowercased()) else {
+            return nil
+        }
+        // The model generates these URLs, so a YouTube link may carry a
+        // hallucinated video id that opens to "video unavailable". Drop YouTube
+        // links whose id isn't a well-formed 11-character id rather than hand the
+        // user a dead "watch" destination.
+        if Self.isYouTubeHost(suppliedURL.host), Self.youTubeVideoID(from: suppliedURL) == nil {
             return nil
         }
         let isHulu = payload.name.localizedCaseInsensitiveContains("hulu")
@@ -992,6 +1010,42 @@ final class GeminiClipIdentificationService {
             symbolName: style.symbol,
             brandColorHex: style.color
         )
+    }
+
+    static func isYouTubeHost(_ host: String?) -> Bool {
+        guard let host = host?.lowercased() else { return false }
+        return host == "youtu.be"
+            || host == "youtube.com"
+            || host.hasSuffix(".youtube.com")
+    }
+
+    // Returns the 11-character video id for a well-formed YouTube watch/short
+    // link, or nil for search pages, channels, playlists, or malformed ids.
+    static func youTubeVideoID(from url: URL) -> String? {
+        guard let host = url.host?.lowercased() else { return nil }
+        let candidate: String?
+        if host == "youtu.be" {
+            candidate = url.pathComponents.first { $0 != "/" }
+        } else {
+            let path = url.path.lowercased()
+            if path == "/watch" || path.hasPrefix("/watch/") {
+                candidate = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first { $0.name == "v" }?.value
+            } else if path.hasPrefix("/shorts/") || path.hasPrefix("/embed/") {
+                candidate = url.pathComponents.dropFirst(2).first
+            } else {
+                candidate = nil
+            }
+        }
+        guard let id = candidate, isValidYouTubeID(id) else { return nil }
+        return id
+    }
+
+    static func isValidYouTubeID(_ id: String) -> Bool {
+        guard id.count == 11 else { return false }
+        let allowed = CharacterSet(charactersIn:
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+        return id.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 
     private func providerStyle(for name: String) -> (symbol: String, color: String) {

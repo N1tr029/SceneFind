@@ -57,13 +57,54 @@ final class HybridClipIdentificationService: ProgressReportingClipIdentification
         }
 
         guard GeminiConfiguration.isConfigured else { throw SceneFindError.geminiKeyMissing }
-        let result = try await geminiService.identify(
-            request: request,
-            metadata: metadata,
-            progress: emit
-        )
+        let result = try await identifyWithRetry(request: request, metadata: metadata, emit: emit)
         emit(AnalysisProgressEvent(kind: .completed, title: "Match ready"))
         return result.recordingProgress(events.snapshot(), totalDuration: Date().timeIntervalSince(start))
+    }
+
+    // Transient provider hiccups (TikTok CDN, Gemini 503/timeout, truncated JSON)
+    // used to fail the whole run and force the user to tap "try again". Retry
+    // those automatically; leave deterministic errors (missing key, auth, quota,
+    // no match) to surface immediately.
+    private static let maxIdentifyAttempts = 2
+
+    private func identifyWithRetry(
+        request: SharedClipRequest,
+        metadata: SocialClipMetadata?,
+        emit: @escaping (AnalysisProgressEvent) -> Void
+    ) async throws -> ClipAnalysisResult {
+        var attempt = 1
+        while true {
+            do {
+                return try await geminiService.identify(
+                    request: request,
+                    metadata: metadata,
+                    progress: emit
+                )
+            } catch let error as SceneFindError
+                where attempt < Self.maxIdentifyAttempts && Self.isTransient(error) {
+                emit(AnalysisProgressEvent(
+                    kind: .mediaAnalysisStarted,
+                    title: "Retrying analysis",
+                    detail: "The first attempt was interrupted; trying again."
+                ))
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                attempt += 1
+            }
+        }
+    }
+
+    private static func isTransient(_ error: SceneFindError) -> Bool {
+        switch error {
+        case .geminiServiceBusy,
+             .geminiRequestTimedOut,
+             .geminiInvalidResponse,
+             .geminiRequestFailed,
+             .directVideoUnavailable:
+            return true
+        default:
+            return false
+        }
     }
 }
 
