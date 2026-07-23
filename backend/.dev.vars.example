@@ -1,0 +1,4 @@
+# Copy to .dev.vars (gitignored) for local `wrangler dev`. Do NOT commit real keys.
+GROQ_API_KEY=gsk_your_local_key
+GEMINI_API_KEY=AQ_your_local_key
+ALLOW_INSECURE_DEV_AUTH=1

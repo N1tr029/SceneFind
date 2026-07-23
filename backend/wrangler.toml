@@ -1,0 +1,34 @@
+name = "scenefind-backend"
+main = "src/index.ts"
+compatibility_date = "2024-06-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ---------------------------------------------------------------------------
+# Provider keys are SECRETS, never committed. Set them with:
+#   wrangler secret put GROQ_API_KEY
+#   wrangler secret put GEMINI_API_KEY
+# (Optional, for App Attest / DeviceCheck once wired:)
+#   wrangler secret put APPLE_TEAM_ID
+#   wrangler secret put APP_ATTEST_ROOT_CA        # or use the bundled Apple root
+# ---------------------------------------------------------------------------
+
+# Per-analysis state + SSE fan-out lives in a Durable Object.
+[[durable_objects.bindings]]
+name = "ANALYSIS"
+class_name = "AnalysisSession"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["AnalysisSession"]
+
+# Rate-limiting counters and short-lived install identities.
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"   # wrangler kv:namespace create RATE_LIMIT
+
+[vars]
+# Non-secret config. Model names can be overridden per environment.
+GEMINI_MODEL = "gemini-3.5-flash"
+GROQ_MODEL = "llama-3.3-70b-versatile"
+# Set to "1" to allow unauthenticated calls during local development only.
+ALLOW_INSECURE_DEV_AUTH = "0"
