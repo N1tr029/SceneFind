@@ -195,7 +195,8 @@ final class GeminiClipIdentificationService {
                 from: candidatePayload,
                 artworkURL: artworkURL,
                 episodeVerification: index == 0 ? episodeVerification : nil,
-                episodeVerificationAttempted: index == 0 && shouldVerifyEpisode
+                episodeVerificationAttempted: index == 0 && shouldVerifyEpisode,
+                analyzedFullVideo: videoReference?.containsVideo == true
             ))
         }
         // Model-supplied YouTube links can point to a nonexistent video that
@@ -616,30 +617,76 @@ final class GeminiClipIdentificationService {
                 containsVideo: true
             )
         }
-        guard request.sourcePlatform == .tiktok else {
-            return nil
-        }
-        if let videoURL = metadata?.videoURL {
-            do {
-                return try await uploadTikTokVideo(
-                    from: videoURL,
-                    sourcePageURL: metadata?.canonicalURL ?? request.originalURL,
-                    apiKey: apiKey
-                )
-            } catch let error as SceneFindError {
-                switch error {
-                case .geminiAuthenticationFailed, .geminiFreeTierLimitReached, .geminiCreditsDepleted:
-                    throw error
-                default: break
+        if request.sourcePlatform == .tiktok {
+            if let videoURL = metadata?.videoURL {
+                do {
+                    return try await uploadTikTokVideo(
+                        from: videoURL,
+                        sourcePageURL: metadata?.canonicalURL ?? request.originalURL,
+                        apiKey: apiKey
+                    )
+                } catch let error as SceneFindError {
+                    switch error {
+                    case .geminiAuthenticationFailed, .geminiFreeTierLimitReached, .geminiCreditsDepleted:
+                        throw error
+                    default: break
+                    }
+                } catch {
+                    // A public thumbnail still provides direct visual evidence when TikTok rotates a video URL.
                 }
-            } catch {
-                // A public thumbnail still provides direct visual evidence when TikTok rotates a video URL.
             }
+            if let thumbnailURL = metadata?.thumbnailURL {
+                return try await inlinePreviewImage(from: thumbnailURL, sourcePageURL: request.originalURL)
+            }
+            throw SceneFindError.directVideoUnavailable
         }
+
+        // Instagram and any other shared link: we can't reliably pull the video.
+        // A public preview image still gives the model something real to look at.
+        // If nothing is fetchable, STOP instead of guessing from the caption or
+        // hashtags — that path produced confident, wrong matches.
         if let thumbnailURL = metadata?.thumbnailURL {
             return try await inlinePreviewImage(from: thumbnailURL, sourcePageURL: request.originalURL)
         }
+        if request.sourcePlatform == .instagram,
+           let url = request.originalURL,
+           let reference = try? await instagramPreviewImage(for: url) {
+            return reference
+        }
         throw SceneFindError.directVideoUnavailable
+    }
+
+    // Best-effort: scrape the public Reel/post page for its og:image preview and
+    // attach it as a still frame. Instagram blocks most scraping, so this often
+    // fails — callers must treat a throw as "no media" and stop, not guess.
+    private func instagramPreviewImage(for url: URL) async throws -> VideoReference {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        request.setValue(Self.mobileUserAgent, forHTTPHeaderField: "User-Agent")
+        let response = try await data(for: request, timeoutSeconds: 10)
+        guard let http = response.response as? HTTPURLResponse,
+              200..<300 ~= http.statusCode,
+              let html = String(data: response.data, encoding: .utf8),
+              let imageURLString = Self.htmlMetaContent(property: "og:image", in: html),
+              let imageURL = URL(string: imageURLString.replacingOccurrences(of: "&amp;", with: "&")) else {
+            throw SceneFindError.directVideoUnavailable
+        }
+        return try await inlinePreviewImage(from: imageURL, sourcePageURL: url)
+    }
+
+    static func htmlMetaContent(property: String, in html: String) -> String? {
+        let escaped = NSRegularExpression.escapedPattern(for: property)
+        let patterns = [
+            "<meta[^>]*(?:property|name)\\s*=\\s*[\"']\(escaped)[\"'][^>]*content\\s*=\\s*[\"']([^\"']+)[\"']",
+            "<meta[^>]*content\\s*=\\s*[\"']([^\"']+)[\"'][^>]*(?:property|name)\\s*=\\s*[\"']\(escaped)[\"']"
+        ]
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+                  let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                  let range = Range(match.range(at: 1), in: html) else { continue }
+            return String(html[range])
+        }
+        return nil
     }
 
     private func uploadTikTokVideo(
@@ -934,7 +981,8 @@ final class GeminiClipIdentificationService {
         from payload: GeminiCandidatePayload,
         artworkURL: URL?,
         episodeVerification: GeminiEpisodeVerificationPayload?,
-        episodeVerificationAttempted: Bool
+        episodeVerificationAttempted: Bool,
+        analyzedFullVideo: Bool
     ) -> SceneCandidate {
         let providers = payload.watchProviders.compactMap(makeWatchProvider)
         let isVerified = episodeVerification?.matchVerified == true
@@ -954,15 +1002,18 @@ final class GeminiClipIdentificationService {
             ? episodeVerification?.matchingSubtitle ?? payload.matchingSubtitle
             : payload.matchingSubtitle
         // Cap confidence when nothing externally confirmed the guess: a TV match
-        // whose episode verification failed, or any .other/online result (which
-        // is never verified against a catalog). Prevents presenting an
-        // unverified guess — e.g. a YouTube/creator video — as high confidence.
+        // whose episode verification failed, any .other/online result (never
+        // verified against a catalog), or an analysis that only had a single
+        // still frame (no video/audio, so no dialogue evidence). Prevents
+        // presenting an unverified or thin-evidence guess as high confidence.
         let mediaType = MediaType(apiValue: payload.mediaType)
         let unverifiedCap = 0.65
         let confidence: Double
         if episodeVerificationAttempted && !isVerified {
             confidence = min(payload.confidence, unverifiedCap)
         } else if mediaType == .other {
+            confidence = min(payload.confidence, unverifiedCap)
+        } else if !analyzedFullVideo {
             confidence = min(payload.confidence, unverifiedCap)
         } else {
             confidence = payload.confidence

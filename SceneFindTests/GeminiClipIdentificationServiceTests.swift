@@ -147,6 +147,106 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         XCTAssertEqual(providers.first?.episodeURL.absoluteString, "https://www.youtube.com/watch?v=abcdefghijk")
     }
 
+    func testInstagramWithoutFetchableMediaRefusesToGuess() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GeminiStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        var generateCallCount = 0
+
+        GeminiStubURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            if url.host == "www.instagram.com" || url.host == "instagram.com" {
+                // A login-walled page with no og:image (typical for scrapers).
+                let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+                return (response, Data("<html><head><title>Instagram</title></head></html>".utf8))
+            }
+            if url.host?.contains("generativelanguage") == true {
+                generateCallCount += 1
+            }
+            return try Self.geminiResponse(text: "{\"match_found\":false,\"candidates\":[]}")
+        }
+
+        let service = GeminiClipIdentificationService(
+            session: session,
+            apiKeyProvider: { "gemini-test-key" },
+            modelProvider: { "gemini-test" },
+            artworkService: NoArtworkService(),
+            groqAPIKeyProvider: { nil }
+        )
+        let request = SharedClipRequest(
+            sourceType: .url,
+            sourcePlatform: .instagram,
+            originalURL: URL(string: "https://www.instagram.com/reel/CxAbCdEf123/")
+        )
+
+        do {
+            _ = try await service.identify(request: request, metadata: nil)
+            XCTFail("Expected SceneFind to stop instead of guessing with no media")
+        } catch let error as SceneFindError {
+            XCTAssertEqual(error.failureTitle, "Video unavailable")
+        }
+        // The whole point: with no media, we must NOT call the model at all.
+        XCTAssertEqual(generateCallCount, 0)
+    }
+
+    func testInstagramPreviewImageProducesCappedConfidence() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GeminiStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        GeminiStubURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            if url.host == "www.instagram.com" {
+                let html = "<html><head><meta property=\"og:image\" content=\"https://cdn.ig.example/frame.jpg\"></head></html>"
+                let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+                return (response, Data(html.utf8))
+            }
+            if url.host == "cdn.ig.example" {
+                let response = try XCTUnwrap(HTTPURLResponse(
+                    url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "image/jpeg"]
+                ))
+                return (response, Data(repeating: 9, count: 2_048))
+            }
+            let resultJSON: [String: Any] = [
+                "match_found": true,
+                "detected_dialogue": "We need to talk about Iran.",
+                "candidates": [[
+                    "media_title": "Euphoria",
+                    "media_type": "tv",
+                    "release_year": 2019,
+                    "season_number": 1,
+                    "episode_number": 3,
+                    "confidence": 0.95,
+                    "dialogue_score": 0.9,
+                    "visual_score": 0.8,
+                    "watch_providers": []
+                ]]
+            ]
+            let data = try JSONSerialization.data(withJSONObject: resultJSON)
+            return try Self.geminiResponse(text: String(data: data, encoding: .utf8)!)
+        }
+
+        let service = GeminiClipIdentificationService(
+            session: session,
+            apiKeyProvider: { "gemini-test-key" },
+            modelProvider: { "gemini-test" },
+            artworkService: NoArtworkService(),
+            groqAPIKeyProvider: { nil }
+        )
+        let request = SharedClipRequest(
+            sourceType: .url,
+            sourcePlatform: .instagram,
+            originalURL: URL(string: "https://www.instagram.com/reel/CxAbCdEf123/")
+        )
+
+        let result = try await service.identify(request: request, metadata: nil)
+
+        // Only a still frame was available (no audio/dialogue), so a self-reported
+        // 0.95 must be capped — not presented as near-certain.
+        XCTAssertLessThanOrEqual(result.topCandidate.confidence, 0.65)
+        XCTAssertEqual(result.analysisDetails.directMediaAnalyzed, true)
+    }
+
     func testRetiredModelIsMigrated() {
         XCTAssertEqual(
             GeminiConfiguration.supportedModel("gemini-2.5-flash-lite"),
