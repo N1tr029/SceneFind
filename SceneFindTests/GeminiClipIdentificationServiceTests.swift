@@ -34,6 +34,119 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         XCTAssertNil(id("https://www.youtube.com/playlist?list=PL123"))
     }
 
+    func testDeadYouTubeWatchLinkFallsBackToSearchForOnlineContent() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GeminiStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        GeminiStubURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            if url.host == "www.youtube.com", url.path == "/oembed" {
+                // Simulate a nonexistent/private video (well-formed id, dead link).
+                let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil))
+                return (response, Data())
+            }
+            let resultJSON: [String: Any] = [
+                "match_found": true,
+                "detected_dialogue": "You never know someone's story.",
+                "candidates": [[
+                    "media_title": "Dhar Mann",
+                    "media_type": "other",
+                    "release_year": 2021,
+                    "confidence": 0.9,
+                    "dialogue_score": 0.9,
+                    "visual_score": 0.6,
+                    "watch_providers": [[
+                        "name": "YouTube",
+                        "offer": "Free",
+                        "url": "https://www.youtube.com/watch?v=abcdefghijk"
+                    ]]
+                ]]
+            ]
+            let data = try JSONSerialization.data(withJSONObject: resultJSON)
+            return try Self.geminiResponse(text: String(data: data, encoding: .utf8)!)
+        }
+
+        let service = GeminiClipIdentificationService(
+            session: session,
+            apiKeyProvider: { "gemini-test-key" },
+            modelProvider: { "gemini-test" },
+            artworkService: NoArtworkService(),
+            groqAPIKeyProvider: { nil }
+        )
+        let request = SharedClipRequest(
+            sourceType: .url,
+            sourcePlatform: .youtube,
+            originalURL: URL(string: "https://www.youtube.com/shorts/abcdefghijk")
+        )
+
+        let result = try await service.identify(request: request, metadata: nil)
+
+        XCTAssertEqual(result.topCandidate.mediaType, .other)
+        let providers = try XCTUnwrap(result.topCandidate.watchProviders)
+        XCTAssertEqual(providers.count, 1)
+        let destination = try XCTUnwrap(providers.first?.episodeURL)
+        XCTAssertEqual(destination.host, "www.youtube.com")
+        XCTAssertEqual(destination.path, "/results")
+        XCTAssertTrue(destination.query?.contains("search_query=Dhar") == true)
+        XCTAssertEqual(result.topCandidate.streamingURL, destination)
+        // The dead watch link must not survive.
+        XCTAssertFalse(providers.contains { $0.episodeURL.path == "/watch" })
+    }
+
+    func testLiveYouTubeWatchLinkIsKept() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GeminiStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        GeminiStubURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            if url.host == "www.youtube.com", url.path == "/oembed" {
+                let payload: [String: Any] = ["title": "A real video", "author_name": "Creator"]
+                let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+                return (response, try JSONSerialization.data(withJSONObject: payload))
+            }
+            let resultJSON: [String: Any] = [
+                "match_found": true,
+                "detected_dialogue": "Line.",
+                "candidates": [[
+                    "media_title": "Some Channel",
+                    "media_type": "other",
+                    "release_year": 2023,
+                    "confidence": 0.9,
+                    "dialogue_score": 0.9,
+                    "visual_score": 0.6,
+                    "watch_providers": [[
+                        "name": "YouTube",
+                        "offer": "Free",
+                        "url": "https://www.youtube.com/watch?v=abcdefghijk"
+                    ]]
+                ]]
+            ]
+            let data = try JSONSerialization.data(withJSONObject: resultJSON)
+            return try Self.geminiResponse(text: String(data: data, encoding: .utf8)!)
+        }
+
+        let service = GeminiClipIdentificationService(
+            session: session,
+            apiKeyProvider: { "gemini-test-key" },
+            modelProvider: { "gemini-test" },
+            artworkService: NoArtworkService(),
+            groqAPIKeyProvider: { nil }
+        )
+        let request = SharedClipRequest(
+            sourceType: .url,
+            sourcePlatform: .youtube,
+            originalURL: URL(string: "https://www.youtube.com/shorts/abcdefghijk")
+        )
+
+        let result = try await service.identify(request: request, metadata: nil)
+
+        let providers = try XCTUnwrap(result.topCandidate.watchProviders)
+        XCTAssertEqual(providers.count, 1)
+        XCTAssertEqual(providers.first?.episodeURL.absoluteString, "https://www.youtube.com/watch?v=abcdefghijk")
+    }
+
     func testRetiredModelIsMigrated() {
         XCTAssertEqual(
             GeminiConfiguration.supportedModel("gemini-2.5-flash-lite"),

@@ -198,6 +198,11 @@ final class GeminiClipIdentificationService {
                 episodeVerificationAttempted: index == 0 && shouldVerifyEpisode
             ))
         }
+        // Model-supplied YouTube links can point to a nonexistent video that
+        // opens to "video unavailable". Verify them, drop dead ones, and give
+        // online-origin content a YouTube search fallback so a "watch" button
+        // always lands somewhere.
+        candidates = await withResolvedYouTubeDestinations(candidates)
         if candidates[0].heroImageURL != nil {
             progress(AnalysisProgressEvent(
                 kind: .artworkRetrieved,
@@ -1012,6 +1017,83 @@ final class GeminiClipIdentificationService {
         )
     }
 
+    private func withResolvedYouTubeDestinations(_ candidates: [SceneCandidate]) async -> [SceneCandidate] {
+        var resolved: [SceneCandidate] = []
+        resolved.reserveCapacity(candidates.count)
+        for candidate in candidates {
+            resolved.append(await resolvingYouTubeDestination(candidate))
+        }
+        return resolved
+    }
+
+    private func resolvingYouTubeDestination(_ candidate: SceneCandidate) async -> SceneCandidate {
+        var providers = candidate.watchProviders ?? []
+        let hasYouTube = providers.contains { Self.isYouTubeHost($0.episodeURL.host) }
+        let needsFallback = candidate.mediaType == .other
+
+        // Nothing to verify and no fallback needed.
+        guard hasYouTube || needsFallback else { return candidate }
+
+        var verified: [WatchProvider] = []
+        for provider in providers {
+            if Self.isYouTubeHost(provider.episodeURL.host) {
+                if await youTubeURLIsLive(provider.episodeURL) { verified.append(provider) }
+                // Drop a link the model invented that doesn't resolve.
+            } else {
+                verified.append(provider)
+            }
+        }
+        providers = verified
+
+        // Online-origin content left with no openable destination: hand the user
+        // a YouTube search for the identified title instead of a dead end.
+        if needsFallback, providers.isEmpty,
+           let search = youTubeSearchProvider(title: candidate.mediaTitle) {
+            providers.append(search)
+        }
+
+        // Only rebuild if the provider list actually changed.
+        if providers == (candidate.watchProviders ?? []) { return candidate }
+        return candidate.replacingWatchProviders(providers)
+    }
+
+    // A public video's oEmbed endpoint returns 2xx JSON; a deleted/private/
+    // nonexistent id returns 4xx. Cheaper and more reliable than scraping the
+    // watch page (which returns 200 even for unavailable videos).
+    private func youTubeURLIsLive(_ url: URL) async -> Bool {
+        guard var components = URLComponents(string: "https://www.youtube.com/oembed") else { return false }
+        components.queryItems = [
+            URLQueryItem(name: "url", value: url.absoluteString),
+            URLQueryItem(name: "format", value: "json")
+        ]
+        guard let endpoint = components.url else { return false }
+        var request = URLRequest(url: endpoint)
+        request.timeoutInterval = 6
+        request.setValue("SceneFind/1.0", forHTTPHeaderField: "User-Agent")
+        guard let (_, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse else { return false }
+        return 200..<300 ~= http.statusCode
+    }
+
+    private func youTubeSearchProvider(title: String) -> WatchProvider? {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              var components = URLComponents(string: "https://www.youtube.com/results") else { return nil }
+        components.queryItems = [URLQueryItem(name: "search_query", value: trimmed)]
+        guard let url = components.url else { return nil }
+        let style = providerStyle(for: "YouTube")
+        return WatchProvider(
+            id: "youtube-search-\(trimmed.lowercased())",
+            name: "YouTube",
+            offer: "Search",
+            episodeURL: url,
+            sceneURL: nil,
+            symbolName: style.symbol,
+            brandColorHex: style.color,
+            destinationLevel: .search
+        )
+    }
+
     static func isYouTubeHost(_ host: String?) -> Bool {
         guard let host = host?.lowercased() else { return false }
         return host == "youtu.be"
@@ -1274,5 +1356,32 @@ private extension KeyedDecodingContainer {
             return value.contains("%") ? number / 100 : number
         }
         return nil
+    }
+}
+
+private extension SceneCandidate {
+    // Returns a copy with a new provider list, keeping the primary streaming
+    // service/URL in sync with the first provider.
+    func replacingWatchProviders(_ providers: [WatchProvider]) -> SceneCandidate {
+        SceneCandidate(
+            id: id,
+            mediaTitle: mediaTitle,
+            mediaType: mediaType,
+            releaseYear: releaseYear,
+            seasonNumber: seasonNumber,
+            episodeNumber: episodeNumber,
+            episodeTitle: episodeTitle,
+            sceneTimestampSeconds: sceneTimestampSeconds,
+            clipEndTimestampSeconds: clipEndTimestampSeconds,
+            matchedSubtitleText: matchedSubtitleText,
+            confidence: confidence,
+            subtitleScore: subtitleScore,
+            visualScore: visualScore,
+            metadataScore: metadataScore,
+            streamingService: providers.first?.name,
+            streamingURL: providers.first?.episodeURL,
+            heroImageURL: heroImageURL,
+            watchProviders: providers
+        )
     }
 }
