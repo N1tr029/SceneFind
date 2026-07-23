@@ -57,7 +57,7 @@ final class SubscriptionManager: ObservableObject {
     private static let lastKnownPremiumKey = "subscription.lastKnownPremium.v1"
     #if SCENEFIND_TESTFLIGHT
     private static let testerAccessKey = "subscription.testFlightAccess.v1"
-    private static let testerCodeHash = "37afe9f64f07c42fd8dcecb0b3cc9917fdf98442f84022749f9762fcf2d5948f"
+    private static let testerCodeHash = "a9e48f0c4032531c1041e8160291acaa78ca4967c905ebae0850a058ac0c5bc7"
     #endif
 
     init(defaults: UserDefaults = .standard) {
