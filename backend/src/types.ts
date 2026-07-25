@@ -9,6 +9,10 @@ export interface Env {
   GROQ_API_KEY: string;
   GEMINI_API_KEY: string;
   APPLE_TEAM_ID?: string;
+  /** SerpApi (64 hex chars) or Brave Search (`BSA…`) key, told apart by shape.
+   *  Optional: without it /v1/watch-links resolves nothing and the app falls
+   *  back to opening a service's own search page. */
+  SEARCH_API_KEY?: string;
 
   // Vars (wrangler.toml [vars])
   GEMINI_MODEL: string;
@@ -18,6 +22,29 @@ export interface Env {
   // Bindings
   ANALYSIS: DurableObjectNamespace;
   RATE_LIMIT: KVNamespace;
+  /** Resolved episode → provider URL cache, shared by every install. */
+  WATCH_LINKS: KVNamespace;
+}
+
+/** A provider page confirmed to be the requested title. */
+export interface WatchLink {
+  url: string;
+  service:
+    | "netflix"
+    | "appleTV"
+    | "disneyPlus"
+    | "hulu"
+    | "primeVideo"
+    | "max"
+    | "peacock"
+    | "paramountPlus";
+  serviceName: string;
+}
+
+export interface WatchLinksResponse {
+  links: WatchLink[];
+  /** Whether this answer cost a search or came from the shared cache. */
+  source: "resolved" | "cache";
 }
 
 export type AnalysisProgressKind =

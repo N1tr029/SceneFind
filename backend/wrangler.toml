@@ -7,6 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 # Provider keys are SECRETS, never committed. Set them with:
 #   wrangler secret put GROQ_API_KEY
 #   wrangler secret put GEMINI_API_KEY
+#   wrangler secret put SEARCH_API_KEY   # SerpApi (64 hex) or Brave (BSA...)
 # (Optional, for App Attest / DeviceCheck once wired:)
 #   wrangler secret put APPLE_TEAM_ID
 #   wrangler secret put APP_ATTEST_ROOT_CA        # or use the bundled Apple root
@@ -26,9 +27,18 @@ new_classes = ["AnalysisSession"]
 binding = "RATE_LIMIT"
 id = "REPLACE_WITH_KV_NAMESPACE_ID"   # wrangler kv:namespace create RATE_LIMIT
 
+# Episode -> provider URL cache. Shared by every install, which is the whole
+# point: a search costs quota, an episode's page URL never changes, so the first
+# device to ask pays and everyone after is free. Spend then scales with distinct
+# episodes rather than with users.
+[[kv_namespaces]]
+binding = "WATCH_LINKS"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"   # wrangler kv:namespace create WATCH_LINKS
+
 [vars]
 # Non-secret config. Model names can be overridden per environment.
-GEMINI_MODEL = "gemini-3.5-flash"
+# 3.5-flash answered the same prompt in ~9.3s where 3.6-flash took ~1.7s.
+GEMINI_MODEL = "gemini-3.6-flash"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 # Set to "1" to allow unauthenticated calls during local development only.
 ALLOW_INSECURE_DEV_AUTH = "0"

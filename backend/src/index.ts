@@ -7,12 +7,14 @@
 //   POST   /v1/analysis                 create analysis -> { id }
 //   GET    /v1/analysis/{id}/events     SSE progress stream
 //   DELETE /v1/analysis/{id}            cancel + drop evidence
+//   GET    /v1/watch-links              verified "open in <service>" links
 //   GET    /v1/entitlement              allowance + subscription state
 //   POST   /v1/storekit/transaction     server-side StoreKit verification
 
 import type { AnalysisRequest, Env, PublicError, PublicErrorCode } from "./types";
 import { authenticate, AuthError } from "./auth";
 import { getEntitlement, verifyStoreKitTransaction } from "./entitlement";
+import { handleWatchLinks } from "./watchLinks";
 
 export { AnalysisSession } from "./session";
 
@@ -45,6 +47,13 @@ async function route(req: Request, env: Env): Promise<Response> {
   if (analysisMatch && req.method === "DELETE") {
     await authenticate(req, env);
     return proxyToSession(env, analysisMatch[1], "DELETE", "/cancel", req);
+  }
+
+  // Resolved centrally so the first install to ask pays for the search and the
+  // rest are served from KV; see watchLinks.ts.
+  if (path === "/v1/watch-links" && req.method === "GET") {
+    await authenticate(req, env);
+    return handleWatchLinks(req, env);
   }
 
   if (path === "/v1/entitlement" && req.method === "GET") {
