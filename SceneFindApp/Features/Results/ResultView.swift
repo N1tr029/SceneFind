@@ -321,7 +321,7 @@ private struct ClipTimelineCard: View {
                     timeValue(label: "START", value: result.topCandidate.sceneTimestampSeconds)
                     ZStack {
                         Capsule().fill(.white.opacity(0.08)).frame(height: 4)
-                        Capsule().fill(Color.sceneCyan).frame(height: 4)
+                        Capsule().fill(accuracyTint).frame(height: 4)
                             .padding(.horizontal, 8)
                     }
                     timeValue(
@@ -329,8 +329,35 @@ private struct ClipTimelineCard: View {
                         value: result.topCandidate.clipEndTimestampSeconds ?? result.topCandidate.sceneTimestampSeconds
                     )
                 }
+
+                // Say plainly whether the time was matched against real subtitle
+                // data or is the model's estimate. Presenting a recalled guess as
+                // a precise time is how people end up scrubbing the wrong scene.
+                if let accuracy = result.topCandidate.timestampAccuracy {
+                    HStack(spacing: 6) {
+                        Image(systemName: accuracy.isVerified ? "checkmark.seal.fill" : "questionmark.circle")
+                        Text(result.topCandidate.timestampBasis ?? accuracy.label)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(accuracy.isVerified ? Color.sceneGreen : .secondary)
+                } else if result.topCandidate.sceneTimestampSeconds == nil {
+                    HStack(spacing: 6) {
+                        Image(systemName: "questionmark.circle")
+                        Text("SceneFind could not place this clip in the runtime, so it is not guessing.")
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
             }
         }
+    }
+
+    private var accuracyTint: Color {
+        result.topCandidate.timestampAccuracy?.isVerified == true ? .sceneGreen : .sceneCyan
     }
 
     private func timeValue(label: String, value: Double?) -> some View {
@@ -485,11 +512,11 @@ private struct WatchOptionsSheet: View {
                     }
                 }
 
-                if resolvedDestination?.level == .exactEpisode,
-                   !provider.supportsSceneDeepLink,
-                   let timestamp = afterClipTimestamp {
+                if let timestamp = afterClipTimestamp, let resolvedDestination {
                     Label(
-                        "\(provider.name) does not expose timestamp links. SceneFind will open the episode and copy \(timestamp.timestampString) so you can seek there.",
+                        WatchDestinationPolicy.supportsTimestamp(resolvedDestination.primaryURL)
+                            ? "\(provider.name) supports timestamp links, so this opens directly at \(timestamp.timestampString)."
+                            : "\(provider.name) ignores timestamps in links. SceneFind will open the title and copy \(timestamp.timestampString) so you can seek there.",
                         systemImage: "info.circle"
                     )
                     .font(.footnote)
@@ -570,13 +597,20 @@ private struct WatchOptionsSheet: View {
         guard let resolved = resolvedDestination else { return }
         isOpening = true
 
-        if resolved.level == .exactEpisode,
-           choice == .afterClip,
-           let timestamp = afterClipTimestamp {
-            UIPasteboard.general.string = timestamp.timestampString
+        // YouTube and Netflix genuinely seek when the URL carries a start time.
+        // For every other service the parameter is silently dropped, so copy the
+        // timestamp to the clipboard and let the viewer scrub to it instead of
+        // handing them a link that quietly ignores it.
+        var primaryURL = resolved.primaryURL
+        if choice == .afterClip, let timestamp = afterClipTimestamp {
+            if let seeking = WatchDestinationPolicy.timestampedURL(primaryURL, startSeconds: timestamp) {
+                primaryURL = seeking
+            } else if resolved.level == .exactEpisode {
+                UIPasteboard.general.string = timestamp.timestampString
+            }
         }
 
-        let destinations = [resolved.primaryURL, resolved.webFallbackURL]
+        let destinations = [primaryURL, resolved.webFallbackURL]
             .compactMap { $0 }
             .reduce(into: [URL]()) { urls, url in
                 if !urls.contains(url) { urls.append(url) }

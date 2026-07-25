@@ -39,7 +39,7 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         configuration.protocolClasses = [GeminiStubURLProtocol.self]
         let session = URLSession(configuration: configuration)
 
-        GeminiStubURLProtocol.requestHandler = { request in
+        GeminiStubURLProtocol.requestHandler = Self.geminiOnly(alsoStubbing: ["www.youtube.com"]) { request in
             let url = try XCTUnwrap(request.url)
             if url.host == "www.youtube.com", url.path == "/oembed" {
                 // Simulate a nonexistent/private video (well-formed id, dead link).
@@ -99,7 +99,7 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         configuration.protocolClasses = [GeminiStubURLProtocol.self]
         let session = URLSession(configuration: configuration)
 
-        GeminiStubURLProtocol.requestHandler = { request in
+        GeminiStubURLProtocol.requestHandler = Self.geminiOnly(alsoStubbing: ["www.youtube.com"]) { request in
             let url = try XCTUnwrap(request.url)
             if url.host == "www.youtube.com", url.path == "/oembed" {
                 let payload: [String: Any] = ["title": "A real video", "author_name": "Creator"]
@@ -153,7 +153,9 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         var generateCallCount = 0
 
-        GeminiStubURLProtocol.requestHandler = { request in
+        GeminiStubURLProtocol.requestHandler = Self.geminiOnly(
+            alsoStubbing: ["www.instagram.com", "instagram.com"]
+        ) { request in
             let url = try XCTUnwrap(request.url)
             if url.host == "www.instagram.com" || url.host == "instagram.com" {
                 // A login-walled page with no og:image (typical for scrapers).
@@ -194,7 +196,9 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         configuration.protocolClasses = [GeminiStubURLProtocol.self]
         let session = URLSession(configuration: configuration)
 
-        GeminiStubURLProtocol.requestHandler = { request in
+        GeminiStubURLProtocol.requestHandler = Self.geminiOnly(
+            alsoStubbing: ["www.instagram.com", "cdn.ig.example"]
+        ) { request in
             let url = try XCTUnwrap(request.url)
             if url.host == "www.instagram.com" {
                 let html = "<html><head><meta property=\"og:image\" content=\"https://cdn.ig.example/frame.jpg\"></head></html>"
@@ -250,14 +254,200 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
     func testRetiredModelIsMigrated() {
         XCTAssertEqual(
             GeminiConfiguration.supportedModel("gemini-2.5-flash-lite"),
-            "gemini-3.5-flash"
+            GeminiConfiguration.defaultModel
         )
-        XCTAssertEqual(GeminiConfiguration.supportedModel("gemini-2.5-flash"), "gemini-3.5-flash")
+        XCTAssertEqual(
+            GeminiConfiguration.supportedModel("gemini-2.5-flash"),
+            GeminiConfiguration.defaultModel
+        )
+        // 3.5-flash answered the same identification prompt in ~9.3s where
+        // 3.6-flash took ~1.7s, so it is migrated for latency, not availability.
+        XCTAssertEqual(
+            GeminiConfiguration.supportedModel("gemini-3.5-flash"),
+            GeminiConfiguration.defaultModel
+        )
+        XCTAssertEqual(GeminiConfiguration.defaultModel, "gemini-3.6-flash")
     }
 
     override func tearDown() {
         GeminiStubURLProtocol.requestHandler = nil
         super.tearDown()
+    }
+
+    /// Most shared clips are already answerable from the caption the poster wrote,
+    /// and ingesting a video costs orders of magnitude more time than one small
+    /// text request. So a conclusive text answer has to end the run outright —
+    /// if the clip's media is fetched anyway, the cheap path bought nothing.
+    func testConclusiveCaptionAnswerNeverFetchesTheClip() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GeminiStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        var geminiRequestCount = 0
+        var mediaRequestCount = 0
+
+        GeminiStubURLProtocol.requestHandler = Self.geminiOnly(alsoStubbing: ["cdn.example"]) { request in
+            let url = try XCTUnwrap(request.url)
+            if url.host == "cdn.example" {
+                mediaRequestCount += 1
+                let response = try XCTUnwrap(HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "video/mp4"]
+                ))
+                return (response, Data(repeating: 7, count: 1_024))
+            }
+
+            geminiRequestCount += 1
+            let body = try XCTUnwrap(Self.bodyData(from: request))
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            let contents = try XCTUnwrap(json["contents"] as? [[String: Any]])
+            let parts = try XCTUnwrap(contents.first?["parts"] as? [[String: Any]])
+            XCTAssertEqual(parts.count, 1)
+            XCTAssertNil(parts.first?["inline_data"])
+            XCTAssertNil(parts.first?["file_data"])
+            XCTAssertTrue((parts.first?["text"] as? String)?.contains("Ant-Man") == true)
+
+            let resultJSON: [String: Any] = [
+                "match_found": true,
+                "needs_video": false,
+                "detected_dialogue": "Baskin-Robbins always finds out.",
+                "candidates": [[
+                    "media_title": "Ant-Man",
+                    "media_type": "movie",
+                    "release_year": 2015,
+                    "clip_start_seconds": 1_284,
+                    "confidence": 0.88,
+                    "dialogue_score": 0.90,
+                    "watch_providers": []
+                ]]
+            ]
+            let data = try JSONSerialization.data(withJSONObject: resultJSON)
+            return try Self.geminiResponse(text: String(data: data, encoding: .utf8)!)
+        }
+
+        let service = GeminiClipIdentificationService(
+            session: session,
+            apiKeyProvider: { "gemini-test-key" },
+            modelProvider: { "gemini-test" },
+            artworkService: NoArtworkService(),
+            groqAPIKeyProvider: { nil }
+        )
+        let metadata = SocialClipMetadata(
+            title: "Ant-Man (2015) the Baskin Robbins scene",
+            authorName: "movieclips",
+            thumbnailURL: nil,
+            videoURL: URL(string: "https://cdn.example/clip.mp4"),
+            caption: "Ant-Man (2015) the Baskin Robbins scene"
+        )
+        let request = SharedClipRequest(
+            sourceType: .url,
+            sourcePlatform: .tiktok,
+            originalURL: URL(string: "https://www.tiktok.com/t/example")
+        )
+
+        let result = try await service.identify(request: request, metadata: metadata)
+
+        XCTAssertEqual(result.topCandidate.mediaTitle, "Ant-Man")
+        XCTAssertEqual(result.topCandidate.sceneTimestampSeconds, 1_284)
+        XCTAssertEqual(geminiRequestCount, 1)
+        XCTAssertEqual(mediaRequestCount, 0)
+        XCTAssertEqual(result.analysisDetails.directMediaAnalyzed, false)
+        XCTAssertEqual(result.analysisDetails.extractedFrameCount, 0)
+    }
+
+    /// `needs_video` is how the text pass admits the caption was not enough. It
+    /// has to outrank the model's own confidence, otherwise the cheap path turns
+    /// into exactly the confident guess it exists to avoid.
+    func testTextPassAskingForVideoEscalatesEvenWhenConfident() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GeminiStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        var geminiRequestCount = 0
+        var attachedTheClip = false
+
+        GeminiStubURLProtocol.requestHandler = Self.geminiOnly(alsoStubbing: ["cdn.example"]) { request in
+            let url = try XCTUnwrap(request.url)
+            if url.host == "cdn.example" {
+                let response = try XCTUnwrap(HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "video/mp4"]
+                ))
+                return (response, Data(repeating: 7, count: 1_024))
+            }
+
+            geminiRequestCount += 1
+            let body = try XCTUnwrap(Self.bodyData(from: request))
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            let contents = try XCTUnwrap(json["contents"] as? [[String: Any]])
+            let parts = try XCTUnwrap(contents.first?["parts"] as? [[String: Any]])
+
+            if let inlineData = parts.first?["inline_data"] as? [String: Any] {
+                attachedTheClip = true
+                XCTAssertEqual(inlineData["mime_type"] as? String, "video/mp4")
+                let resultJSON: [String: Any] = [
+                    "match_found": true,
+                    "needs_video": false,
+                    "detected_dialogue": "That is not what the caption said.",
+                    "candidates": [[
+                        "media_title": "What The Frames Show",
+                        "media_type": "movie",
+                        "release_year": 2019,
+                        "clip_start_seconds": 300,
+                        "confidence": 0.93,
+                        "watch_providers": []
+                    ]]
+                ]
+                let data = try JSONSerialization.data(withJSONObject: resultJSON)
+                return try Self.geminiResponse(text: String(data: data, encoding: .utf8)!)
+            }
+
+            let textJSON: [String: Any] = [
+                "match_found": true,
+                "needs_video": true,
+                "detected_dialogue": "",
+                "candidates": [[
+                    "media_title": "What The Caption Claimed",
+                    "media_type": "movie",
+                    "release_year": 2019,
+                    "clip_start_seconds": 900,
+                    "confidence": 0.95,
+                    "watch_providers": []
+                ]]
+            ]
+            let data = try JSONSerialization.data(withJSONObject: textJSON)
+            return try Self.geminiResponse(text: String(data: data, encoding: .utf8)!)
+        }
+
+        let service = GeminiClipIdentificationService(
+            session: session,
+            apiKeyProvider: { "gemini-test-key" },
+            modelProvider: { "gemini-test" },
+            artworkService: NoArtworkService(),
+            groqAPIKeyProvider: { nil }
+        )
+        let metadata = SocialClipMetadata(
+            title: "you will never guess this movie",
+            authorName: "repost account",
+            thumbnailURL: nil,
+            videoURL: URL(string: "https://cdn.example/clip.mp4"),
+            caption: "you will never guess this movie"
+        )
+        let request = SharedClipRequest(
+            sourceType: .url,
+            sourcePlatform: .tiktok,
+            originalURL: URL(string: "https://www.tiktok.com/t/example")
+        )
+
+        let result = try await service.identify(request: request, metadata: metadata)
+
+        XCTAssertTrue(attachedTheClip)
+        XCTAssertEqual(geminiRequestCount, 2)
+        // The frames, not the caption, decide the answer.
+        XCTAssertEqual(result.topCandidate.mediaTitle, "What The Frames Show")
+        XCTAssertEqual(result.analysisDetails.directMediaAnalyzed, true)
     }
 
     func testYouTubeShortIsSentAsVideoAndMapsStructuredResult() async throws {
@@ -266,7 +456,7 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         let session = URLSession(configuration: configuration)
 
         var requestCount = 0
-        GeminiStubURLProtocol.requestHandler = { request in
+        GeminiStubURLProtocol.requestHandler = Self.geminiOnly { request in
             requestCount += 1
             XCTAssertEqual(
                 request.url?.absoluteString,
@@ -294,12 +484,15 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
             XCTAssertTrue(instructions.contains("captions, hashtags, usernames"))
             let generationConfig = try XCTUnwrap(json["generationConfig"] as? [String: Any])
             let thinkingConfig = try XCTUnwrap(generationConfig["thinkingConfig"] as? [String: Any])
-            XCTAssertEqual(thinkingConfig["thinkingLevel"] as? String, "LOW")
+            XCTAssertEqual(thinkingConfig["thinkingLevel"] as? String, "low")
             XCTAssertEqual(generationConfig["maxOutputTokens"] as? Int, 4_096)
-            let responseFormat = try XCTUnwrap(generationConfig["responseFormat"] as? [String: Any])
-            let textFormat = try XCTUnwrap(responseFormat["text"] as? [String: Any])
-            XCTAssertEqual(textFormat["mimeType"] as? String, "APPLICATION_JSON")
-            let schema = try XCTUnwrap(textFormat["schema"] as? [String: Any])
+            // `responseFormat` is not a field the Gemini API has; it was silently
+            // dropped, so nothing constrained the output. `responseJsonSchema` is
+            // the one that works with these schemas — `responseSchema` rejects
+            // the ["string", "null"] unions they use.
+            XCTAssertNil(generationConfig["responseFormat"])
+            XCTAssertEqual(generationConfig["responseMimeType"] as? String, "application/json")
+            let schema = try XCTUnwrap(generationConfig["responseJsonSchema"] as? [String: Any])
             XCTAssertEqual(schema["type"] as? String, "object")
 
             let resultJSON: [String: Any] = [
@@ -321,11 +514,20 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
                     "visual_score": 0.84,
                     "metadata_score": 0.18,
                     "hero_image_url": NSNull(),
-                    "watch_providers": [[
-                        "name": "Hulu",
-                        "offer": "Subscription",
-                        "url": "https://www.hulu.com/example"
-                    ]]
+                    "watch_providers": [
+                        [
+                            "name": "Netflix",
+                            "offer": "Subscription",
+                            "url": "https://www.netflix.com/watch/81234567"
+                        ],
+                        // Hulu shut down; a Hulu row can only ever be a broken
+                        // button, so it must not survive into the result.
+                        [
+                            "name": "Hulu",
+                            "offer": "Subscription",
+                            "url": "https://www.hulu.com/example"
+                        ]
+                    ]
                 ]]
             ]
             let resultData = try JSONSerialization.data(withJSONObject: resultJSON)
@@ -346,8 +548,12 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
             sourcePlatform: .youtube,
             originalURL: URL(string: "https://www.youtube.com/shorts/abc123")
         )
+        // Hashtags carry no meaningful words, so `supportsTextIdentification` is
+        // false and identification goes straight to the media path this test is
+        // about. Give it a caption and the cheap text-only pass would answer
+        // first and never attach the video.
         let metadata = SocialClipMetadata(
-            title: "A scene from a show",
+            title: "#fyp #clips",
             authorName: "Clip account",
             thumbnailURL: URL(string: "https://i.ytimg.com/example.jpg")
         )
@@ -358,11 +564,13 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         XCTAssertEqual(result.topCandidate.episodeLine, "S3 E7")
         XCTAssertEqual(result.topCandidate.sceneTimestampSeconds, 732)
         XCTAssertEqual(result.topCandidate.clipEndTimestampSeconds, 748)
-        XCTAssertEqual(result.topCandidate.watchProviders?.first?.name, "Hulu")
+        let providers = try XCTUnwrap(result.topCandidate.watchProviders)
+        XCTAssertEqual(providers.map(\.name), ["Netflix"])
         XCTAssertEqual(
-            result.topCandidate.watchProviders?.first?.episodeURL.absoluteString,
-            "https://www.hulu.com/"
+            providers.first?.episodeURL.absoluteString,
+            "https://www.netflix.com/watch/81234567"
         )
+        XCTAssertFalse(providers.contains { $0.episodeURL.host?.contains("hulu.com") == true })
         XCTAssertEqual(result.topCandidate.heroImageURL, metadata.thumbnailURL)
         XCTAssertEqual(result.topCandidate.subtitleScore, 0.91)
         XCTAssertEqual(result.topCandidate.visualScore, 0.84)
@@ -378,7 +586,7 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         var requestCount = 0
 
-        GeminiStubURLProtocol.requestHandler = { request in
+        GeminiStubURLProtocol.requestHandler = Self.geminiOnly { request in
             requestCount += 1
             let response = try XCTUnwrap(HTTPURLResponse(
                 url: request.url!,
@@ -424,11 +632,16 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         configuration.protocolClasses = [GeminiStubURLProtocol.self]
         let session = URLSession(configuration: configuration)
 
-        GeminiStubURLProtocol.requestHandler = { request in
+        GeminiStubURLProtocol.requestHandler = Self.geminiOnly { request in
             let body = try XCTUnwrap(Self.bodyData(from: request))
             let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
             let generationConfig = try XCTUnwrap(json["generationConfig"] as? [String: Any])
-            XCTAssertNotNil(generationConfig["responseFormat"])
+            // Structured output is requested with `responseMimeType` +
+            // `responseJsonSchema`; the old `responseFormat` key is not part of
+            // the Gemini API and was silently ignored, which is why loosely
+            // typed answers like the one below reach the decoder at all.
+            XCTAssertEqual(generationConfig["responseMimeType"] as? String, "application/json")
+            XCTAssertNotNil(generationConfig["responseJsonSchema"])
 
             return try Self.geminiResponse(text: """
                 {
@@ -532,7 +745,7 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         var requestedEmbed = false
 
-        GeminiStubURLProtocol.requestHandler = { request in
+        GeminiStubURLProtocol.requestHandler = Self.geminiOnly(alsoStubbing: ["www.tiktok.com"]) { request in
             let url = try XCTUnwrap(request.url)
             if url.path == "/oembed" {
                 let payload: [String: Any] = [
@@ -578,7 +791,7 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         configuration.protocolClasses = [GeminiStubURLProtocol.self]
         let session = URLSession(configuration: configuration)
 
-        GeminiStubURLProtocol.requestHandler = { request in
+        GeminiStubURLProtocol.requestHandler = Self.geminiOnly(alsoStubbing: ["api.tvmaze.com"]) { request in
             let url = try XCTUnwrap(request.url)
             let payload: [String: Any] = [
                 "image": [
@@ -620,7 +833,9 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         var generateCallCount = 0
         var verificationCallCount = 0
 
-        GeminiStubURLProtocol.requestHandler = { request in
+        GeminiStubURLProtocol.requestHandler = Self.geminiOnly(
+            alsoStubbing: ["cdn.example", "upload.example", "api.tvmaze.com", "api.groq.com"]
+        ) { request in
             let url = try XCTUnwrap(request.url)
             if url.host == "cdn.example" {
                 let response = try XCTUnwrap(HTTPURLResponse(
@@ -724,32 +939,16 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
                 return (response, try JSONSerialization.data(withJSONObject: envelope))
             }
 
+            // Everything left is a Gemini identification call. Episode
+            // verification is a Groq call now, handled above, so a Gemini
+            // request carrying an episode guide would be a regression and is
+            // deliberately left to fail the media assertions below.
             let requestBody = try XCTUnwrap(Self.bodyData(from: request))
-            let requestJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
-            let requestContents = try XCTUnwrap(requestJSON["contents"] as? [[String: Any]])
-            let requestParts = try XCTUnwrap(requestContents.first?["parts"] as? [[String: Any]])
-            if (requestParts.first?["text"] as? String)?.contains("Episode guide entries:") == true {
-                verificationCallCount += 1
-                XCTAssertNil(requestJSON["tools"])
-                let generationConfig = try XCTUnwrap(requestJSON["generationConfig"] as? [String: Any])
-                XCTAssertNotNil(generationConfig["responseFormat"])
-                let verification: [String: Any] = [
-                    "match_verified": true,
-                    "season_number": 2,
-                    "episode_number": 2,
-                    "episode_title": "Mama Drama",
-                    "clip_start_seconds": NSNull(),
-                    "clip_end_seconds": NSNull(),
-                    "matching_subtitle": "Ron Hextall scores the final goal!",
-                    "verification_evidence": "The Flyers, traffic, and unprecedented goal match the Mama Drama guide summary."
-                ]
-                let data = try JSONSerialization.data(withJSONObject: verification)
-                return try Self.geminiResponse(text: String(data: data, encoding: .utf8)!)
-            }
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+            let contents = try XCTUnwrap(json["contents"] as? [[String: Any]])
+            let parts = try XCTUnwrap(contents.first?["parts"] as? [[String: Any]])
 
             generateCallCount += 1
-            let json = requestJSON
-            let parts = requestParts
             let inlineData = try XCTUnwrap(parts.first?["inline_data"] as? [String: Any])
             XCTAssertEqual(inlineData["mime_type"] as? String, "video/mp4")
             XCTAssertNotNil(inlineData["data"] as? String)
@@ -774,6 +973,9 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
                     "season_number": 4,
                     "episode_number": 16,
                     "episode_title": "The Dynamic Duo",
+                    // The model is confidently specific about a position inside
+                    // the episode it named. Since the guide rejects that episode,
+                    // these numbers must not survive into the one it confirms.
                     "clip_start_seconds": 630,
                     "clip_end_seconds": 750,
                     "matching_subtitle": "Ron Hextall scores the final goal!",
@@ -815,8 +1017,14 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         XCTAssertEqual(result.topCandidate.mediaTitle, "The Goldbergs")
         XCTAssertEqual(result.topCandidate.episodeLine, "S2 E2")
         XCTAssertEqual(result.topCandidate.episodeTitle, "Mama Drama")
+        // The guide moved the clip from the model's S4 E16 to S2 E2. The model's
+        // 630s/750s were measured against the episode the guide just rejected,
+        // so they must not reappear here: 630s sits comfortably inside a
+        // 22-minute episode and would pass every runtime check while pointing at
+        // the wrong scene. Reporting no time is the only honest answer.
         XCTAssertNil(result.topCandidate.sceneTimestampSeconds)
         XCTAssertNil(result.topCandidate.clipEndTimestampSeconds)
+        XCTAssertNil(result.topCandidate.timestampAccuracy)
         XCTAssertEqual(result.topCandidate.heroImageURL, clipThumbnail)
         XCTAssertEqual(result.topCandidate.subtitleScore, 0.80)
         XCTAssertEqual(result.topCandidate.visualScore, 0.80)
@@ -867,7 +1075,7 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
         var generatedWithFile = false
-        GeminiStubURLProtocol.requestHandler = { request in
+        GeminiStubURLProtocol.requestHandler = Self.geminiOnly(alsoStubbing: ["upload.example"]) { request in
             let url = try XCTUnwrap(request.url)
             if url.path == "/upload/v1beta/files" {
                 XCTAssertEqual(request.value(forHTTPHeaderField: "X-Goog-Upload-Header-Content-Length"), "2048")
@@ -969,7 +1177,7 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         configuration.protocolClasses = [GeminiStubURLProtocol.self]
         let session = URLSession(configuration: configuration)
 
-        GeminiStubURLProtocol.requestHandler = { request in
+        GeminiStubURLProtocol.requestHandler = Self.geminiOnly { request in
             let data = try JSONSerialization.data(withJSONObject: [
                 "error": ["message": "Resource exhausted", "status": "RESOURCE_EXHAUSTED"]
             ])
@@ -1008,7 +1216,7 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         var requestedModels: [String] = []
 
-        GeminiStubURLProtocol.requestHandler = { request in
+        GeminiStubURLProtocol.requestHandler = Self.geminiOnly { request in
             let url = try XCTUnwrap(request.url)
             let model = try XCTUnwrap(
                 url.pathComponents.first(where: { $0.hasPrefix("gemini-") })?
@@ -1080,7 +1288,7 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         configuration.protocolClasses = [GeminiStubURLProtocol.self]
         let session = URLSession(configuration: configuration)
 
-        GeminiStubURLProtocol.requestHandler = { request in
+        GeminiStubURLProtocol.requestHandler = Self.geminiOnly { request in
             let data = try JSONSerialization.data(withJSONObject: [
                 "error": [
                     "message": "Your prepayment credits are depleted.",
@@ -1134,6 +1342,33 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
             data.append(buffer, count: count)
         }
         return data
+    }
+
+    /// Wraps a stub handler so only Gemini traffic — plus whichever extra hosts a
+    /// test deliberately stubs — ever reaches it.
+    ///
+    /// Identification now runs `SceneTimestampResolver` on the same injected
+    /// session: api.quodb.com to match dialogue to a timestamp, and
+    /// api.tvmaze.com / itunes.apple.com for a runtime bound. Those lookups are
+    /// best effort and a miss falls through by design, so `404` is a realistic
+    /// answer for them. Short-circuiting them here is what keeps them out of a
+    /// handler's Gemini-only assertions and out of its request count, so a
+    /// `requestCount` in this file still means "Gemini calls".
+    private static func geminiOnly(
+        alsoStubbing stubbedHosts: Set<String> = [],
+        _ handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
+    ) -> (URLRequest) throws -> (HTTPURLResponse, Data) {
+        { request in
+            let host = request.url?.host?.lowercased() ?? ""
+            guard host == "generativelanguage.googleapis.com" || stubbedHosts.contains(host) else {
+                let url = try XCTUnwrap(request.url)
+                let response = try XCTUnwrap(
+                    HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil)
+                )
+                return (response, Data())
+            }
+            return try handler(request)
+        }
     }
 
     private static func geminiResponse(text: String) throws -> (HTTPURLResponse, Data) {

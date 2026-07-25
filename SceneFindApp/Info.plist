@@ -22,6 +22,12 @@
   <string>$(MARKETING_VERSION)</string>
   <key>CFBundleVersion</key>
   <string>$(CURRENT_PROJECT_VERSION)</string>
+  <!-- Answers the TestFlight export-compliance prompt up front ("None of the
+       above"). SceneFind only uses standard HTTPS/TLS and the system Keychain,
+       which are exempt. Without this key every build stalls in "Waiting for
+       Export Compliance" and never reaches a tester group. -->
+  <key>ITSAppUsesNonExemptEncryption</key>
+  <false/>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>

@@ -99,10 +99,12 @@ enum GeminiConfiguration {
         #endif
     }
 
+    static let defaultModel = "gemini-3.6-flash"
+
     static var model: String {
         get {
             let stored = UserDefaults.standard.string(forKey: modelKey)
-            let resolved = supportedModel(stored ?? "gemini-3.5-flash")
+            let resolved = supportedModel(stored ?? defaultModel)
             if stored != nil, stored != resolved {
                 UserDefaults.standard.set(resolved, forKey: modelKey)
             }
@@ -114,11 +116,17 @@ enum GeminiConfiguration {
         }
     }
 
+    /// Migrates retired and superseded model names.
+    ///
+    /// `gemini-3.5-flash` is retired here for speed rather than availability:
+    /// measured against the same identification prompt it answered in ~9.3s
+    /// where `gemini-3.6-flash` took ~1.7s, and it burned thinking tokens on
+    /// requests the newer model answers directly.
     static func supportedModel(_ rawValue: String) -> String {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         switch value {
-        case "", "gemini-2.5-flash-lite", "gemini-2.5-flash":
-            return "gemini-3.5-flash"
+        case "", "gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-3.5-flash":
+            return defaultModel
         default:
             return value
         }

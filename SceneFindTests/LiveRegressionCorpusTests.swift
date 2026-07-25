@@ -9,7 +9,20 @@ final class LiveRegressionCorpusTests: XCTestCase {
             throw XCTSkip("The local Debug Gemini key is not configured.")
         }
 
+        // The first three are the clips the evidence-first pipeline was built
+        // against, one per platform, and each exercises a different path:
+        //   Instagram — the answer is in the Reel's og:description caption
+        //               ("Ant-Man (2015)"), with no fetchable video at all.
+        //   TikTok    — the caption is just "#fyp"; the identification comes
+        //               from TikTok's free ASR caption track, which also gives
+        //               the dialogue that locates the scene in the runtime.
+        //   YouTube   — oEmbed answers 401 for this video because embedding is
+        //               disabled, so the title and episode have to come from the
+        //               watch page's own description.
         let urls = [
+            "https://www.instagram.com/reel/DUnCvbnif6s/",
+            "https://www.tiktok.com/t/ZTAY2LwFE/",
+            "https://youtube.com/shorts/N4UpQBoE9Ak",
             "https://youtube.com/shorts/0SRUWOzWw8I",
             "https://www.tiktok.com/t/ZTSKqS1Mb/",
             "https://www.tiktok.com/t/ZTSKqKK8W/",
@@ -30,9 +43,13 @@ final class LiveRegressionCorpusTests: XCTestCase {
                     pageTitle: "Live regression clip"
                 ))
                 let candidate = result.topCandidate
+                let timestamp = candidate.sceneTimestampSeconds
+                    .map { "\($0.timestampString) (\(candidate.timestampAccuracy?.label ?? "unlabelled"))" }
+                    ?? "no timestamp"
                 print(
                     "LIVE_RESULT | \(url.host() ?? "unknown") | \(candidate.mediaTitle) | "
-                    + "\(candidate.episodeLine) | \(String(format: "%.1f", Date().timeIntervalSince(started)))s"
+                    + "\(candidate.episodeLine) | \(timestamp) | "
+                    + "\(String(format: "%.1f", Date().timeIntervalSince(started)))s"
                 )
             } catch {
                 print(

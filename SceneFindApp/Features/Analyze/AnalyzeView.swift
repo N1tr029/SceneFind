@@ -3,19 +3,22 @@ import SwiftUI
 struct AnalyzeView: View {
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var model: SceneFindModel
-    @EnvironmentObject private var subscription: SubscriptionManager
-    @EnvironmentObject private var usage: DailyUsageLimiter
+    @EnvironmentObject private var coordinator: AnalysisCoordinator
     @Environment(\.dismiss) private var dismiss
 
     let requestID: UUID
 
     @State private var request: SharedClipRequest?
-    @State private var events: [AnalysisProgressEvent] = []
-    @State private var isAnalyzing = false
-    @State private var analysisStartedAt = Date()
-    @State private var errorTitle = "Analysis failed"
-    @State private var errorMessage: String?
-    @State private var runToken = UUID()
+
+    private var run: AnalysisCoordinator.Run? { coordinator.run(for: requestID) }
+    private var events: [AnalysisProgressEvent] { run?.events ?? [] }
+    private var isAnalyzing: Bool { run?.isRunning ?? true }
+    private var analysisStartedAt: Date { run?.startedAt ?? Date() }
+
+    private var failure: (title: String, message: String)? {
+        guard case .failed(let title, let message) = run?.state else { return nil }
+        return (title, message)
+    }
 
     private var currentEvent: AnalysisProgressEvent {
         events.last ?? AnalysisProgressEvent(
@@ -42,11 +45,11 @@ struct AnalyzeView: View {
                         AnalysisSourceSummary(request: request)
                     }
 
-                    if let errorMessage {
+                    if let failure {
                         AnalysisErrorCard(
-                            title: errorTitle,
-                            message: errorMessage,
-                            retry: retry
+                            title: failure.title,
+                            message: failure.message,
+                            retry: { coordinator.retry(requestID: requestID) }
                         )
                     }
                 }
@@ -54,8 +57,10 @@ struct AnalyzeView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
+            // Leaving no longer kills the run, so this is "leave it running in
+            // the background", not "cancel".
             Button(role: .cancel, action: dismiss.callAsFunction) {
-                Label(isAnalyzing ? "Cancel analysis" : "Close", systemImage: "xmark")
+                Label(isAnalyzing ? "Keep working in background" : "Close", systemImage: "xmark")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
@@ -65,55 +70,18 @@ struct AnalyzeView: View {
         }
         .navigationTitle("Analyzing clip")
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: runToken) { await runAnalysis() }
-        .animation(.smooth(duration: 0.35), value: events)
-    }
-
-    private func retry() {
-        runToken = UUID()
-    }
-
-    @MainActor
-    private func runAnalysis() async {
-        guard !isAnalyzing else { return }
-        isAnalyzing = true
-        analysisStartedAt = Date()
-        events = []
-        errorMessage = nil
-
-        guard usage.canStartAnalysis(hasPremium: subscription.hasPremiumAccess) else {
-            isAnalyzing = false
-            router.navigate(to: .paywall)
-            return
+        .onAppear {
+            request = try? model.store.loadRequest(id: requestID)
+            coordinator.startIfNeeded(requestID: requestID)
         }
-
-        do {
-            let loaded = try model.store.loadRequest(id: requestID)
-            request = loaded
-            let result: ClipAnalysisResult
-            if let service = model.identificationService as? ProgressReportingClipIdentificationService {
-                result = try await service.identify(request: loaded) { event in
-                    Task { @MainActor in
-                        guard isAnalyzing else { return }
-                        events.append(event)
-                    }
-                }
-            } else {
-                result = try await model.identificationService.identify(request: loaded)
+        .onChange(of: run?.state) { _, state in
+            guard case .finished(let resultID) = state else { return }
+            if let result = model.result(id: resultID) {
+                router.resultsByID[resultID] = result
             }
-            try Task.checkCancellation()
-            model.record(result)
-            usage.recordSuccessfulIdentification(hasPremium: subscription.hasPremiumAccess)
-            router.resultsByID[result.id] = result
-            isAnalyzing = false
-            router.finishAnalysis(requestID: requestID, resultID: result.id)
-        } catch is CancellationError {
-            isAnalyzing = false
-        } catch {
-            isAnalyzing = false
-            errorTitle = (error as? SceneFindError)?.failureTitle ?? "Analysis failed"
-            errorMessage = error.localizedDescription
+            router.finishAnalysis(requestID: requestID, resultID: resultID)
         }
+        .animation(.smooth(duration: 0.35), value: events)
     }
 }
 
@@ -227,6 +195,8 @@ private extension AnalysisProgressKind {
         switch self {
         case .requestRead: "link"
         case .metadataRetrieved: "doc.text.magnifyingglass"
+        case .transcriptRetrieved: "text.bubble.fill"
+        case .timestampResolved: "clock.badge.checkmark.fill"
         case .mediaRetrieved: "video.fill"
         case .mediaAnalysisStarted: "waveform"
         case .dialogueDetected: "captions.bubble.fill"

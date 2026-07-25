@@ -9,8 +9,16 @@ SceneFind is a locally testable iPhone MVP for "Shazam for movie and TV clips." 
 - App Group entitlements using `group.com.kavigandham.scenefind`
 - `scenefind://analyze?requestID=<uuid>` deep link handling
 - TikTok/YouTube URL and caption capture from the Share Extension
-- Public oEmbed metadata lookup for supported social links
-- Gemini 3.5 Flash integration with direct public YouTube audio and video input
+- Public evidence lookup per platform: the YouTube watch page's title and full
+  description, TikTok's page data plus its free ASR caption track, and the
+  Instagram Reel's `og:description` caption
+- Two-stage identification: a text-only pass over the caption and transcript
+  first, escalating to Gemini video analysis only when the text cannot support a
+  match or cannot locate the scene
+- Scene timestamps matched against a real subtitle index where possible, and
+  bounded by the title's real runtime otherwise, with each result labelled
+  "Matched to dialogue" or "Estimated"
+- Gemini 3.6 Flash integration with direct public YouTube audio and video input
 - Keychain-backed Gemini API key and configurable model in Settings, with Debug-only local storage for unsigned simulator builds
 - Verified match for the supplied `QD4bDD7L66M` Short: *Modern Family*, S4 E4, around 10:06
 - Where-to-watch provider rows and a start/continue-after-clip chooser
@@ -49,7 +57,7 @@ Xcode Cloud builds `main` with the `TestFlight` workflow and distributes success
 
 1. Run the main app.
 2. Tap **Demo Mode** cases for strong dialogue, weak visual, YouTube, TikTok, imported-video, no-match, and ambiguous flows.
-3. Create a free Gemini API key in Google AI Studio. Open **Settings**, enter the key, leave the model as `gemini-3.5-flash`, and tap **Save**.
+3. Create a free Gemini API key in Google AI Studio. Open **Settings**, enter the key, leave the model as `gemini-3.6-flash`, and tap **Save**.
 4. Tap **Paste a link** and use `https://www.youtube.com/shorts/QD4bDD7L66M` to exercise the verified result flow without an API call, or paste another public YouTube clip to exercise Gemini video understanding and structured identification.
 5. Tap **Choose a video** to import a video from Photos if your simulator has one.
 6. Test the share extension from Safari by opening any page, using Share, enabling SceneFind under Edit Actions if needed, and choosing SceneFind.
@@ -72,7 +80,27 @@ Xcode Cloud builds `main` with the `TestFlight` workflow and distributes success
 
 The app does not scrape restricted media, bypass DRM, or access social accounts. For shared links it may request public oEmbed metadata and send the URL, caption, title, and author to Gemini. Public YouTube links are supplied directly to Gemini as video input; TikTok and other platforms currently use available public metadata and Gemini's model knowledge, so uncatalogued matches should be treated as prototype suggestions rather than independently verified results. Properly signed builds store the prototype key in iOS Keychain. Unsigned Debug simulator builds fall back to local app preferences because they may not have the Keychain entitlement; this fallback is not compiled into Release builds. Verified catalog entries, including the supplied *Modern Family* example, do not make an API call.
 
-Streaming services generally do not publish timestamp deep links for TV episodes. SceneFind opens the selected episode and copies the verified continue point (`10:25` for the supplied clip) so the viewer can seek there.
+## Watch destinations
+
+SceneFind does not let the model invent provider URLs. A guessed content id
+produces a link that opens to "not found", so the model is asked only which
+services carry a title; SceneFind builds the destination itself and falls back to
+the service's own search page rather than dead-ending.
+
+Checked against the live services on 2026-07-24:
+
+- **Hulu has shut down.** Every `hulu.com` path, including a valid episode UUID,
+  answers `302` to `https://www.disneyplus.com/` with the path discarded, and
+  `hulu.com` serves no apple-app-site-association. Hulu rows are dropped.
+- **`max.com` now redirects to `hbomax.com`.** Watch links belong on
+  `play.hbomax.com`, which serves an AASA and opens the app; `www.hbomax.com`
+  returns 404 for its AASA and will only ever open Safari.
+- **Only YouTube and Netflix honour a timestamp in the URL** (`?t=90s` and
+  `?t=<seconds>` on a `/watch/` path respectively). Disney+ strips an added `t`
+  during canonicalisation, and Apple's `resumeTime` is a contract Apple imposes
+  on its own channel partners rather than something `tv.apple.com` accepts. For
+  every other service SceneFind opens the title and copies the timestamp so the
+  viewer can seek there, instead of pretending the link will seek.
 
 ## Reset local data
 

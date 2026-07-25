@@ -3,6 +3,7 @@ import Foundation
 enum AnalysisProgressKind: String, Codable, Hashable, Sendable {
     case requestRead
     case metadataRetrieved
+    case transcriptRetrieved
     case mediaRetrieved
     case mediaAnalysisStarted
     case dialogueDetected
@@ -10,6 +11,7 @@ enum AnalysisProgressKind: String, Codable, Hashable, Sendable {
     case episodeCandidatesFound
     case episodeVerified
     case episodeUnverified
+    case timestampResolved
     case providersChecked
     case artworkRetrieved
     case completed
@@ -81,6 +83,10 @@ struct SceneCandidate: Codable, Identifiable, Hashable {
     let streamingURL: URL?
     let heroImageURL: URL?
     let watchProviders: [WatchProvider]?
+    /// Whether `sceneTimestampSeconds` was matched against real subtitle data or
+    /// is only a model estimate. Nil for results saved before this existed.
+    let timestampAccuracy: SceneTimestampAccuracy?
+    let timestampBasis: String?
 
     init(
         id: UUID,
@@ -100,7 +106,9 @@ struct SceneCandidate: Codable, Identifiable, Hashable {
         streamingService: String?,
         streamingURL: URL?,
         heroImageURL: URL? = nil,
-        watchProviders: [WatchProvider]? = nil
+        watchProviders: [WatchProvider]? = nil,
+        timestampAccuracy: SceneTimestampAccuracy? = nil,
+        timestampBasis: String? = nil
     ) {
         self.id = id
         self.mediaTitle = mediaTitle
@@ -120,6 +128,8 @@ struct SceneCandidate: Codable, Identifiable, Hashable {
         self.streamingURL = streamingURL
         self.heroImageURL = heroImageURL
         self.watchProviders = watchProviders
+        self.timestampAccuracy = timestampAccuracy
+        self.timestampBasis = timestampBasis
     }
 
     var episodeLine: String {
@@ -271,4 +281,11 @@ extension ClipAnalysisResult {
 struct VisualMatchScore: Codable, Hashable {
     let candidateID: UUID
     let score: Double
+}
+
+extension Double {
+    var timestampString: String {
+        let value = Int(self)
+        return String(format: "%02d:%02d:%02d", value / 3600, (value % 3600) / 60, value % 60)
+    }
 }

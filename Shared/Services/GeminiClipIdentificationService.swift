@@ -46,6 +46,7 @@ final class GeminiClipIdentificationService {
     private let fallbackModels: [String]
     private let retryDelayNanoseconds: UInt64
     private let groqAPIKeyProvider: GroqAPIKeyProvider
+    private let timestampResolver: SceneTimestampResolver
 
     static let maximumUploadSizeBytes = 100 * 1_024 * 1_024
     private static let mobileUserAgent =
@@ -59,7 +60,8 @@ final class GeminiClipIdentificationService {
         artworkService: TitleArtworkService? = nil,
         fallbackModels: [String] = ["gemini-3.1-flash-lite"],
         retryDelayNanoseconds: UInt64 = 1_000_000_000,
-        groqAPIKeyProvider: @escaping GroqAPIKeyProvider = { GroqConfiguration.apiKey }
+        groqAPIKeyProvider: @escaping GroqAPIKeyProvider = { GroqConfiguration.apiKey },
+        timestampResolver: SceneTimestampResolver? = nil
     ) {
         self.session = session
         self.apiKeyProvider = apiKeyProvider
@@ -69,6 +71,47 @@ final class GeminiClipIdentificationService {
         self.fallbackModels = fallbackModels
         self.retryDelayNanoseconds = retryDelayNanoseconds
         self.groqAPIKeyProvider = groqAPIKeyProvider
+        self.timestampResolver = timestampResolver ?? SceneTimestampResolver(session: session)
+    }
+
+    /// A text-only answer is only allowed to end the run when the model says it
+    /// does not need the video and actually committed to a title. Anything else
+    /// escalates, so the cheap path can never turn into a confident guess.
+    ///
+    /// It also has to leave the scene timestamp reachable. Locating a scene needs
+    /// dialogue to match against a subtitle index, so a caption that names the
+    /// title but carries no dialogue and no usable time is *not* good enough:
+    /// without escalating we would answer "The Rookie S2E9" and have nothing to
+    /// say about where in the episode the clip is, which is the part people are
+    /// actually asking for.
+    private static func isConclusive(
+        _ payload: GeminiIdentificationPayload,
+        hasTranscript: Bool
+    ) -> Bool {
+        guard payload.matchFound, !payload.needsVideo,
+              let first = payload.candidates.first,
+              first.confidence >= 0.70,
+              !first.mediaTitle.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        return hasTranscript || first.clipStartSeconds != nil
+    }
+
+    /// How the winning identification was reached, which decides how much
+    /// confidence the result is allowed to claim.
+    private enum EvidenceBasis {
+        /// Caption/title/transcript text was sufficient on its own.
+        case clipText
+        /// The clip's own video and audio were analyzed.
+        case video
+        /// Only a still thumbnail was available — no audio, one frame.
+        case previewImage
+
+        var confidenceCeiling: Double {
+            switch self {
+            case .clipText: 0.90
+            case .video: 1.0
+            case .previewImage: 0.65
+            }
+        }
     }
 
     func identify(
@@ -86,42 +129,123 @@ final class GeminiClipIdentificationService {
         }
 
         let startedAt = Date()
-        let videoReference = try await videoReferenceIfAvailable(
-            for: sharedRequest,
-            metadata: metadata,
-            apiKey: apiKey
-        )
-        progress(AnalysisProgressEvent(
-            kind: .mediaRetrieved,
-            title: videoReference?.containsVideo == true ? "Video retrieved" : "Preview image retrieved",
-            detail: videoReference?.description
-        ))
-        let requestBody = researchRequestBody(
-            for: sharedRequest,
-            metadata: metadata,
-            videoReference: videoReference
-        )
-        progress(AnalysisProgressEvent(
-            kind: .mediaAnalysisStarted,
-            title: "Analyzing dialogue and visuals",
-            detail: "Gemini is inspecting the direct clip evidence."
-        ))
-        let payload: GeminiIdentificationPayload
-        do {
-            payload = try await generateIdentificationPayload(
-                body: requestBody,
+        if let transcript = metadata?.transcript, !transcript.isEmpty {
+            progress(AnalysisProgressEvent(
+                kind: .transcriptRetrieved,
+                title: "Clip dialogue captured",
+                detail: "\(transcript.wordCount) words from \(transcript.source.label)"
+            ))
+        }
+
+        var payload: GeminiIdentificationPayload?
+        var basis = EvidenceBasis.clipText
+        var videoReference: VideoReference?
+        /// A usable-but-not-conclusive text answer, kept so that failing to reach
+        /// the clip's media does not throw away a title we already had.
+        var textFallbackPayload: GeminiIdentificationPayload?
+
+        // Most shared clips are already answerable from the caption the poster
+        // wrote and the platform's own auto-captions. Trying that first turns a
+        // minute of video ingestion into a couple of seconds, and it costs one
+        // small text request when it does not work out.
+        if metadata?.supportsTextIdentification == true {
+            progress(AnalysisProgressEvent(
+                kind: .mediaAnalysisStarted,
+                title: "Reading the clip's caption and dialogue",
+                detail: "Checking whether the post already identifies the scene."
+            ))
+            let textPayload = try? await generateIdentificationPayload(
+                body: textRequestBody(for: sharedRequest, metadata: metadata),
                 preferredModel: model,
                 apiKey: apiKey
             )
-        } catch {
-            await deleteUploadedFile(videoReference?.uploadedFileName, apiKey: apiKey)
-            throw error
-        }
-        if let uploadedFileName = videoReference?.uploadedFileName {
-            Task { [weak self] in
-                await self?.deleteUploadedFile(uploadedFileName, apiKey: apiKey)
+            let hasTranscript = metadata?.transcript.map { !$0.isEmpty } == true
+            if let textPayload, Self.isConclusive(textPayload, hasTranscript: hasTranscript) {
+                payload = textPayload
+            } else if let textPayload {
+                if textPayload.matchFound, textPayload.candidates.first != nil {
+                    textFallbackPayload = textPayload
+                }
+                progress(AnalysisProgressEvent(
+                    kind: .mediaAnalysisStarted,
+                    title: textPayload.matchFound
+                        ? "Pinpointing the scene"
+                        : "Caption was not enough",
+                    detail: textPayload.matchFound
+                        ? "The post names the title but not the moment, so SceneFind is "
+                            + "listening to the clip to locate the scene."
+                        : "Looking at the clip itself."
+                ))
             }
         }
+
+        if payload == nil {
+            do {
+                videoReference = try await videoReferenceIfAvailable(
+                    for: sharedRequest,
+                    metadata: metadata,
+                    apiKey: apiKey
+                )
+            } catch {
+                // Instagram and TikTok routinely refuse to hand over the media.
+                // If the caption already named a title, keep that answer instead
+                // of failing the whole run; it just cannot carry a timestamp.
+                guard let fallback = textFallbackPayload else { throw error }
+                payload = fallback
+                progress(AnalysisProgressEvent(
+                    kind: .mediaRetrieved,
+                    title: "Clip media unavailable",
+                    detail: "Keeping the match from the post's own caption."
+                ))
+            }
+        }
+
+        if payload == nil {
+            // A run can escalate purely to reach a timestamp, having already
+            // identified the title from the caption. In that case the evidence
+            // is caption *plus* whatever the media shows, so a thumbnail-only
+            // media pass must not drag the ceiling down to the single-frame cap.
+            if videoReference?.containsVideo == true {
+                basis = .video
+            } else {
+                basis = textFallbackPayload == nil ? .previewImage : .clipText
+            }
+            progress(AnalysisProgressEvent(
+                kind: .mediaRetrieved,
+                title: videoReference?.containsVideo == true ? "Video retrieved" : "Preview image retrieved",
+                detail: videoReference?.description
+            ))
+            progress(AnalysisProgressEvent(
+                kind: .mediaAnalysisStarted,
+                title: "Analyzing dialogue and visuals",
+                detail: "Gemini is inspecting the direct clip evidence."
+            ))
+            do {
+                payload = try await generateIdentificationPayload(
+                    body: researchRequestBody(
+                        for: sharedRequest,
+                        metadata: metadata,
+                        videoReference: videoReference
+                    ),
+                    preferredModel: model,
+                    apiKey: apiKey
+                )
+            } catch {
+                await deleteUploadedFile(videoReference?.uploadedFileName, apiKey: apiKey)
+                // Same reasoning as an unfetchable clip: a caption-derived title
+                // beats surfacing an error when we already have one.
+                guard let fallback = textFallbackPayload else { throw error }
+                payload = fallback
+                basis = .clipText
+            }
+            if let uploadedFileName = videoReference?.uploadedFileName {
+                Task { [weak self] in
+                    await self?.deleteUploadedFile(uploadedFileName, apiKey: apiKey)
+                }
+            }
+        }
+
+        guard let payload else { throw SceneFindError.noLikelyMatch }
         guard let firstPayload = payload.candidates.first else {
             throw SceneFindError.noLikelyMatch
         }
@@ -147,13 +271,17 @@ final class GeminiClipIdentificationService {
             detail: "\(payload.candidates.count) evidence-supported \(payload.candidates.count == 1 ? "match" : "matches")"
         ))
 
-        let shouldVerifyEpisode = videoReference != nil
-            && payload.candidates.first.map { MediaType(apiValue: $0.mediaType) == .television } == true
+        // Verify any TV guess against the real episode guide, no matter which
+        // path produced it. A caption saying "Season 2, Episode 9" still needs
+        // the guide to supply the real episode title.
+        let shouldVerifyEpisode = MediaType(apiValue: firstPayload.mediaType) == .television
             && groqAPIKeyProvider().map { !$0.isEmpty } == true
         let episodeVerification = shouldVerifyEpisode
             ? try? await verifyEpisode(
                 candidate: payload.candidates[0],
-                detectedDialogue: payload.detectedDialogue,
+                detectedDialogue: payload.detectedDialogue.isEmpty
+                    ? metadata?.transcript?.prefix(maxCharacters: 2_000) ?? ""
+                    : payload.detectedDialogue,
                 visualEvidence: payload.visualEvidence
             )
             : nil
@@ -175,17 +303,63 @@ final class GeminiClipIdentificationService {
             ))
         }
 
+        // Artwork and the scene timestamp are independent lookups against
+        // different services, so run them together rather than back to back.
+        let isVerifiedEpisode = episodeVerification?.matchVerified == true
+            && episodeVerification?.seasonNumber != nil
+        async let artworkTask = artworkService.artworkURL(
+            for: firstPayload.mediaTitle,
+            mediaType: MediaType(apiValue: firstPayload.mediaType),
+            seasonNumber: nil,
+            episodeNumber: nil
+        )
+        // A position inside an episode is meaningless when SceneFind could not
+        // establish which episode it is, so an unverified TV match gets no
+        // timestamp at all rather than one measured from the wrong episode.
+        let episodeIsUnknown = shouldVerifyEpisode && !isVerifiedEpisode
+        let resolvedTimestamp: ResolvedSceneTimestamp?
+        if episodeIsUnknown {
+            resolvedTimestamp = nil
+        } else {
+            resolvedTimestamp = await timestampResolver.resolve(
+                title: firstPayload.mediaTitle,
+                mediaType: MediaType(apiValue: firstPayload.mediaType),
+                seasonNumber: isVerifiedEpisode ? episodeVerification?.seasonNumber : firstPayload.seasonNumber,
+                episodeNumber: isVerifiedEpisode ? episodeVerification?.episodeNumber : firstPayload.episodeNumber,
+                transcript: metadata?.transcript,
+                detectedDialogue: payload.detectedDialogue,
+                // No `??` here on purpose. The verifier routinely *replaces* the
+                // model's episode guess, and a position measured against the
+                // rejected episode does not transfer to the one that was
+                // confirmed — S4 E16 @ 630s says nothing about where the clip
+                // falls in S2 E2. Falling back would smuggle the discarded
+                // guess's timestamp into a different episode.
+                estimatedStartSeconds: isVerifiedEpisode
+                    ? episodeVerification?.clipStartSeconds
+                    : firstPayload.clipStartSeconds,
+                estimatedEndSeconds: isVerifiedEpisode
+                    ? episodeVerification?.clipEndSeconds
+                    : firstPayload.clipEndSeconds,
+                clipDurationSeconds: metadata?.clipDurationSeconds
+            )
+        }
+        let catalogArtworkURL = await artworkTask
+
+        if let resolvedTimestamp {
+            progress(AnalysisProgressEvent(
+                kind: .timestampResolved,
+                title: resolvedTimestamp.accuracy.isVerified
+                    ? "Scene located in the episode"
+                    : "Approximate scene position",
+                detail: "\(resolvedTimestamp.startSeconds.timestampString) · \(resolvedTimestamp.accuracy.label)"
+            ))
+        }
+
         var candidates: [SceneCandidate] = []
         for (index, candidatePayload) in payload.candidates.enumerated() {
-            let mediaType = MediaType(apiValue: candidatePayload.mediaType)
             let artworkURL: URL?
-            if index == 0, let catalogURL = await artworkService.artworkURL(
-                    for: candidatePayload.mediaTitle,
-                    mediaType: mediaType,
-                    seasonNumber: nil,
-                    episodeNumber: nil
-            ) {
-                artworkURL = catalogURL
+            if index == 0, let catalogArtworkURL {
+                artworkURL = catalogArtworkURL
             } else if let thumbnailURL = metadata?.thumbnailURL {
                 artworkURL = thumbnailURL
             } else {
@@ -196,7 +370,8 @@ final class GeminiClipIdentificationService {
                 artworkURL: artworkURL,
                 episodeVerification: index == 0 ? episodeVerification : nil,
                 episodeVerificationAttempted: index == 0 && shouldVerifyEpisode,
-                analyzedFullVideo: videoReference?.containsVideo == true
+                resolvedTimestamp: index == 0 ? resolvedTimestamp : nil,
+                basis: basis
             ))
         }
         // Model-supplied YouTube links can point to a nonexistent video that
@@ -228,7 +403,7 @@ final class GeminiClipIdentificationService {
                 sourcePlatform: sharedRequest.sourcePlatform,
                 sourceType: sharedRequest.sourceType,
                 extractedFrameCount: videoReference == nil ? 0 : max(payload.visualEvidence.count, 1),
-                subtitleCandidatesCompared: 0,
+                subtitleCandidatesCompared: metadata?.transcript?.cues.count ?? 0,
                 totalProcessingDuration: Date().timeIntervalSince(startedAt),
                 directMediaAnalyzed: videoReference != nil,
                 visualEvidence: payload.visualEvidence,
@@ -444,21 +619,65 @@ final class GeminiClipIdentificationService {
             && model.range(of: #"^[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil
     }
 
+    /// The written evidence that travels with every request, video or not.
+    private func evidenceSummary(
+        for request: SharedClipRequest,
+        metadata: SocialClipMetadata?,
+        videoReference: VideoReference?
+    ) -> String {
+        var lines = [
+            "Shared URL: \(metadata?.canonicalURL?.absoluteString ?? request.originalURL?.absoluteString ?? "Unavailable")",
+            "Platform: \(request.sourcePlatform.label)",
+            "Platform title: \(metadata?.title ?? request.pageTitle ?? "Unavailable")",
+            "Poster caption: \(metadata?.caption ?? request.sharedText ?? "Unavailable")",
+            "Poster account: \(metadata?.authorName ?? "Unavailable")",
+            "Clip duration (seconds): \(metadata?.clipDurationSeconds.map { String(Int($0)) } ?? "Unknown")"
+        ]
+        if let labels = metadata?.contentLabels, !labels.isEmpty {
+            lines.append("Platform content labels: \(labels.joined(separator: ", "))")
+        }
+        if let hints = metadata?.searchHints, !hints.isEmpty {
+            lines.append("Platform search hints: \(hints.joined(separator: ", "))")
+        }
+        if let transcript = metadata?.transcript, !transcript.isEmpty {
+            lines.append("""
+                Clip audio transcript (\(transcript.source.label), verbatim):
+                \(transcript.prefix(maxCharacters: 3_000))
+                """)
+        }
+        if let videoReference {
+            lines.append("Direct evidence: \(videoReference.description)")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// The cheap first attempt: no media attached, just what the post says and
+    /// what was spoken in it.
+    private func textRequestBody(
+        for request: SharedClipRequest,
+        metadata: SocialClipMetadata?
+    ) -> [String: Any] {
+        [
+            "systemInstruction": ["parts": [["text": Self.textSystemInstruction]]],
+            "contents": [["role": "user", "parts": [[
+                "text": "Identify the original movie, TV episode, or online video this social clip "
+                    + "came from, using only the evidence below.\n\n"
+                    + evidenceSummary(for: request, metadata: metadata, videoReference: nil)
+            ]]]],
+            "generationConfig": generationConfig(schema: identificationResponseSchema)
+        ]
+    }
+
     private func researchRequestBody(
         for request: SharedClipRequest,
         metadata: SocialClipMetadata?,
         videoReference: VideoReference?
     ) -> [String: Any] {
-        let evidence = [
-            "Shared URL: \(metadata?.canonicalURL?.absoluteString ?? request.originalURL?.absoluteString ?? "Unavailable")",
-            "Platform: \(request.sourcePlatform.label)",
-            "Shared text: \(request.sharedText ?? "Unavailable")",
-            "Page title: \(request.pageTitle ?? "Unavailable")",
-            "oEmbed title/caption: \(metadata?.title ?? "Unavailable")",
-            "oEmbed author: \(metadata?.authorName ?? "Unavailable")",
-            "TikTok search hints: \(metadata?.searchHints.joined(separator: ", ") ?? "Unavailable")",
-            "Direct evidence: \(videoReference?.description ?? "Unavailable")"
-        ].joined(separator: "\n")
+        let evidence = evidenceSummary(
+            for: request,
+            metadata: metadata,
+            videoReference: videoReference
+        )
 
         var parts: [[String: Any]] = []
         if let videoReference {
@@ -493,23 +712,59 @@ final class GeminiClipIdentificationService {
 
                     TV episode fields are preliminary evidence for a separate verifier. Supply them only when the clip itself strongly supports them. If the show is clear but the exact episode is uncertain, return null season_number, episode_number, and episode_title. Never invent an episode title.
 
-                    Return only one valid JSON object with no markdown or commentary. The top-level keys must be match_found, detected_dialogue, visual_evidence, and candidates. visual_evidence must contain only observations made from the attached media, never metadata claims. Every candidate must contain all of these keys: media_title, media_type (movie, tv, or other), release_year, season_number, episode_number, episode_title, clip_start_seconds, clip_end_seconds, matching_subtitle, confidence, dialogue_score, visual_score, metadata_score, hero_image_url, and watch_providers. All four score values are independent numbers from 0 through 1; do not copy confidence into each evidence score. Use null for unknown nullable values. For other media, use the original work's title and use null for season and episode fields. watch_providers must be an array of objects containing name, offer, and url. Include only current US providers that can play this exact title. Do not infer availability from a network's historical catalog or from availability in another country. The URL must be an official exact episode or media playback/detail URL whose page belongs to the identified title, not a search, home, collection, or show-only page. Exact route shapes commonly include Netflix /watch/, Apple TV /episode/, Disney+ /video/, Prime Video /video/detail/, Max /video/watch/, Peacock /episodes/ or /watch/playback/, Paramount+ /video/, and YouTube /watch. Hulu is the sole exception: when Hulu availability is confirmed, always use exactly https://www.hulu.com/ and never generate a Hulu path or UUID; SceneFind resolves Hulu titles and episodes locally. Never invent a path or content identifier, and omit any provider whose availability or exact URL is uncertain.
+                    Return only one valid JSON object with no markdown or commentary. The top-level keys must be match_found, needs_video, detected_dialogue, visual_evidence, and candidates. visual_evidence must contain only observations made from the attached media, never metadata claims. Every candidate must contain all of these keys: media_title, media_type (movie, tv, or other), release_year, season_number, episode_number, episode_title, clip_start_seconds, clip_end_seconds, matching_subtitle, confidence, dialogue_score, visual_score, metadata_score, hero_image_url, and watch_providers. All four score values are independent numbers from 0 through 1; do not copy confidence into each evidence score. Use null for unknown nullable values. For other media, use the original work's title and use null for season and episode fields.
+
+                    watch_providers names which US services carry this title. Each entry has name, offer, and url. Naming the service is the useful part; the URL is not. You cannot know a service's internal content identifier, and a guessed one produces a link that opens to "not found", which is worse than no link at all. So supply a url ONLY when it is a real YouTube watch URL whose eleven-character video id you actually know. In every other case set url to an empty string and let SceneFind resolve the destination itself. Never assemble a path from a title slug, a UUID, or a numeric id you are reconstructing from memory. Omit any service whose availability you are unsure of, and do not infer availability from a network's historical catalog or from another country. Do not list Hulu: it has shut down and its URLs no longer resolve.
                     """]]
             ],
             "contents": [["role": "user", "parts": parts]],
-            "generationConfig": [
-                "thinkingConfig": ["thinkingLevel": "LOW"],
-                "temperature": 0.2,
-                "maxOutputTokens": 4_096,
-                "responseFormat": [
-                    "text": [
-                        "mimeType": "APPLICATION_JSON",
-                        "schema": identificationResponseSchema
-                    ]
-                ]
-            ]
+            "generationConfig": generationConfig(schema: identificationResponseSchema)
         ]
     }
+
+    /// Structured-output config.
+    ///
+    /// The key here has to be `responseJsonSchema`: `responseFormat` is not part
+    /// of the API at all and was being silently dropped, so nothing was actually
+    /// constraining the output. `responseSchema` is the other valid key but it
+    /// rejects `"type": ["string", "null"]` unions, which these schemas rely on.
+    private func generationConfig(schema: [String: Any]) -> [String: Any] {
+        [
+            "thinkingConfig": ["thinkingLevel": "low"],
+            "temperature": 0.1,
+            "maxOutputTokens": 4_096,
+            "responseMimeType": "application/json",
+            "responseJsonSchema": schema
+        ]
+    }
+
+    private static let textSystemInstruction = """
+        You are SceneFind. You identify the original movie, TV episode, or online video that a short \
+        social clip was taken from, working only from text evidence: the poster's caption, the \
+        platform title, and an automatic transcript of the clip's audio when one exists.
+
+        Weigh the evidence honestly.
+        - A caption that names a title outright ("Ant-Man (2015)", "The Rookie S2E9") is strong \
+        evidence. Accounts that repost film and TV clips label them accurately, and second-guessing \
+        an explicit, specific title claim is usually wrong.
+        - A transcript containing dialogue you recognise verbatim is strong evidence by itself, and \
+        it outranks the caption when the two disagree.
+        - Generic hashtags (#fyp, #viral, #foryou), music track names, and follower counts are not \
+        evidence. Never name a title on that basis alone.
+
+        Set needs_video=true when the text cannot support any identification, so that the clip's \
+        frames get analyzed instead. Prefer that over a low-confidence guess: a wrong answer is \
+        worse than a slower one. Also set needs_video=true when you can only name the show from a \
+        caption but the caption gives no episode and the transcript is empty.
+
+        clip_start_seconds is the position of the clip's first frame inside the original \
+        full-length work, never a position inside the social video. Give a number only when you can \
+        justify it, and say how in the response. Use null rather than inventing precision; a \
+        separate step checks timestamps against real subtitle data.
+
+        Fill visual_evidence only with things the transcript or caption states outright. You cannot \
+        see the video, so do not describe imagined shots.
+        """
 
     private var identificationResponseSchema: [String: Any] {
         let nullableInteger: [String: Any] = ["type": ["integer", "null"]]
@@ -556,11 +811,12 @@ final class GeminiClipIdentificationService {
             "type": "object",
             "properties": [
                 "match_found": ["type": "boolean"],
+                "needs_video": ["type": "boolean"],
                 "detected_dialogue": ["type": "string"],
                 "visual_evidence": ["type": "array", "items": ["type": "string"], "maxItems": 8],
                 "candidates": ["type": "array", "items": candidate, "maxItems": 3]
             ],
-            "required": ["match_found", "detected_dialogue", "visual_evidence", "candidates"],
+            "required": ["match_found", "needs_video", "detected_dialogue", "visual_evidence", "candidates"],
             "additionalProperties": false
         ]
     }
@@ -982,9 +1238,12 @@ final class GeminiClipIdentificationService {
         artworkURL: URL?,
         episodeVerification: GeminiEpisodeVerificationPayload?,
         episodeVerificationAttempted: Bool,
-        analyzedFullVideo: Bool
+        resolvedTimestamp: ResolvedSceneTimestamp?,
+        basis: EvidenceBasis
     ) -> SceneCandidate {
-        let providers = payload.watchProviders.compactMap(makeWatchProvider)
+        let providers = payload.watchProviders.compactMap {
+            makeWatchProvider($0, title: payload.mediaTitle)
+        }
         let isVerified = episodeVerification?.matchVerified == true
             && episodeVerification?.seasonNumber != nil
             && episodeVerification?.episodeNumber != nil
@@ -1001,22 +1260,22 @@ final class GeminiClipIdentificationService {
         let matchingSubtitle = isVerified
             ? episodeVerification?.matchingSubtitle ?? payload.matchingSubtitle
             : payload.matchingSubtitle
-        // Cap confidence when nothing externally confirmed the guess: a TV match
-        // whose episode verification failed, any .other/online result (never
-        // verified against a catalog), or an analysis that only had a single
-        // still frame (no video/audio, so no dialogue evidence). Prevents
-        // presenting an unverified or thin-evidence guess as high confidence.
+        // Cap confidence to what the evidence can actually support: an unverified
+        // TV episode, an .other/online result that no catalog confirms, or a
+        // read taken from a single still frame with no audio. A dialogue match
+        // against real subtitle data is independent corroboration and lifts the
+        // ceiling back off.
         let mediaType = MediaType(apiValue: payload.mediaType)
         let unverifiedCap = 0.65
-        let confidence: Double
+        var ceiling = basis.confidenceCeiling
         if episodeVerificationAttempted && !isVerified {
-            confidence = min(payload.confidence, unverifiedCap)
-        } else if mediaType == .other {
-            confidence = min(payload.confidence, unverifiedCap)
-        } else if !analyzedFullVideo {
-            confidence = min(payload.confidence, unverifiedCap)
-        } else {
-            confidence = payload.confidence
+            ceiling = min(ceiling, unverifiedCap)
+        }
+        if mediaType == .other {
+            ceiling = min(ceiling, unverifiedCap)
+        }
+        if resolvedTimestamp?.accuracy == .matchedDialogue {
+            ceiling = 1.0
         }
         return SceneCandidate(
             id: UUID(),
@@ -1026,36 +1285,45 @@ final class GeminiClipIdentificationService {
             seasonNumber: seasonNumber,
             episodeNumber: episodeNumber,
             episodeTitle: episodeTitle,
-            sceneTimestampSeconds: clipStart,
-            clipEndTimestampSeconds: clipEnd,
+            sceneTimestampSeconds: resolvedTimestamp?.startSeconds ?? clipStart,
+            clipEndTimestampSeconds: resolvedTimestamp?.endSeconds ?? clipEnd,
             matchedSubtitleText: matchingSubtitle,
-            confidence: confidence,
+            confidence: min(payload.confidence, ceiling),
             subtitleScore: payload.dialogueScore ?? (payload.matchingSubtitle == nil ? 0 : payload.confidence),
             visualScore: payload.visualScore ?? 0,
             metadataScore: payload.metadataScore ?? 0,
             streamingService: providers.first?.name,
             streamingURL: providers.first?.episodeURL,
             heroImageURL: artworkURL,
-            watchProviders: providers
+            watchProviders: providers,
+            timestampAccuracy: resolvedTimestamp?.accuracy,
+            timestampBasis: resolvedTimestamp?.basis
         )
     }
 
-    private func makeWatchProvider(_ payload: GeminiProviderPayload) -> WatchProvider? {
+    private func makeWatchProvider(_ payload: GeminiProviderPayload, title: String) -> WatchProvider? {
+        if payload.name.localizedCaseInsensitiveContains("hulu") { return nil }
+
+        // The model is asked to leave the URL empty rather than invent a
+        // content id. When it does, build an official search destination on
+        // that service instead — it always resolves, and it says plainly that
+        // SceneFind knows the service but not the exact page.
         guard let suppliedURL = URL(string: payload.url),
               let scheme = suppliedURL.scheme,
               ["http", "https"].contains(scheme.lowercased()) else {
-            return nil
+            return searchProvider(named: payload.name, offer: payload.offer, title: title)
         }
         // The model generates these URLs, so a YouTube link may carry a
         // hallucinated video id that opens to "video unavailable". Drop YouTube
         // links whose id isn't a well-formed 11-character id rather than hand the
         // user a dead "watch" destination.
         if Self.isYouTubeHost(suppliedURL.host), Self.youTubeVideoID(from: suppliedURL) == nil {
-            return nil
+            return searchProvider(named: payload.name, offer: payload.offer, title: title)
         }
-        let isHulu = payload.name.localizedCaseInsensitiveContains("hulu")
-            || suppliedURL.host?.lowercased().hasSuffix("hulu.com") == true
-        let url = isHulu ? URL(string: "https://www.hulu.com/")! : suppliedURL
+        // Hulu shut down: every hulu.com URL now redirects to the Disney+ home
+        // page with the path thrown away, so a Hulu row can only be a dead end.
+        if WatchDestinationPolicy.isRetiredService(suppliedURL) { return nil }
+        let url = WatchDestinationPolicy.normalized(suppliedURL)
         let style = providerStyle(for: payload.name)
         return WatchProvider(
             id: "\(payload.name.lowercased())-\(url.absoluteString)",
@@ -1065,6 +1333,27 @@ final class GeminiClipIdentificationService {
             sceneURL: nil,
             symbolName: style.symbol,
             brandColorHex: style.color
+        )
+    }
+
+    /// A row that opens the service's own search results for the title. Used
+    /// wherever SceneFind knows *where* a title streams but not the exact page.
+    private func searchProvider(named name: String, offer: String, title: String) -> WatchProvider? {
+        let kind = StreamingProviderKind(name: name)
+        guard let url = WatchDestinationPolicy.searchURL(service: kind, title: title)
+                ?? WatchDestinationPolicy.whereToWatchURL(title: title) else { return nil }
+        let style = providerStyle(for: name)
+        return WatchProvider(
+            id: "\(name.lowercased())-search-\(title.lowercased())",
+            name: name,
+            offer: offer,
+            episodeURL: url,
+            sceneURL: nil,
+            symbolName: style.symbol,
+            brandColorHex: style.color,
+            destinationLevel: .search,
+            destinationDiagnostic: "SceneFind knows the title streams here but not its exact page, "
+                + "so this opens \(name)'s own search rather than a guessed link."
         )
     }
 
@@ -1243,12 +1532,16 @@ private struct GeminiFile: Decodable {
 
 private struct GeminiIdentificationPayload: Decodable {
     let matchFound: Bool
+    /// Set by the text-only pass when the caption and transcript were not enough
+    /// and the clip's frames need to be analyzed instead.
+    let needsVideo: Bool
     let detectedDialogue: String
     let visualEvidence: [String]
     let candidates: [GeminiCandidatePayload]
 
     enum CodingKeys: String, CodingKey {
         case matchFound = "match_found"
+        case needsVideo = "needs_video"
         case detectedDialogue = "detected_dialogue"
         case visualEvidence = "visual_evidence"
         case candidates
@@ -1258,6 +1551,7 @@ private struct GeminiIdentificationPayload: Decodable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         candidates = (try? container.decode([GeminiCandidatePayload].self, forKey: .candidates)) ?? []
         matchFound = container.decodeFlexibleBoolIfPresent(forKey: .matchFound) ?? !candidates.isEmpty
+        needsVideo = container.decodeFlexibleBoolIfPresent(forKey: .needsVideo) ?? false
         detectedDialogue = (try? container.decode(String.self, forKey: .detectedDialogue)) ?? ""
         visualEvidence = (try? container.decode([String].self, forKey: .visualEvidence)) ?? []
     }
@@ -1432,7 +1726,9 @@ private extension SceneCandidate {
             streamingService: providers.first?.name,
             streamingURL: providers.first?.episodeURL,
             heroImageURL: heroImageURL,
-            watchProviders: providers
+            watchProviders: providers,
+            timestampAccuracy: timestampAccuracy,
+            timestampBasis: timestampBasis
         )
     }
 }

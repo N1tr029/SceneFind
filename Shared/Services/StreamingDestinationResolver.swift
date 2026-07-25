@@ -13,9 +13,17 @@ enum StreamingProviderKind: String {
     case other
 
     init(provider: WatchProvider) {
-        let name = provider.name.lowercased()
-        let host = provider.episodeURL.host?.lowercased() ?? ""
-        let scheme = provider.episodeURL.scheme?.lowercased() ?? ""
+        self.init(
+            name: provider.name,
+            host: provider.episodeURL.host,
+            scheme: provider.episodeURL.scheme
+        )
+    }
+
+    init(name rawName: String, host rawHost: String? = nil, scheme rawScheme: String? = nil) {
+        let name = rawName.lowercased()
+        let host = rawHost?.lowercased() ?? ""
+        let scheme = rawScheme?.lowercased() ?? ""
         if scheme == "hulu" || name.contains("hulu") || host.hasSuffix("hulu.com") {
             self = .hulu
         } else if scheme == "nflx" || name.contains("netflix") || host.hasSuffix("netflix.com") {
@@ -24,9 +32,11 @@ enum StreamingProviderKind: String {
             self = .appleTV
         } else if name.contains("disney") || host.hasSuffix("disneyplus.com") {
             self = .disneyPlus
-        } else if name.contains("prime") || name.contains("amazon") || host.hasSuffix("amazon.com") {
+        } else if name.contains("prime") || name.contains("amazon") || host.hasSuffix("amazon.com")
+            || host.hasSuffix("primevideo.com") {
             self = .primeVideo
-        } else if name == "max" || name.contains("hbo") || host.hasSuffix("max.com") {
+        } else if name == "max" || name.contains("hbo") || host.hasSuffix("max.com")
+            || host.hasSuffix("hbomax.com") {
             self = .max
         } else if name.contains("peacock") || host.hasSuffix("peacocktv.com") {
             self = .peacock
@@ -137,9 +147,10 @@ struct StreamingDestinationResolver {
         if let cached = await Self.cache.value(for: cacheKey) { return cached }
 
         let kind = StreamingProviderKind(provider: provider)
-        let resolved: ResolvedStreamingDestination?
-        if kind == .hulu {
-            resolved = await huluDestination(for: provider, candidate: candidate)
+        var resolved: ResolvedStreamingDestination?
+        if kind == .hulu || WatchDestinationPolicy.isRetiredService(provider.episodeURL) {
+            // Hulu is gone; send the viewer somewhere that still exists.
+            resolved = Self.fallbackDestination(for: provider, candidate: candidate)
         } else if Self.routeLevel(provider: provider, candidate: candidate) != .exactEpisode {
             resolved = ResolvedStreamingDestination(
                 primaryURL: provider.episodeURL,
@@ -157,8 +168,44 @@ struct StreamingDestinationResolver {
         } else {
             resolved = nil
         }
+        // A destination that could not be verified used to surface as "SceneFind
+        // rejected this destination" and left the user with nothing to tap.
+        // Streaming sites are login-walled single-page apps, so verification
+        // fails routinely on links that are perfectly fine. Degrade to the
+        // service's own search instead of dead-ending.
+        if resolved == nil {
+            resolved = Self.fallbackDestination(for: provider, candidate: candidate)
+        }
         if let resolved { await Self.cache.store(resolved, for: cacheKey) }
         return resolved
+    }
+
+    /// Last resort that still lands somewhere real: the service's own search
+    /// page, or a cross-service "where to watch" page when the service has none.
+    static func fallbackDestination(
+        for provider: WatchProvider,
+        candidate: SceneCandidate
+    ) -> ResolvedStreamingDestination? {
+        let kind = StreamingProviderKind(provider: provider)
+        if let searchURL = WatchDestinationPolicy.searchURL(service: kind, title: candidate.mediaTitle) {
+            return ResolvedStreamingDestination(
+                primaryURL: searchURL,
+                webFallbackURL: WatchDestinationPolicy.whereToWatchURL(title: candidate.mediaTitle),
+                level: .search,
+                diagnostic: "The exact page could not be confirmed, so this opens "
+                    + "\(provider.name)'s search for \(candidate.mediaTitle)."
+            )
+        }
+        guard let whereToWatch = WatchDestinationPolicy.whereToWatchURL(title: candidate.mediaTitle) else {
+            return nil
+        }
+        return ResolvedStreamingDestination(
+            primaryURL: whereToWatch,
+            webFallbackURL: nil,
+            level: .search,
+            diagnostic: "\(provider.name) has no linkable search page, so this opens a "
+                + "where-to-watch listing for \(candidate.mediaTitle)."
+        )
     }
 
     private func huluDestination(

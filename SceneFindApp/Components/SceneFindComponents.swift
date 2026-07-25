@@ -319,10 +319,3 @@ struct ConfidenceBadge: View {
         candidate.confidence >= 0.85 ? .green : candidate.confidence >= 0.60 ? .yellow : .orange
     }
 }
-
-extension Double {
-    var timestampString: String {
-        let value = Int(self)
-        return String(format: "%02d:%02d:%02d", value / 3600, (value % 3600) / 60, value % 60)
-    }
-}

@@ -41,43 +41,21 @@ final class StreamingDestinationResolverTests: XCTestCase {
         )
     }
 
-    func testGoogleStyleHuluWatchURLForTheRookieRemainsExact() async throws {
-        let payload: [String: Any] = [
-            "props": ["episodes": [[
-                "id": "46ed69ca-03a6-47f3-a97b-fc59765405b9",
-                "type": "episode",
-                "season": 1,
-                "number": 7
-            ]]]
-        ]
-        let json = try JSONSerialization.data(withJSONObject: payload)
-        let jsonText = try XCTUnwrap(String(data: json, encoding: .utf8))
+    /// Checked live on 2026-07-24: every hulu.com path — including this real
+    /// episode UUID — answers `302` to `https://www.disneyplus.com/` with the
+    /// path discarded, and hulu.com serves no apple-app-site-association, so
+    /// neither the universal link nor the `hulu://` scheme can open anything.
+    /// A Hulu row is therefore only ever a broken button, and the exact route it
+    /// used to resolve to must not come back.
+    func testHuluProviderNeverYieldsAHuluDestination() async throws {
+        // No handler is installed on purpose: `StreamingStubURLProtocol` fails
+        // the test if a request arrives, which proves hulu.com is not even
+        // probed any more.
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StreamingStubURLProtocol.self]
-        StreamingStubURLProtocol.requestHandler = { request in
-            let html = Data(
-                #"<meta property="og:title" content="Watch The Rookie Streaming Online | Hulu">"#
-                    .appending("<script id=\"__NEXT_DATA__\" type=\"application/json\">")
-                    .appending(jsonText)
-                    .appending("</script>")
-                    .utf8
-            )
-            let response = try XCTUnwrap(HTTPURLResponse(
-                url: URL(string: "https://www.hulu.com/series/the-rookie-series-id")!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "text/html"]
-            ))
-            return (response, html)
-        }
-        let hulu = WatchProvider(
-            id: "hulu",
+        let hulu = provider(
             name: "Hulu",
-            offer: "Subscription",
-            episodeURL: try XCTUnwrap(URL(string: "https://www.hulu.com/watch/46ed69ca-03a6-47f3-a97b-fc59765405b9")),
-            sceneURL: nil,
-            symbolName: "play.tv.fill",
-            brandColorHex: "1CE783"
+            url: "https://www.hulu.com/watch/46ed69ca-03a6-47f3-a97b-fc59765405b9"
         )
 
         let destination = await StreamingDestinationResolver(
@@ -87,14 +65,42 @@ final class StreamingDestinationResolverTests: XCTestCase {
             candidate: candidate(title: "The Rookie", season: 1, episode: 7, episodeTitle: "The Ride Along")
         )
 
-        XCTAssertEqual(
-            destination?.primaryURL.absoluteString,
-            "https://dl.hulu.com/watch/46ed69ca-03a6-47f3-a97b-fc59765405b9?source=web_universal_deep_linking&play=true"
+        // Hulu has no linkable search page left either, and SceneFind only ever
+        // points at the streaming service that actually carries a title — never
+        // at an aggregator or any other outside site. With nowhere real to send
+        // the viewer, the row is dropped instead.
+        XCTAssertNil(destination)
+    }
+
+    /// A service that *is* still reachable degrades to its own official search
+    /// page, so "Watch" always lands on the real provider rather than nothing.
+    func testUnverifiableProviderDegradesToThatServicesOwnSearch() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StreamingStubURLProtocol.self]
+        StreamingStubURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            // The episode page cannot be verified (login wall, JS shell, 404 —
+            // all routine on streaming sites).
+            let response = try XCTUnwrap(
+                HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil)
+            )
+            return (response, Data())
+        }
+        defer { StreamingStubURLProtocol.requestHandler = nil }
+
+        let netflix = provider(name: "Netflix", url: "https://www.netflix.com/watch/80057281")
+        let destination = await StreamingDestinationResolver(
+            session: URLSession(configuration: configuration)
+        ).destination(
+            for: netflix,
+            candidate: candidate(title: "The Rookie", season: 1, episode: 7, episodeTitle: "The Ride Along")
         )
-        XCTAssertEqual(
-            destination?.webFallbackURL?.absoluteString,
-            "hulu://watch/46ed69ca-03a6-47f3-a97b-fc59765405b9"
-        )
+
+        let resolved = try XCTUnwrap(destination)
+        XCTAssertEqual(resolved.level, .search)
+        XCTAssertEqual(resolved.primaryURL.host, "www.netflix.com")
+        XCTAssertEqual(resolved.primaryURL.path, "/search")
+        XCTAssertNil(resolved.webFallbackURL)
     }
 
     func testHuluSeriesPageIsAcceptedForDynamicEpisodeResolution() throws {
@@ -117,148 +123,6 @@ final class StreamingDestinationResolverTests: XCTestCase {
         )
 
         XCTAssertEqual(providers.map(\.name), ["Hulu"])
-    }
-
-    func testHuluSeriesPageResolvesRequestedSeasonAndEpisode() async throws {
-        let payload: [String: Any] = [
-            "props": ["episodes": [[
-                "id": "resolved-episode-id",
-                "type": "episode",
-                "season": 12,
-                "number": 8
-            ]]]
-        ]
-        let json = try JSONSerialization.data(withJSONObject: payload)
-        let jsonText = try XCTUnwrap(String(data: json, encoding: .utf8))
-        let html = Data("<script id=\"__NEXT_DATA__\" type=\"application/json\">\(jsonText)</script>".utf8)
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [StreamingStubURLProtocol.self]
-        StreamingStubURLProtocol.requestHandler = { request in
-            XCTAssertEqual(request.url?.absoluteString, "https://www.hulu.com/series/a-show-invented-series-id")
-            let response = try XCTUnwrap(HTTPURLResponse(
-                url: URL(string: "https://www.hulu.com/series/a-show-canonical-series-id")!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "text/html"]
-            ))
-            return (response, html)
-        }
-
-        let destination = await StreamingDestinationResolver(
-            session: URLSession(configuration: configuration)
-        ).destination(
-            for: provider(name: "Hulu", url: "https://www.hulu.com/series/a-show-invented-series-id"),
-            candidate: candidate(title: "A Show", season: 12, episode: 8, episodeTitle: "Episode Eight")
-        )
-
-        XCTAssertEqual(
-            destination?.primaryURL.absoluteString,
-            "https://dl.hulu.com/watch/resolved-episode-id?source=web_universal_deep_linking&play=true"
-        )
-        XCTAssertEqual(
-            destination?.webFallbackURL?.absoluteString,
-            "hulu://watch/resolved-episode-id"
-        )
-    }
-
-    func testHuluUniversalEpisodeRouteRemainsExact() async throws {
-        let payload: [String: Any] = [
-            "props": ["episodes": [[
-                "id": "3ecda132-7410-4403-849b-c06ba948dafd",
-                "type": "episode",
-                "season": 1,
-                "number": 1
-            ]]]
-        ]
-        let json = try JSONSerialization.data(withJSONObject: payload)
-        let jsonText = try XCTUnwrap(String(data: json, encoding: .utf8))
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [StreamingStubURLProtocol.self]
-        StreamingStubURLProtocol.requestHandler = { request in
-            let html = Data(
-                #"<meta property="og:title" content="Watch Fresh off the Boat Streaming Online | Hulu">"#
-                    .appending("<script id=\"__NEXT_DATA__\" type=\"application/json\">")
-                    .appending(jsonText)
-                    .appending("</script>")
-                    .utf8
-            )
-            let response = try XCTUnwrap(HTTPURLResponse(
-                url: URL(string: "https://www.hulu.com/series/fresh-off-the-boat-series-id")!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "text/html"]
-            ))
-            return (response, html)
-        }
-        let hulu = provider(
-            name: "Hulu",
-            url: "https://dl.hulu.com/videos/3ecda132-7410-4403-849b-c06ba948dafd?play=true"
-        )
-
-        let destination = await StreamingDestinationResolver(
-            session: URLSession(configuration: configuration)
-        ).destination(
-            for: hulu,
-            candidate: candidate(
-                title: "Fresh off the Boat",
-                season: 1,
-                episode: 1,
-                episodeTitle: "Pilot"
-            )
-        )
-
-        XCTAssertEqual(
-            destination?.primaryURL.absoluteString,
-            "https://dl.hulu.com/watch/3ecda132-7410-4403-849b-c06ba948dafd?source=web_universal_deep_linking&play=true"
-        )
-    }
-
-    func testHuluWatchURLRejectsAnEpisodeIDForTheWrongEpisode() async throws {
-        let payload: [String: Any] = [
-            "props": ["episodes": [[
-                "id": "46ed69ca-03a6-47f3-a97b-fc59765405b9",
-                "type": "episode",
-                "season": 7,
-                "number": 4
-            ]]]
-        ]
-        let json = try JSONSerialization.data(withJSONObject: payload)
-        let jsonText = try XCTUnwrap(String(data: json, encoding: .utf8))
-        let html = Data(
-            #"<meta property="og:title" content="Watch The Rookie Streaming Online | Hulu">"#
-                .appending("<script id=\"__NEXT_DATA__\" type=\"application/json\">")
-                .appending(jsonText)
-                .appending("</script>")
-                .utf8
-        )
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [StreamingStubURLProtocol.self]
-        StreamingStubURLProtocol.requestHandler = { request in
-            let response = try XCTUnwrap(HTTPURLResponse(
-                url: URL(string: "https://www.hulu.com/series/the-rookie-series-id")!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "text/html"]
-            ))
-            return (response, html)
-        }
-
-        let destination = await StreamingDestinationResolver(
-            session: URLSession(configuration: configuration)
-        ).destination(
-            for: provider(
-                name: "Hulu",
-                url: "https://www.hulu.com/watch/46ed69ca-03a6-47f3-a97b-fc59765405b9"
-            ),
-            candidate: candidate(
-                title: "The Rookie",
-                season: 4,
-                episode: 7,
-                episodeTitle: "Fire Fight"
-            )
-        )
-
-        XCTAssertNil(destination)
     }
 
     func testExactEpisodeRoutesAreAcceptedAcrossProviders() throws {
@@ -341,14 +205,25 @@ final class StreamingDestinationResolverTests: XCTestCase {
             return (response, html)
         }
 
+        let unrelated = provider(name: "Netflix", url: "https://www.netflix.com/watch/99999999")
         let destination = await StreamingDestinationResolver(
             session: URLSession(configuration: configuration)
         ).destination(
-            for: provider(name: "Netflix", url: "https://www.netflix.com/watch/99999999"),
+            for: unrelated,
             candidate: candidate(title: "All American", season: 8, episode: 1, episodeTitle: "The First Time")
         )
 
-        XCTAssertNil(destination)
+        // Verification failing no longer dead-ends: streaming sites are
+        // login-walled single-page apps, so a rejected page used to leave the
+        // user with nothing to tap. What must never happen is handing over the
+        // wrong exact link, so the watch id is discarded and the destination
+        // degrades to Netflix's own search.
+        let resolved = try XCTUnwrap(destination)
+        XCTAssertNotEqual(resolved.primaryURL, unrelated.episodeURL)
+        XCTAssertFalse(resolved.primaryURL.path.contains("99999999"))
+        XCTAssertEqual(resolved.level, .search)
+        XCTAssertEqual(resolved.primaryURL.host, "www.netflix.com")
+        XCTAssertEqual(resolved.primaryURL.path, "/search")
     }
 
     func testAppleTVDestinationRequiresMatchingEpisodeEvidence() async throws {
@@ -365,14 +240,26 @@ final class StreamingDestinationResolverTests: XCTestCase {
             return (response, html)
         }
 
+        let wrongEpisode = provider(
+            name: "Apple TV",
+            url: "https://tv.apple.com/us/episode/the-episode/umc.cmc.wrong"
+        )
         let destination = await StreamingDestinationResolver(
             session: URLSession(configuration: configuration)
         ).destination(
-            for: provider(name: "Apple TV", url: "https://tv.apple.com/us/episode/the-episode/umc.cmc.wrong"),
+            for: wrongEpisode,
             candidate: candidate(title: "Any Show", season: 2, episode: 3, episodeTitle: "The Episode")
         )
 
-        XCTAssertNil(destination)
+        // The page is S2 E4, not the S2 E3 that was identified. Opening it would
+        // spoil or mislead, so the exact route is dropped — but the row still
+        // has to lead somewhere, so it becomes Apple TV's own search.
+        let resolved = try XCTUnwrap(destination)
+        XCTAssertNotEqual(resolved.primaryURL, wrongEpisode.episodeURL)
+        XCTAssertFalse(resolved.primaryURL.path.contains("episode"))
+        XCTAssertEqual(resolved.level, .search)
+        XCTAssertEqual(resolved.primaryURL.host, "tv.apple.com")
+        XCTAssertEqual(resolved.primaryURL.path, "/search")
     }
 
     func testAppleTVDestinationAcceptsMatchingEpisodePage() async throws {
