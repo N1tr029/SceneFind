@@ -148,9 +148,8 @@ struct StreamingDestinationResolver {
 
         let kind = StreamingProviderKind(provider: provider)
         var resolved: ResolvedStreamingDestination?
-        if kind == .hulu || WatchDestinationPolicy.isRetiredService(provider.episodeURL) {
-            // Hulu is gone; send the viewer somewhere that still exists.
-            resolved = Self.fallbackDestination(for: provider, candidate: candidate)
+        if kind == .hulu {
+            resolved = await huluDestination(for: provider, candidate: candidate)
         } else if Self.routeLevel(provider: provider, candidate: candidate) != .exactEpisode {
             resolved = ResolvedStreamingDestination(
                 primaryURL: provider.episodeURL,
@@ -208,6 +207,16 @@ struct StreamingDestinationResolver {
         )
     }
 
+    /// Hulu is mid-migration into Disney+, which changes what can be checked.
+    ///
+    /// `www.hulu.com` now `302`s to the Disney+ home page, so the episode pages
+    /// this used to scrape for a UUID are gone and the old verify-then-link flow
+    /// can only ever fail — which is what silently killed previously-working
+    /// saved links. But `dl.hulu.com` still publishes an AASA covering
+    /// `/watch/*` for the Hulu app, and iOS resolves a Universal Link against
+    /// that file without ever making the web request. So when an episode UUID is
+    /// already in hand, hand it straight to `dl.hulu.com` and let the app open
+    /// it; only fall back to search when there is no UUID to use.
     private func huluDestination(
         for provider: WatchProvider,
         candidate: SceneCandidate
@@ -215,56 +224,10 @@ struct StreamingDestinationResolver {
         if provider.episodeURL.scheme?.lowercased() == "hulu" {
             return Self.directDestination(for: provider, candidate: candidate)
         }
-
         if let episodeID = Self.huluEpisodeID(in: provider.episodeURL) {
-            guard let (data, responseURL) = await huluPage(for: provider.episodeURL),
-                  StreamingPageParser.matchesSeries(
-                    in: data,
-                    candidate: candidate,
-                    url: responseURL
-                  ) else { return nil }
-
-            if candidate.mediaType == .television,
-               let season = candidate.seasonNumber,
-               let episode = candidate.episodeNumber {
-                guard HuluEpisodePageParser.matchesEpisode(
-                    in: data,
-                    id: episodeID,
-                    season: season,
-                    episode: episode
-                ) else { return nil }
-            }
             return Self.huluEpisodeDestination(episodeID: episodeID)
         }
-
-        guard Self.isTrustedHuluURL(provider.episodeURL),
-              let season = candidate.seasonNumber,
-              let episode = candidate.episodeNumber else {
-            return nil
-        }
-
-        var lookupURLs: [URL] = []
-        if provider.episodeURL.path.lowercased().contains("/series/") {
-            lookupURLs.append(provider.episodeURL)
-        }
-        if let titleLookup = Self.huluSeriesLookupURL(title: candidate.mediaTitle),
-           !lookupURLs.contains(titleLookup) {
-            lookupURLs.append(titleLookup)
-        }
-
-        for lookupURL in lookupURLs {
-            guard let (data, responseURL) = await huluPage(for: lookupURL),
-                  StreamingPageParser.matchesSeries(in: data, candidate: candidate, url: responseURL),
-                  let episodeID = HuluEpisodePageParser.episodeID(
-                in: data,
-                season: season,
-                episode: episode,
-                title: candidate.episodeTitle
-                  ) else { continue }
-            return Self.huluEpisodeDestination(episodeID: episodeID)
-        }
-
-        return Self.huluFallbackDestination(for: provider, candidate: candidate)
+        return Self.fallbackDestination(for: provider, candidate: candidate)
     }
 
     private func huluPage(for url: URL) async -> (Data, URL)? {
@@ -367,21 +330,14 @@ struct StreamingDestinationResolver {
     }
 
     private static func huluEpisodeDestination(episodeID: String) -> ResolvedStreamingDestination? {
-        var components = URLComponents()
-        components.scheme = "https"
-        components.host = "dl.hulu.com"
-        components.path = "/watch/\(episodeID)"
-        components.queryItems = [
-            URLQueryItem(name: "source", value: "web_universal_deep_linking"),
-            URLQueryItem(name: "play", value: "true")
-        ]
-        guard let universalLink = components.url,
+        guard let universalLink = WatchDestinationPolicy.huluDeepLink(episodeID: episodeID),
               let nativeURL = URL(string: "hulu://watch/\(episodeID)") else { return nil }
         return ResolvedStreamingDestination(
             primaryURL: universalLink,
             webFallbackURL: nativeURL,
             level: .exactEpisode,
-            diagnostic: "Hulu episode UUID matched the requested season and episode."
+            diagnostic: "Opens this episode in the Hulu app. Hulu is moving to Disney+, "
+                + "so without the app installed the web link lands on Disney+ instead."
         )
     }
 

@@ -89,9 +89,13 @@ the service's own search page rather than dead-ending.
 
 Checked against the live services on 2026-07-24:
 
-- **Hulu has shut down.** Every `hulu.com` path, including a valid episode UUID,
-  answers `302` to `https://www.disneyplus.com/` with the path discarded, and
-  `hulu.com` serves no apple-app-site-association. Hulu rows are dropped.
+- **Hulu needs the `dl.hulu.com` host.** `www.hulu.com` is folding into Disney+
+  and `302`s every path — including a valid episode UUID — to the Disney+ home
+  page with the path discarded, so its episode pages can no longer be scraped or
+  verified. `dl.hulu.com` still publishes an apple-app-site-association covering
+  `/watch/*` for the Hulu app, and iOS matches a Universal Link against that file
+  before any web request, so `dl.hulu.com/watch/<id>` still opens the app at the
+  episode. Only the browser fallback ends up on Disney+.
 - **`max.com` now redirects to `hbomax.com`.** Watch links belong on
   `play.hbomax.com`, which serves an AASA and opens the app; `www.hbomax.com`
   returns 404 for its AASA and will only ever open Safari.

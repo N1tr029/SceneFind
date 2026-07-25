@@ -9,14 +9,29 @@ enum WatchDestinationPolicy {
 
     // MARK: - Dead services
 
-    /// Hulu no longer resolves. Every hulu.com path — including a valid episode
-    /// UUID — answers `302` to `https://www.disneyplus.com/` with the path
-    /// discarded, and hulu.com serves no apple-app-site-association, so nothing
-    /// deep-links either. A Hulu row can only ever be a broken button now, so
-    /// SceneFind drops it and relies on the Disney+ row instead.
-    static func isRetiredService(_ url: URL) -> Bool {
-        guard let host = url.host?.lowercased() else { return false }
-        return host == "hulu.com" || host.hasSuffix(".hulu.com")
+    /// No service is fully retired — but Hulu needs the right host.
+    ///
+    /// `www.hulu.com` is being folded into Disney+ and answers `302` to
+    /// `https://www.disneyplus.com/` with the path discarded, so a www watch URL
+    /// loses the episode. `dl.hulu.com` is a different story: it still publishes
+    /// an apple-app-site-association listing `/watch/*` for the Hulu iOS app
+    /// (`com.hulu.plus`), and iOS matches a Universal Link against that file
+    /// *before* any web request happens. So `dl.hulu.com/watch/<id>` still opens
+    /// the installed app at the episode — it is only the browser fallback that
+    /// ends up on Disney+.
+    static func isRetiredService(_ url: URL) -> Bool { false }
+
+    /// Moves a Hulu watch URL onto the host that can still open the app.
+    static func huluDeepLink(episodeID: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "dl.hulu.com"
+        components.path = "/watch/\(episodeID)"
+        components.queryItems = [
+            URLQueryItem(name: "source", value: "web_universal_deep_linking"),
+            URLQueryItem(name: "play", value: "true")
+        ]
+        return components.url
     }
 
     // MARK: - Host normalisation
@@ -108,7 +123,9 @@ enum WatchDestinationPolicy {
             return components("https://www.peacocktv.com/search", [URLQueryItem(name: "q", value: query)])
         case .paramountPlus:
             return components("https://www.paramountplus.com/search", [URLQueryItem(name: "q", value: query)])
-        case .hulu, .other:
+        case .hulu:
+            return components("https://www.hulu.com/search", [URLQueryItem(name: "q", value: query)])
+        case .other:
             return nil
         }
     }

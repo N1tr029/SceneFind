@@ -47,6 +47,7 @@ final class GeminiClipIdentificationService {
     private let retryDelayNanoseconds: UInt64
     private let groqAPIKeyProvider: GroqAPIKeyProvider
     private let timestampResolver: SceneTimestampResolver
+    private let officialLinkService: OfficialWatchLinkService
 
     static let maximumUploadSizeBytes = 100 * 1_024 * 1_024
     private static let mobileUserAgent =
@@ -72,6 +73,7 @@ final class GeminiClipIdentificationService {
         self.retryDelayNanoseconds = retryDelayNanoseconds
         self.groqAPIKeyProvider = groqAPIKeyProvider
         self.timestampResolver = timestampResolver ?? SceneTimestampResolver(session: session)
+        self.officialLinkService = OfficialWatchLinkService(session: session)
     }
 
     /// A text-only answer is only allowed to end the run when the model says it
@@ -379,6 +381,7 @@ final class GeminiClipIdentificationService {
         // online-origin content a YouTube search fallback so a "watch" button
         // always lands somewhere.
         candidates = await withResolvedYouTubeDestinations(candidates)
+        candidates = await withOfficialShowLink(candidates)
         if candidates[0].heroImageURL != nil {
             progress(AnalysisProgressEvent(
                 kind: .artworkRetrieved,
@@ -714,7 +717,7 @@ final class GeminiClipIdentificationService {
 
                     Return only one valid JSON object with no markdown or commentary. The top-level keys must be match_found, needs_video, detected_dialogue, visual_evidence, and candidates. visual_evidence must contain only observations made from the attached media, never metadata claims. Every candidate must contain all of these keys: media_title, media_type (movie, tv, or other), release_year, season_number, episode_number, episode_title, clip_start_seconds, clip_end_seconds, matching_subtitle, confidence, dialogue_score, visual_score, metadata_score, hero_image_url, and watch_providers. All four score values are independent numbers from 0 through 1; do not copy confidence into each evidence score. Use null for unknown nullable values. For other media, use the original work's title and use null for season and episode fields.
 
-                    watch_providers names which US services carry this title. Each entry has name, offer, and url. Naming the service is the useful part; the URL is not. You cannot know a service's internal content identifier, and a guessed one produces a link that opens to "not found", which is worse than no link at all. So supply a url ONLY when it is a real YouTube watch URL whose eleven-character video id you actually know. In every other case set url to an empty string and let SceneFind resolve the destination itself. Never assemble a path from a title slug, a UUID, or a numeric id you are reconstructing from memory. Omit any service whose availability you are unsure of, and do not infer availability from a network's historical catalog or from another country. Do not list Hulu: it has shut down and its URLs no longer resolve.
+                    \(Self.watchProviderInstruction)
                     """]]
             ],
             "contents": [["role": "user", "parts": parts]],
@@ -764,6 +767,25 @@ final class GeminiClipIdentificationService {
 
         Fill visual_evidence only with things the transcript or caption states outright. You cannot \
         see the video, so do not describe imagined shots.
+
+        \(watchProviderInstruction)
+        """
+
+    /// Shared by both passes. The text pass answers most clips now, so leaving
+    /// this out of it meant results came back with no watch options at all.
+    private static let watchProviderInstruction = """
+        watch_providers lists the US services that currently carry this exact title, each with \
+        name, offer, and url. Naming the service is the important part.
+
+        For url, give the real page only when you actually know its identifier — a Netflix \
+        /watch/ or /title/ number, an Apple TV umc.cmc id, a Disney+ entity id, a Hulu episode \
+        UUID, a YouTube video id. Never assemble one from a title slug or reconstruct a number \
+        you are unsure of: SceneFind checks these, and a guessed id becomes a dead link. When you \
+        do not know the identifier, set url to an empty string — SceneFind then opens that \
+        service's own search, which is a far better outcome than a broken link. Prefer naming the \
+        service with an empty url over omitting the service entirely; an empty list leaves the \
+        user with nowhere to watch. Do not infer availability from a network's historical catalog \
+        or from another country.
         """
 
     private var identificationResponseSchema: [String: Any] {
@@ -1302,8 +1324,6 @@ final class GeminiClipIdentificationService {
     }
 
     private func makeWatchProvider(_ payload: GeminiProviderPayload, title: String) -> WatchProvider? {
-        if payload.name.localizedCaseInsensitiveContains("hulu") { return nil }
-
         // The model is asked to leave the URL empty rather than invent a
         // content id. When it does, build an official search destination on
         // that service instead — it always resolves, and it says plainly that
@@ -1320,9 +1340,6 @@ final class GeminiClipIdentificationService {
         if Self.isYouTubeHost(suppliedURL.host), Self.youTubeVideoID(from: suppliedURL) == nil {
             return searchProvider(named: payload.name, offer: payload.offer, title: title)
         }
-        // Hulu shut down: every hulu.com URL now redirects to the Disney+ home
-        // page with the path thrown away, so a Hulu row can only be a dead end.
-        if WatchDestinationPolicy.isRetiredService(suppliedURL) { return nil }
         let url = WatchDestinationPolicy.normalized(suppliedURL)
         let style = providerStyle(for: payload.name)
         return WatchProvider(
@@ -1355,6 +1372,38 @@ final class GeminiClipIdentificationService {
             destinationDiagnostic: "SceneFind knows the title streams here but not its exact page, "
                 + "so this opens \(name)'s own search rather than a guessed link."
         )
+    }
+
+    /// Promotes the show's publisher-declared streaming page to the top of the
+    /// list. It is a real id on a host that deep-links, so it opens the app —
+    /// unlike the search rows, which are only ever a starting point.
+    private func withOfficialShowLink(_ candidates: [SceneCandidate]) async -> [SceneCandidate] {
+        guard let top = candidates.first, top.mediaType == .television,
+              let link = await officialLinkService.officialLink(forShow: top.mediaTitle) else {
+            return candidates
+        }
+        var providers = top.watchProviders ?? []
+        // Replace the search row for that same service; keep everything else.
+        providers.removeAll { StreamingProviderKind(provider: $0) == link.service }
+        let style = providerStyle(for: link.serviceName)
+        providers.insert(
+            WatchProvider(
+                id: "official-\(link.serviceName.lowercased())-\(top.mediaTitle.lowercased())",
+                name: link.serviceName,
+                offer: "Subscription",
+                episodeURL: link.url,
+                sceneURL: nil,
+                symbolName: style.symbol,
+                brandColorHex: style.color,
+                destinationLevel: .show,
+                destinationDiagnostic: "\(link.serviceName)'s own page for this show, published by "
+                    + "the show itself — a real link rather than a guessed one."
+            ),
+            at: 0
+        )
+        var updated = candidates
+        updated[0] = top.replacingWatchProviders(providers)
+        return updated
     }
 
     private func withResolvedYouTubeDestinations(_ candidates: [SceneCandidate]) async -> [SceneCandidate] {

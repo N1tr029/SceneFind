@@ -41,16 +41,21 @@ final class StreamingDestinationResolverTests: XCTestCase {
         )
     }
 
-    /// Checked live on 2026-07-24: every hulu.com path — including this real
-    /// episode UUID — answers `302` to `https://www.disneyplus.com/` with the
-    /// path discarded, and hulu.com serves no apple-app-site-association, so
-    /// neither the universal link nor the `hulu://` scheme can open anything.
-    /// A Hulu row is therefore only ever a broken button, and the exact route it
-    /// used to resolve to must not come back.
-    func testHuluProviderNeverYieldsAHuluDestination() async throws {
+    /// Checked live on 2026-07-24. `www.hulu.com` is being folded into Disney+
+    /// and `302`s every path — including this real episode UUID — to the Disney+
+    /// home page with the path discarded, so its episode pages can no longer be
+    /// fetched or verified. `dl.hulu.com` is separate and still publishes an
+    /// apple-app-site-association listing `/watch/*` for `com.hulu.plus`, and
+    /// iOS resolves a Universal Link against that file before making any web
+    /// request — so this URL still opens the app at the episode.
+    ///
+    /// Treating the web redirect as proof the service was dead is what broke
+    /// previously-working saved links: the resolver tried to verify a page that
+    /// no longer exists, failed, and returned nothing.
+    func testHuluEpisodeUUIDStillDeepLinksWithoutProbingTheDeadWebPage() async throws {
         // No handler is installed on purpose: `StreamingStubURLProtocol` fails
-        // the test if a request arrives, which proves hulu.com is not even
-        // probed any more.
+        // the test if a request arrives, which proves the UUID is trusted
+        // directly rather than re-verified against a page that now redirects.
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StreamingStubURLProtocol.self]
         let hulu = provider(
@@ -65,11 +70,12 @@ final class StreamingDestinationResolverTests: XCTestCase {
             candidate: candidate(title: "The Rookie", season: 1, episode: 7, episodeTitle: "The Ride Along")
         )
 
-        // Hulu has no linkable search page left either, and SceneFind only ever
-        // points at the streaming service that actually carries a title — never
-        // at an aggregator or any other outside site. With nowhere real to send
-        // the viewer, the row is dropped instead.
-        XCTAssertNil(destination)
+        let resolved = try XCTUnwrap(destination)
+        XCTAssertEqual(resolved.level, .exactEpisode)
+        // The deep-linkable host, not the one that drops the path.
+        XCTAssertEqual(resolved.primaryURL.host, "dl.hulu.com")
+        XCTAssertEqual(resolved.primaryURL.path, "/watch/46ed69ca-03a6-47f3-a97b-fc59765405b9")
+        XCTAssertEqual(resolved.webFallbackURL?.scheme, "hulu")
     }
 
     /// A service that *is* still reachable degrades to its own official search

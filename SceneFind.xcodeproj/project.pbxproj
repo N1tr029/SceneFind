@@ -59,6 +59,7 @@
 		6C519FC672393B353E85A2B4 /* SocialClipMetadataServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECAA6E72D984C4F059872517 /* SocialClipMetadataServiceTests.swift */; };
 		6FFFC038BEE03854D8D7A747 /* MockMediaLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9EE400BB6CFC592AC483B3E /* MockMediaLibrary.swift */; };
 		70DA064E1D4E6023C6C748BC /* VideoServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5634D7442CADCE9B8C57C5 /* VideoServices.swift */; };
+		732F7977CFD124B43340D8BC /* OfficialWatchLinkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A5C15D7902FF79B6344119 /* OfficialWatchLinkService.swift */; };
 		74BAB7A57351BA719EE2E328 /* ClipAnalysisPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8523706C031EABABDAE5174 /* ClipAnalysisPipeline.swift */; };
 		7681B88DF509BCA8C061AE8A /* LiveRegressionCorpusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33A4FD6CCD9FA212C2506D59 /* LiveRegressionCorpusTests.swift */; };
 		76BDF6F5899147B64E0330C1 /* ShareExtensionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46324C5A4771F76FB6B13107 /* ShareExtensionView.swift */; };
@@ -103,6 +104,8 @@
 		D5DBE60B7E309A0FDEDCCE54 /* SharedURLExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E0B8452F27D86ADA35BDF91 /* SharedURLExtractor.swift */; };
 		D6BEE0906DFE34331B7E94AC /* GroqConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B99609E5908ED6F2539B8CA /* GroqConfiguration.swift */; };
 		DBDD515A8B9B2F34C85E0FB0 /* OpenAIClipIdentificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EF20A7E8249128CF104275F /* OpenAIClipIdentificationService.swift */; };
+		DBEC125A1569617BA7238ADA /* OfficialWatchLinkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A5C15D7902FF79B6344119 /* OfficialWatchLinkService.swift */; };
+		E07D89226EFF651A2F2D9396 /* OfficialWatchLinkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A5C15D7902FF79B6344119 /* OfficialWatchLinkService.swift */; };
 		E49575712EF1369B0909E72D /* SharedURLExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39D565CBBD1EFBF60F18609E /* SharedURLExtractorTests.swift */; };
 		E7060E5DA2BC4058EF360BA9 /* WatchDestinationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD4D9AE158C68FBE87123E0D /* WatchDestinationPolicy.swift */; };
 		E8560571AEFF87AFC9022628 /* GeminiClipIdentificationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B32EAE565D0A552F0D8073F /* GeminiClipIdentificationServiceTests.swift */; };
@@ -194,6 +197,7 @@
 		AEFED3211FFF6DFED6CA4100 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		B4BFC8EF51F0010E59EF91CA /* SceneFind.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SceneFind.entitlements; sourceTree = "<group>"; };
 		BD4D9AE158C68FBE87123E0D /* WatchDestinationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchDestinationPolicy.swift; sourceTree = "<group>"; };
+		C0A5C15D7902FF79B6344119 /* OfficialWatchLinkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfficialWatchLinkService.swift; sourceTree = "<group>"; };
 		C52931491B90882E25A9BDC4 /* SceneFind.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SceneFind.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C825D503777980BFD3726B7A /* SavedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedView.swift; sourceTree = "<group>"; };
 		C90378FBAC8242B739BC4346 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -253,6 +257,7 @@
 				20F976BA40A6317377D186CB /* GeminiClipIdentificationService.swift */,
 				574A7CBCE92330CF38158294 /* GeminiConfiguration.swift */,
 				4B99609E5908ED6F2539B8CA /* GroqConfiguration.swift */,
+				C0A5C15D7902FF79B6344119 /* OfficialWatchLinkService.swift */,
 				7EF20A7E8249128CF104275F /* OpenAIClipIdentificationService.swift */,
 				534A23DBAD85140AC5BCFBE6 /* OpenAIConfiguration.swift */,
 				14C9320AD4D86A0EE2743092 /* SceneTimestampResolver.swift */,
@@ -608,6 +613,7 @@
 				7681B88DF509BCA8C061AE8A /* LiveRegressionCorpusTests.swift in Sources */,
 				9BA3172F5973C843543210DA /* MediaModels.swift in Sources */,
 				566A7FEA50BBDCA67A390F38 /* MockMediaLibrary.swift in Sources */,
+				732F7977CFD124B43340D8BC /* OfficialWatchLinkService.swift in Sources */,
 				8F4FCCE72444073DEB338117 /* OpenAIClipIdentificationService.swift in Sources */,
 				40544B7CEFBEABF4AFE34ECC /* OpenAIClipIdentificationServiceTests.swift in Sources */,
 				7A40AEC01E3F8C25C6B35880 /* OpenAIConfiguration.swift in Sources */,
@@ -645,6 +651,7 @@
 				AF57B26A90168C51189675AD /* GroqConfiguration.swift in Sources */,
 				1395D545F3A0530A0E399F3E /* MediaModels.swift in Sources */,
 				21B2B2B9DAC18BFF13C383AC /* MockMediaLibrary.swift in Sources */,
+				DBEC125A1569617BA7238ADA /* OfficialWatchLinkService.swift in Sources */,
 				DBDD515A8B9B2F34C85E0FB0 /* OpenAIClipIdentificationService.swift in Sources */,
 				3E49D7251E68918AA9F86718 /* OpenAIConfiguration.swift in Sources */,
 				1ABB5AC80A1119FAFFB08146 /* ResultRepository.swift in Sources */,
@@ -686,6 +693,7 @@
 				6104CDD9D53A13EE2B7F6A05 /* HomeView.swift in Sources */,
 				8C1675330FC852CB6663EB2C /* MediaModels.swift in Sources */,
 				6FFFC038BEE03854D8D7A747 /* MockMediaLibrary.swift in Sources */,
+				E07D89226EFF651A2F2D9396 /* OfficialWatchLinkService.swift in Sources */,
 				D17381B27A7E971BF4ACD37E /* OpenAIClipIdentificationService.swift in Sources */,
 				A5ED132E959F90843505113C /* OpenAIConfiguration.swift in Sources */,
 				7B0723267B6B1FC03CA35B3F /* PaywallView.swift in Sources */,

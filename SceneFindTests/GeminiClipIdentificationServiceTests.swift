@@ -565,12 +565,14 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         XCTAssertEqual(result.topCandidate.sceneTimestampSeconds, 732)
         XCTAssertEqual(result.topCandidate.clipEndTimestampSeconds, 748)
         let providers = try XCTUnwrap(result.topCandidate.watchProviders)
-        XCTAssertEqual(providers.map(\.name), ["Netflix"])
+        XCTAssertEqual(providers.map(\.name), ["Netflix", "Hulu"])
         XCTAssertEqual(
             providers.first?.episodeURL.absoluteString,
             "https://www.netflix.com/watch/81234567"
         )
-        XCTAssertFalse(providers.contains { $0.episodeURL.host?.contains("hulu.com") == true })
+        // Hulu is kept: its app still opens episodes via a dl.hulu.com Universal
+        // Link even though www.hulu.com now redirects into Disney+.
+        XCTAssertNotNil(providers.first { StreamingProviderKind(provider: $0) == .hulu })
         XCTAssertEqual(result.topCandidate.heroImageURL, metadata.thumbnailURL)
         XCTAssertEqual(result.topCandidate.subtitleScore, 0.91)
         XCTAssertEqual(result.topCandidate.visualScore, 0.84)
