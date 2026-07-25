@@ -24,7 +24,7 @@ struct EpisodeWatchLinkFinder {
         self.searchProvider = searchProvider ?? CompositeWebSearchProvider(session: session)
     }
 
-    struct Found: Equatable {
+    struct Found: Equatable, Codable {
         let url: URL
         let service: StreamingProviderKind
         let serviceName: String
@@ -103,17 +103,32 @@ struct EpisodeWatchLinkFinder {
         return parts.joined(separator: " ")
     }
 
-    /// Prefers URLs that look episode-specific over a service's front page.
+    /// Prefers URLs that look episode-specific over a service's front page, and
+    /// drops other countries' storefronts.
+    ///
+    /// Search happily returns a `paramountplus.com/ca/…` page for a US query, and
+    /// a Canadian storefront will not play for a US viewer — the exact kind of
+    /// link that looks right and then fails to open.
     static func rankedProviderURLs(in results: [URL]) -> [URL] {
         let markers = ["/episode", "/watch", "/video", "/movie", "/play", "/detail"]
         return results
-            .filter { $0.scheme?.lowercased() == "https" }
+            .filter { $0.scheme?.lowercased() == "https" && !isForeignStorefront($0) }
             .sorted { lhs, rhs in
                 let l = markers.contains { lhs.path.lowercased().contains($0) }
                 let r = markers.contains { rhs.path.lowercased().contains($0) }
                 if l != r { return l }
                 return lhs.path.count > rhs.path.count
             }
+    }
+
+    /// True when the path opens with a two-letter region that is not `us`.
+    /// Providers use this shape (`/ca/`, `/au/`, `/gb/`) for regional catalogues.
+    static func isForeignStorefront(_ url: URL) -> Bool {
+        guard let first = url.pathComponents.first(where: { $0 != "/" })?.lowercased(),
+              first.count == 2,
+              first.allSatisfy(\.isLetter) else { return false }
+        // `en` and `us` are language/region segments that still mean the US site.
+        return !["us", "en"].contains(first)
     }
 
     private func pageConfirms(
@@ -137,9 +152,24 @@ struct EpisodeWatchLinkFinder {
     }
 }
 
-/// Caches verified links per title/season/episode.
+/// Caches verified links per title/season/episode, on disk.
+///
+/// This is load-bearing rather than an optimisation. SerpApi's free plan allows
+/// 250 searches a month, and an episode's page URL never changes — so a lookup
+/// should be paid for once, ever, not once per app launch. The file lives in the
+/// App Group container so the share extension and the app share one cache.
 private actor WatchLinkCache {
-    private var entries: [String: [EpisodeWatchLinkFinder.Found]] = [:]
+    private typealias Entries = [String: [EpisodeWatchLinkFinder.Found]]
+
+    private var entries: Entries?
+
+    private static let fileName = "watch-links.v1.json"
+
+    private static var fileURL: URL? {
+        FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: AppGroupConfiguration.identifier)?
+            .appendingPathComponent(fileName)
+    }
 
     private func key(_ candidate: SceneCandidate) -> String {
         [
@@ -150,12 +180,31 @@ private actor WatchLinkCache {
         ].joined(separator: "|")
     }
 
+    private func loaded() -> Entries {
+        if let entries { return entries }
+        guard let url = Self.fileURL,
+              let data = try? Data(contentsOf: url),
+              let decoded = try? JSONDecoder().decode(Entries.self, from: data) else {
+            entries = [:]
+            return [:]
+        }
+        entries = decoded
+        return decoded
+    }
+
     func value(for candidate: SceneCandidate) -> [EpisodeWatchLinkFinder.Found]? {
-        entries[key(candidate)]
+        loaded()[key(candidate)]
     }
 
     func store(_ links: [EpisodeWatchLinkFinder.Found], for candidate: SceneCandidate) {
-        entries[key(candidate)] = links
+        // A miss is cached too. Without that, a title with no findable link would
+        // spend a search on every single attempt.
+        var current = loaded()
+        current[key(candidate)] = links
+        entries = current
+        guard let url = Self.fileURL,
+              let data = try? JSONEncoder().encode(current) else { return }
+        try? data.write(to: url, options: .atomic)
     }
 }
 
@@ -182,11 +231,48 @@ struct CompositeWebSearchProvider: WebSearchProvider {
     }
 
     func search(query: String) async -> [URL] {
-        if let key = WebSearchConfiguration.apiKey, !key.isEmpty,
-           let results = await braveSearch(query: query, apiKey: key), !results.isEmpty {
-            return results
+        if let credentials = WebSearchConfiguration.credentials {
+            let results: [URL]?
+            switch credentials.provider {
+            case .brave:
+                results = await braveSearch(query: query, apiKey: credentials.key)
+            case .serpAPI:
+                results = await serpAPISearch(query: query, apiKey: credentials.key)
+            }
+            if let results, !results.isEmpty { return results }
         }
         return await duckDuckGoSearch(query: query) ?? []
+    }
+
+    /// SerpApi returns Google's own results, which is exactly the index that
+    /// carries provider episode pages.
+    ///
+    /// Its free plan allows 250 searches a month, so every result is cached by
+    /// title/season/episode — an episode's page URL never changes, and without
+    /// caching a handful of testers would exhaust the month in an afternoon.
+    private func serpAPISearch(query: String, apiKey: String) async -> [URL]? {
+        var components = URLComponents(string: "https://serpapi.com/search.json")
+        components?.queryItems = [
+            URLQueryItem(name: "engine", value: "google"),
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "num", value: "20"),
+            URLQueryItem(name: "gl", value: "us"),
+            URLQueryItem(name: "hl", value: "en"),
+            URLQueryItem(name: "api_key", value: apiKey)
+        ]
+        guard let url = components?.url else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        guard let (data, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse,
+              200..<300 ~= http.statusCode,
+              let payload = try? JSONDecoder().decode(SerpAPIResponse.self, from: data) else { return nil }
+        // Organic results first, then whatever Google surfaced in its own
+        // watch-options block, which often names the providers directly.
+        let organic = payload.organicResults?.compactMap { URL(string: $0.link) } ?? []
+        let inline = payload.inlineVideos?.compactMap { $0.link.flatMap(URL.init(string:)) } ?? []
+        return organic + inline
     }
 
     /// Brave's Search API is documented, keyed, and permits this use. It returns
@@ -256,5 +342,17 @@ struct CompositeWebSearchProvider: WebSearchProvider {
             let results: [Result]
         }
         let web: Web?
+    }
+
+    private struct SerpAPIResponse: Decodable {
+        struct Organic: Decodable { let link: String }
+        struct InlineVideo: Decodable { let link: String? }
+        let organicResults: [Organic]?
+        let inlineVideos: [InlineVideo]?
+
+        enum CodingKeys: String, CodingKey {
+            case organicResults = "organic_results"
+            case inlineVideos = "inline_videos"
+        }
     }
 }

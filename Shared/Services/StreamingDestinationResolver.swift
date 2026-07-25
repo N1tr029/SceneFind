@@ -1,6 +1,6 @@
 import Foundation
 
-enum StreamingProviderKind: String {
+enum StreamingProviderKind: String, Codable {
     case hulu
     case netflix
     case appleTV

@@ -12,6 +12,38 @@ import Security
 /// Without a key SceneFind still works: it falls back to the keyless attempt and
 /// then to the service's own search page. Nothing here is required.
 enum WebSearchConfiguration {
+    /// Which search service a key belongs to, decided by its shape.
+    ///
+    /// One Settings field is friendlier than making someone pick a provider from
+    /// a menu, and these two key formats cannot be confused: Brave issues keys
+    /// prefixed `BSA`, SerpApi issues 64 hexadecimal characters.
+    enum Provider: Equatable {
+        case brave
+        case serpAPI
+
+        var label: String {
+            switch self {
+            case .brave: "Brave Search"
+            case .serpAPI: "SerpApi"
+            }
+        }
+    }
+
+    static func provider(for key: String) -> Provider? {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("BSA") { return .brave }
+        if trimmed.count == 64, trimmed.allSatisfy(\.isHexDigit) { return .serpAPI }
+        return nil
+    }
+
+    /// The configured key and the service it belongs to, when both are known.
+    static var credentials: (key: String, provider: Provider)? {
+        guard let key = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !key.isEmpty,
+              let provider = provider(for: key) else { return nil }
+        return (key, provider)
+    }
+
     private static let service = "com.example.SceneFind.websearch"
     private static let account = "episode-link-search-api-key"
     private static let debugAPIKey = "debugWebSearchAPIKey.v1"
@@ -69,12 +101,17 @@ enum WebSearchConfiguration {
     private static var bundledAPIKey: String? {
         guard let url = Bundle.main.url(forResource: "PrototypeSecrets", withExtension: "plist"),
               let data = try? Data(contentsOf: url),
-              let values = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              let value = values["BraveSearchAPIKey"] as? String else {
+              let values = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else {
             return nil
         }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        // `SearchAPIKey` is the provider-neutral name; the Brave-specific one is
+        // still read so an existing secrets file keeps working.
+        for key in ["SearchAPIKey", "BraveSearchAPIKey"] {
+            guard let value = values[key] as? String else { continue }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return nil
     }
 
     private static var baseQuery: [String: Any] {

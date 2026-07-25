@@ -96,10 +96,20 @@ the provider's own page confirms it. Verified for *The Middle* S5E8 on
 2026-07-24, which yielded working Apple TV and HBO Max episode URLs.
 
 Reading search results without a key is unreliable — DuckDuckGo's HTML endpoint
-answered one request with `200` and the next two with `202`. Set a Brave Search
-API key (Settings, or `BraveSearchAPIKey` in `PrototypeSecrets.plist`) to make
-this dependable; without one SceneFind still falls back to the keyless attempt
-and then to the service's own search page.
+answered one request with `200` and the next two with `202`. Set a search API key
+to make this dependable: **Settings → Recognition → API settings → Watch-link
+search**, or `SearchAPIKey` in `PrototypeSecrets.plist`, or the `SEARCH_API_KEY`
+secret in Xcode Cloud. Either a SerpApi key (64 hex characters) or a Brave Search
+key (`BSA…`) works — the app tells them apart by shape. Without a key SceneFind
+falls back to the keyless attempt, then the show's publisher-declared page from
+TVmaze, then the service's own search page.
+
+Results are cached to disk in the App Group container, keyed by
+title/season/episode, misses included. That is not an optimisation: SerpApi's free
+plan allows 250 searches a month and an episode's page URL never changes, so a
+lookup should be paid for once rather than once per launch. Foreign storefronts
+(`/ca/`, `/au/`) are filtered out, since a regional catalogue will not play for a
+US viewer.
 
 Checked against the live services on 2026-07-24:
 

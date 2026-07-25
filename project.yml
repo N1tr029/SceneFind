@@ -46,7 +46,7 @@ targets:
               echo "error: Release build contains PrototypeSecrets.plist"
               exit 1
             fi
-            if grep -R -a -E -q '(gsk_[A-Za-z0-9_-]{20,}|AQ\.[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|BSA[A-Za-z0-9_-]{20,})' "${TARGET_BUILD_DIR}/${WRAPPER_NAME}"; then
+            if grep -R -a -E -q '(gsk_[A-Za-z0-9_-]{20,}|AQ\.[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|BSA[A-Za-z0-9_-]{20,}|SearchAPIKey)' "${TARGET_BUILD_DIR}/${WRAPPER_NAME}"; then
               echo "error: Release build appears to contain a provider secret"
               exit 1
             fi
