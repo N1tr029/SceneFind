@@ -4,8 +4,10 @@
 # It recreates SceneFindApp/Resources/PrototypeSecrets.plist from secret
 # environment variables so provider keys never live in git. Set these as
 # SECRET environment variables in the Xcode Cloud workflow:
-#   GROQ_API_KEY    -> written as <GroqAPIKey>
-#   GEMINI_API_KEY  -> written as <GeminiAPIKey>
+#   GROQ_API_KEY         -> written as <GroqAPIKey>
+#   GEMINI_API_KEY       -> written as <GeminiAPIKey>
+#   BRAVE_SEARCH_API_KEY -> written as <BraveSearchAPIKey>  (optional; makes the
+#                           "open in <service>" episode links dependable)
 #
 # NOTE: This embeds provider keys directly in the app binary. It is intended
 # for INTERNAL TestFlight testing only. Before public App Store release, move
@@ -19,7 +21,7 @@ set -e
 REPO_ROOT="${CI_PRIMARY_REPOSITORY_PATH:-$(cd "$(dirname "$0")/.." && pwd)}"
 SECRETS_FILE="${REPO_ROOT}/SceneFindApp/Resources/PrototypeSecrets.plist"
 
-if [ -z "${GROQ_API_KEY}" ] && [ -z "${GEMINI_API_KEY}" ]; then
+if [ -z "${GROQ_API_KEY}" ] && [ -z "${GEMINI_API_KEY}" ] && [ -z "${BRAVE_SEARCH_API_KEY}" ]; then
   echo "ci_post_clone: no GROQ_API_KEY/GEMINI_API_KEY env vars set; leaving PrototypeSecrets.plist untouched."
   exit 0
 fi
@@ -35,8 +37,10 @@ cat > "${SECRETS_FILE}" <<PLIST
 	<string>${GROQ_API_KEY}</string>
 	<key>GeminiAPIKey</key>
 	<string>${GEMINI_API_KEY}</string>
+	<key>BraveSearchAPIKey</key>
+	<string>${BRAVE_SEARCH_API_KEY}</string>
 </dict>
 </plist>
 PLIST
 
-echo "ci_post_clone: wrote PrototypeSecrets.plist (GroqAPIKey set: $([ -n "${GROQ_API_KEY}" ] && echo yes || echo no), GeminiAPIKey set: $([ -n "${GEMINI_API_KEY}" ] && echo yes || echo no))."
+echo "ci_post_clone: wrote PrototypeSecrets.plist (GroqAPIKey set: $([ -n "${GROQ_API_KEY}" ] && echo yes || echo no), GeminiAPIKey set: $([ -n "${GEMINI_API_KEY}" ] && echo yes || echo no), BraveSearchAPIKey set: $([ -n "${BRAVE_SEARCH_API_KEY}" ] && echo yes || echo no))."

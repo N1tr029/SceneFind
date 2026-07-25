@@ -31,6 +31,7 @@ final class AnalysisCoordinator: ObservableObject {
     @Published private(set) var runs: [UUID: Run] = [:]
 
     private var tasks: [UUID: Task<Void, Never>] = [:]
+    private var assertions: [UUID: UIBackgroundTaskIdentifier] = [:]
     private let model: SceneFindModel
     private let usage: DailyUsageLimiter
     private let subscription: SubscriptionManager
@@ -86,23 +87,38 @@ final class AnalysisCoordinator: ObservableObject {
             // The expiration handler is not optional in practice: iOS terminates
             // an app that lets an assertion run out without ending it, so this
             // gives back the assertion (and stops the work) at the deadline.
-            var assertion = UIBackgroundTaskIdentifier.invalid
-            assertion = UIApplication.shared.beginBackgroundTask(
-                withName: "SceneFind clip analysis"
-            ) { [weak self] in
-                self?.expireRun(requestID: requestID, assertion: assertion)
-            }
-            defer {
-                if assertion != .invalid {
-                    UIApplication.shared.endBackgroundTask(assertion)
-                }
-            }
+            self?.beginAssertion(for: requestID)
+            defer { self?.endAssertion(for: requestID) }
             await self?.perform(requestID: requestID)
         }
     }
 
+    // MARK: - Background assertions
+    //
+    // Held in one place, keyed by request, because both the normal finish and
+    // the expiration handler want to release it. `endBackgroundTask` must be
+    // called exactly once per identifier — calling it twice is a programmer
+    // error that UIKit treats as fatal — so clearing the entry here is what
+    // makes the second caller a no-op.
+
+    private func beginAssertion(for requestID: UUID) {
+        guard assertions[requestID] == nil else { return }
+        let assertion = UIApplication.shared.beginBackgroundTask(
+            withName: "SceneFind clip analysis"
+        ) { [weak self] in
+            self?.expireRun(requestID: requestID)
+        }
+        guard assertion != .invalid else { return }
+        assertions[requestID] = assertion
+    }
+
+    private func endAssertion(for requestID: UUID) {
+        guard let assertion = assertions.removeValue(forKey: requestID) else { return }
+        UIApplication.shared.endBackgroundTask(assertion)
+    }
+
     /// iOS reclaimed our background time before the analysis finished.
-    private func expireRun(requestID: UUID, assertion: UIBackgroundTaskIdentifier) {
+    private func expireRun(requestID: UUID) {
         tasks[requestID]?.cancel()
         tasks[requestID] = nil
         if runs[requestID]?.isRunning == true {
@@ -112,9 +128,7 @@ final class AnalysisCoordinator: ObservableObject {
                     + "Reopen the app and tap Try again."
             )
         }
-        if assertion != .invalid {
-            UIApplication.shared.endBackgroundTask(assertion)
-        }
+        endAssertion(for: requestID)
     }
 
     private func perform(requestID: UUID) async {

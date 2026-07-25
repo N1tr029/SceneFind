@@ -95,12 +95,19 @@ struct SceneTimestampResolver {
     /// QuoDB indexes subtitle lines and answers "which title said this, and when"
     /// in a single keyless request. Its catalogue is incomplete, so a miss is
     /// normal and simply falls through to the estimate path.
+    /// Searches every candidate phrase at once and keeps the earliest-ranked hit.
+    /// Sequentially these three lookups cost up to 18s on their own.
     private func matchedTimestamp(title: String, phrases: [String]) async -> Double? {
-        for phrase in phrases {
-            guard let hit = await quoDBSearch(phrase: phrase, title: title) else { continue }
-            return hit
+        guard !phrases.isEmpty else { return nil }
+        return await withTaskGroup(of: (Int, Double?).self) { group in
+            for (index, phrase) in phrases.enumerated() {
+                group.addTask { (index, await self.quoDBSearch(phrase: phrase, title: title)) }
+            }
+            var hits: [(Int, Double)] = []
+            for await case let (index, seconds?) in group { hits.append((index, seconds)) }
+            // Phrases are ordered most-distinctive first, so prefer that hit.
+            return hits.min { $0.0 < $1.0 }?.1
         }
-        return nil
     }
 
     /// Lines worth searching for, from a platform caption track when there is

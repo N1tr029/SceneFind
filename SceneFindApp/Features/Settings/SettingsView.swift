@@ -5,12 +5,15 @@ struct SettingsView: View {
     @EnvironmentObject private var subscription: SubscriptionManager
     @EnvironmentObject private var usage: DailyUsageLimiter
     @State private var apiKey = ""
-    @State private var modelName = "gemini-3.5-flash"
+    @State private var modelName = GeminiConfiguration.defaultModel
     @State private var keyStatus: KeyStatus = .notConfigured
     @State private var isAPIKeyVisible = false
     @State private var groqAPIKey = ""
     @State private var groqKeyStatus: KeyStatus = .notConfigured
     @State private var isGroqAPIKeyVisible = false
+    @State private var searchAPIKey = ""
+    @State private var searchKeyStatus: KeyStatus = .notConfigured
+    @State private var isSearchAPIKeyVisible = false
     #if SCENEFIND_TESTFLIGHT
     @State private var testerCode = ""
     @State private var testerCodeRejected = false
@@ -226,6 +229,66 @@ struct SettingsView: View {
                                 loadGroqSettings()
                             }
                         }
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("Watch-link search", systemImage: "magnifyingglass.circle.fill")
+                                .font(.subheadline.weight(.semibold))
+                            Text("""
+                                Streaming services hide episode pages behind ids that cannot be \
+                                guessed, so SceneFind finds them by search and then confirms each \
+                                page before offering it. Without a key it tries a keyless search \
+                                that works only intermittently, then falls back to opening the \
+                                service's own search page.
+                                """)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        HStack(spacing: 8) {
+                            Group {
+                                if isSearchAPIKeyVisible {
+                                    TextField("Brave Search API key", text: $searchAPIKey)
+                                } else {
+                                    SecureField("Brave Search API key", text: $searchAPIKey)
+                                }
+                            }
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .privacySensitive()
+
+                            Button {
+                                isSearchAPIKeyVisible.toggle()
+                            } label: {
+                                Image(systemName: isSearchAPIKeyVisible ? "eye.slash" : "eye")
+                                    .frame(width: 30, height: 30)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(isSearchAPIKeyVisible ? "Hide search API key" : "Show search API key")
+                        }
+
+                        Label(searchKeyStatus.label, systemImage: searchKeyStatus.symbol)
+                            .font(.caption)
+                            .foregroundStyle(searchKeyStatus.color)
+
+                        Button {
+                            WebSearchConfiguration.saveAPIKey(searchAPIKey)
+                            searchAPIKey = ""
+                            loadSearchSettings()
+                        } label: {
+                            Label("Save search key", systemImage: "key.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(searchAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                        if searchKeyStatus == .keychain || searchKeyStatus == .debugLocalStorage {
+                            Button("Remove search key", role: .destructive) {
+                                WebSearchConfiguration.clearAPIKey()
+                                loadSearchSettings()
+                            }
+                        }
                     }
                 }
             }
@@ -256,6 +319,7 @@ struct SettingsView: View {
         .background(CinematicBackground())
         .tint(Color.sceneCyan)
         .onAppear {
+            loadSearchSettings()
             modelName = GeminiConfiguration.model
             switch GeminiConfiguration.storageLocation {
             case .keychain:
@@ -304,6 +368,13 @@ struct SettingsView: View {
         case .bundledDefault: groqKeyStatus = .bundledDefault
         case .none: groqKeyStatus = .notConfigured
         }
+    }
+
+    private func loadSearchSettings() {
+        // Never echo the stored key back into the field; the status line is
+        // enough to show one is set.
+        searchAPIKey = ""
+        searchKeyStatus = WebSearchConfiguration.isConfigured ? .keychain : .notConfigured
     }
 
     private func saveGroqSettings() {

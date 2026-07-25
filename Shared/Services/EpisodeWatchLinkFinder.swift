@@ -31,26 +31,60 @@ struct EpisodeWatchLinkFinder {
     }
 
     /// Returns provider links whose own pages confirm they are this exact title.
+    ///
+    /// Verification is concurrent and the candidate list is capped. Checking one
+    /// URL at a time until enough verified would, on a results page carrying
+    /// twenty provider links, chain twenty eight-second fetches — slower than the
+    /// video analysis this whole pipeline exists to avoid.
     func verifiedLinks(for candidate: SceneCandidate, limit: Int = 3) async -> [Found] {
+        if let cached = await Self.cache.value(for: candidate) { return cached }
+
         let results = await searchProvider.search(query: Self.query(for: candidate))
         guard !results.isEmpty else { return [] }
 
-        var checked: [Found] = []
-        var seenServices = Set<StreamingProviderKind>()
+        // One best URL per service, so a service with many indexed pages cannot
+        // crowd out the others.
+        var bestPerService: [(kind: StreamingProviderKind, url: URL)] = []
         for url in Self.rankedProviderURLs(in: results) {
-            if checked.count >= limit { break }
             let kind = StreamingProviderKind(name: "", host: url.host)
-            guard kind != .other, !seenServices.contains(kind) else { continue }
-            guard await pageConfirms(url, candidate: candidate, kind: kind) else { continue }
-            seenServices.insert(kind)
-            checked.append(Found(
-                url: WatchDestinationPolicy.normalized(url),
-                service: kind,
-                serviceName: OfficialWatchLinkService.displayName(for: kind)
-            ))
+            guard kind != .other, !bestPerService.contains(where: { $0.kind == kind }) else { continue }
+            bestPerService.append((kind, url))
+            if bestPerService.count >= Self.maximumServicesChecked { break }
         }
-        return checked
+        guard !bestPerService.isEmpty else { return [] }
+
+        let verified = await withTaskGroup(of: (Int, Found?).self) { group in
+            for (index, entry) in bestPerService.enumerated() {
+                group.addTask {
+                    guard await self.pageConfirms(entry.url, candidate: candidate, kind: entry.kind) else {
+                        return (index, nil)
+                    }
+                    return (index, Found(
+                        url: WatchDestinationPolicy.normalized(entry.url),
+                        service: entry.kind,
+                        serviceName: OfficialWatchLinkService.displayName(for: entry.kind)
+                    ))
+                }
+            }
+            var found: [(Int, Found)] = []
+            for await case let (index, link?) in group { found.append((index, link)) }
+            // Restore search-rank order, which the group returns out of.
+            return found.sorted { $0.0 < $1.0 }.map(\.1)
+        }
+
+        let limited = Array(verified.prefix(limit))
+        await Self.cache.store(limited, for: candidate)
+        return limited
     }
+
+    /// Five is enough to cover the services anyone actually subscribes to while
+    /// keeping the concurrent fan-out small.
+    private static let maximumServicesChecked = 5
+
+    /// An episode's page URL never changes, so a repeat lookup should be free.
+    /// Process-lifetime only, which is the right scope for a cache holding URLs
+    /// that were verified against live pages.
+    private static let cache = WatchLinkCache()
 
     /// Phrased the way a person would search for the episode, because that is
     /// what the provider pages are titled and indexed as.
@@ -100,6 +134,28 @@ struct EpisodeWatchLinkFinder {
             kind: kind,
             url: response.url ?? url
         ) == .verified
+    }
+}
+
+/// Caches verified links per title/season/episode.
+private actor WatchLinkCache {
+    private var entries: [String: [EpisodeWatchLinkFinder.Found]] = [:]
+
+    private func key(_ candidate: SceneCandidate) -> String {
+        [
+            candidate.mediaTitle.lowercased(),
+            candidate.seasonNumber.map(String.init) ?? "-",
+            candidate.episodeNumber.map(String.init) ?? "-",
+            String(candidate.releaseYear)
+        ].joined(separator: "|")
+    }
+
+    func value(for candidate: SceneCandidate) -> [EpisodeWatchLinkFinder.Found]? {
+        entries[key(candidate)]
+    }
+
+    func store(_ links: [EpisodeWatchLinkFinder.Found], for candidate: SceneCandidate) {
+        entries[key(candidate)] = links
     }
 }
 

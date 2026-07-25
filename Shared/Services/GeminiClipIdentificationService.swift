@@ -1088,7 +1088,16 @@ final class GeminiClipIdentificationService {
         uploadRequest.httpBody = mediaData
         let uploadData = try await responseData(for: uploadRequest, timeoutSeconds: requestTimeoutSeconds)
         let uploaded = try JSONDecoder().decode(GeminiFileEnvelope.self, from: uploadData).file
-        let activeFile = try await waitForActiveFile(uploaded, apiKey: apiKey)
+        let activeFile: GeminiFile
+        do {
+            activeFile = try await waitForActiveFile(uploaded, apiKey: apiKey)
+        } catch {
+            // The upload succeeded and only processing failed, so the file's
+            // name never reaches the caller that would clean it up. Delete it
+            // here rather than leaving it stranded in the account.
+            await deleteUploadedFile(uploaded.name, apiKey: apiKey)
+            throw error
+        }
         guard let uri = activeFile.uri else {
             throw SceneFindError.geminiRequestFailed("Gemini did not return the uploaded video URI.")
         }
@@ -1436,13 +1445,17 @@ final class GeminiClipIdentificationService {
         return updated
     }
 
+    /// Resolves every candidate's YouTube links at once; each one can involve a
+    /// liveness check, so doing them in sequence added latency for no reason.
     private func withResolvedYouTubeDestinations(_ candidates: [SceneCandidate]) async -> [SceneCandidate] {
-        var resolved: [SceneCandidate] = []
-        resolved.reserveCapacity(candidates.count)
-        for candidate in candidates {
-            resolved.append(await resolvingYouTubeDestination(candidate))
+        await withTaskGroup(of: (Int, SceneCandidate).self) { group in
+            for (index, candidate) in candidates.enumerated() {
+                group.addTask { (index, await self.resolvingYouTubeDestination(candidate)) }
+            }
+            var resolved = candidates
+            for await (index, candidate) in group { resolved[index] = candidate }
+            return resolved
         }
-        return resolved
     }
 
     private func resolvingYouTubeDestination(_ candidate: SceneCandidate) async -> SceneCandidate {
