@@ -50,6 +50,11 @@ final class GeminiClipIdentificationService {
     static let maximumUploadSizeBytes = 100 * 1_024 * 1_024
     private static let mobileUserAgent =
         "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148"
+    // Instagram serves Open Graph media tags (og:video, og:image) to recognized
+    // link-preview crawlers, but a login wall to ordinary browser user agents.
+    // Identifying as a crawler is what makes the Reel's real media reachable.
+    private static let linkPreviewUserAgent =
+        "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
 
     init(
         session: URLSession = .shared,
@@ -620,9 +625,10 @@ final class GeminiClipIdentificationService {
         if request.sourcePlatform == .tiktok {
             if let videoURL = metadata?.videoURL {
                 do {
-                    return try await uploadTikTokVideo(
+                    return try await uploadRemoteVideo(
                         from: videoURL,
                         sourcePageURL: metadata?.canonicalURL ?? request.originalURL,
+                        displayName: "SceneFind TikTok clip",
                         apiKey: apiKey
                     )
                 } catch let error as SceneFindError {
@@ -641,37 +647,82 @@ final class GeminiClipIdentificationService {
             throw SceneFindError.directVideoUnavailable
         }
 
-        // Instagram and any other shared link: we can't reliably pull the video.
-        // A public preview image still gives the model something real to look at.
-        // If nothing is fetchable, STOP instead of guessing from the caption or
-        // hashtags — that path produced confident, wrong matches.
+        // Instagram: pull the Reel's real media directly. Preferring the actual
+        // video (full motion + audio) is what lets the model make a confident
+        // match instead of guessing from a still frame or the caption.
+        if request.sourcePlatform == .instagram, let url = request.originalURL {
+            do {
+                return try await instagramMediaReference(for: url, apiKey: apiKey)
+            } catch let error as SceneFindError {
+                // A bad key or exhausted quota is a real, actionable failure —
+                // surface it rather than masking it as "video unavailable".
+                switch error {
+                case .geminiAuthenticationFailed, .geminiFreeTierLimitReached, .geminiCreditsDepleted:
+                    throw error
+                default: break
+                }
+            }
+            if let thumbnailURL = metadata?.thumbnailURL {
+                return try await inlinePreviewImage(from: thumbnailURL, sourcePageURL: url)
+            }
+            throw SceneFindError.directVideoUnavailable
+        }
+
+        // Any other shared link: a public preview image still gives the model
+        // something real to look at. If nothing is fetchable, STOP instead of
+        // guessing from the caption or hashtags — that produced confident, wrong
+        // matches.
         if let thumbnailURL = metadata?.thumbnailURL {
             return try await inlinePreviewImage(from: thumbnailURL, sourcePageURL: request.originalURL)
-        }
-        if request.sourcePlatform == .instagram,
-           let url = request.originalURL,
-           let reference = try? await instagramPreviewImage(for: url) {
-            return reference
         }
         throw SceneFindError.directVideoUnavailable
     }
 
-    // Best-effort: scrape the public Reel/post page for its og:image preview and
-    // attach it as a still frame. Instagram blocks most scraping, so this often
-    // fails — callers must treat a throw as "no media" and stop, not guess.
-    private func instagramPreviewImage(for url: URL) async throws -> VideoReference {
+    // Best-effort: scrape the public Reel/post page for its Open Graph media and
+    // attach it. The video is preferred (full motion + audio); the cover image is
+    // a still-frame fallback. Instagram blocks most scraping, so this can still
+    // fail — callers must treat a throw as "no media" and stop, not guess.
+    private func instagramMediaReference(for url: URL, apiKey: String) async throws -> VideoReference {
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
-        request.setValue(Self.mobileUserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(Self.linkPreviewUserAgent, forHTTPHeaderField: "User-Agent")
         let response = try await data(for: request, timeoutSeconds: 10)
         guard let http = response.response as? HTTPURLResponse,
               200..<300 ~= http.statusCode,
-              let html = String(data: response.data, encoding: .utf8),
-              let imageURLString = Self.htmlMetaContent(property: "og:image", in: html),
-              let imageURL = URL(string: imageURLString.replacingOccurrences(of: "&amp;", with: "&")) else {
+              let html = String(data: response.data, encoding: .utf8) else {
             throw SceneFindError.directVideoUnavailable
         }
-        return try await inlinePreviewImage(from: imageURL, sourcePageURL: url)
+
+        // Prefer the actual video: motion and audio are far stronger evidence
+        // than a single cover frame, and a full-video analysis is not confidence
+        // capped downstream.
+        if let videoURLString = Self.htmlMetaContent(property: "og:video", in: html)
+            ?? Self.htmlMetaContent(property: "og:video:secure_url", in: html),
+           let videoURL = URL(string: videoURLString.replacingOccurrences(of: "&amp;", with: "&")) {
+            do {
+                return try await uploadRemoteVideo(
+                    from: videoURL,
+                    sourcePageURL: url,
+                    displayName: "SceneFind Instagram clip",
+                    apiKey: apiKey
+                )
+            } catch let error as SceneFindError {
+                switch error {
+                case .geminiAuthenticationFailed, .geminiFreeTierLimitReached, .geminiCreditsDepleted:
+                    throw error
+                default: break // Video URL rotated or blocked — fall back to the cover frame.
+                }
+            } catch {
+                // Network hiccup downloading the Reel — fall back to the cover frame.
+            }
+        }
+
+        // Fall back to the cover image (a still frame, confidence capped later).
+        if let imageURLString = Self.htmlMetaContent(property: "og:image", in: html),
+           let imageURL = URL(string: imageURLString.replacingOccurrences(of: "&amp;", with: "&")) {
+            return try await inlinePreviewImage(from: imageURL, sourcePageURL: url)
+        }
+        throw SceneFindError.directVideoUnavailable
     }
 
     static func htmlMetaContent(property: String, in html: String) -> String? {
@@ -689,9 +740,10 @@ final class GeminiClipIdentificationService {
         return nil
     }
 
-    private func uploadTikTokVideo(
+    private func uploadRemoteVideo(
         from videoURL: URL,
         sourcePageURL: URL?,
+        displayName: String,
         apiKey: String
     ) async throws -> VideoReference {
         var downloadRequest = URLRequest(url: videoURL)
@@ -707,13 +759,13 @@ final class GeminiClipIdentificationService {
         guard let http = downloaded.response as? HTTPURLResponse,
               200..<300 ~= http.statusCode,
               !downloaded.data.isEmpty else {
-            throw SceneFindError.geminiRequestFailed("The public TikTok video could not be downloaded.")
+            throw SceneFindError.geminiRequestFailed("The public video could not be downloaded.")
         }
         let mimeType = http.mimeType ?? "video/mp4"
         return try await mediaReference(
             data: downloaded.data,
             mimeType: mimeType,
-            displayName: "SceneFind TikTok clip",
+            displayName: displayName,
             apiKey: apiKey
         )
     }
