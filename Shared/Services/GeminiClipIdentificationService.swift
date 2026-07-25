@@ -48,6 +48,7 @@ final class GeminiClipIdentificationService {
     private let groqAPIKeyProvider: GroqAPIKeyProvider
     private let timestampResolver: SceneTimestampResolver
     private let officialLinkService: OfficialWatchLinkService
+    private let linkFinder: EpisodeWatchLinkFinder
 
     static let maximumUploadSizeBytes = 100 * 1_024 * 1_024
     private static let mobileUserAgent =
@@ -74,6 +75,7 @@ final class GeminiClipIdentificationService {
         self.groqAPIKeyProvider = groqAPIKeyProvider
         self.timestampResolver = timestampResolver ?? SceneTimestampResolver(session: session)
         self.officialLinkService = OfficialWatchLinkService(session: session)
+        self.linkFinder = EpisodeWatchLinkFinder(session: session)
     }
 
     /// A text-only answer is only allowed to end the run when the model says it
@@ -381,7 +383,7 @@ final class GeminiClipIdentificationService {
         // online-origin content a YouTube search fallback so a "watch" button
         // always lands somewhere.
         candidates = await withResolvedYouTubeDestinations(candidates)
-        candidates = await withOfficialShowLink(candidates)
+        candidates = await withVerifiedWatchDestinations(candidates)
         if candidates[0].heroImageURL != nil {
             progress(AnalysisProgressEvent(
                 kind: .artworkRetrieved,
@@ -1374,35 +1376,63 @@ final class GeminiClipIdentificationService {
         )
     }
 
-    /// Promotes the show's publisher-declared streaming page to the top of the
-    /// list. It is a real id on a host that deep-links, so it opens the app —
-    /// unlike the search rows, which are only ever a starting point.
-    private func withOfficialShowLink(_ candidates: [SceneCandidate]) async -> [SceneCandidate] {
-        guard let top = candidates.first, top.mediaType == .television,
-              let link = await officialLinkService.officialLink(forShow: top.mediaTitle) else {
-            return candidates
-        }
+    /// Puts real, confirmed provider pages at the top of the watch list.
+    ///
+    /// Two sources, best first: episode pages found by searching for the episode
+    /// and then verified against the provider's own page title, and the show's
+    /// publisher-declared `officialSite`. Everything below them stays as the
+    /// service's search page, which is only ever a starting point.
+    private func withVerifiedWatchDestinations(_ candidates: [SceneCandidate]) async -> [SceneCandidate] {
+        guard let top = candidates.first else { return candidates }
+
+        async let episodeLinksTask = linkFinder.verifiedLinks(for: top)
+        async let officialLinkTask: OfficialWatchLinkService.Link? = top.mediaType == .television
+            ? await officialLinkService.officialLink(forShow: top.mediaTitle)
+            : nil
+        let episodeLinks = await episodeLinksTask
+        let officialLink = await officialLinkTask
+
         var providers = top.watchProviders ?? []
-        // Replace the search row for that same service; keep everything else.
-        providers.removeAll { StreamingProviderKind(provider: $0) == link.service }
-        let style = providerStyle(for: link.serviceName)
-        providers.insert(
-            WatchProvider(
-                id: "official-\(link.serviceName.lowercased())-\(top.mediaTitle.lowercased())",
+        var promoted: [WatchProvider] = []
+
+        for link in episodeLinks {
+            providers.removeAll { StreamingProviderKind(provider: $0) == link.service }
+            let style = providerStyle(for: link.serviceName)
+            promoted.append(WatchProvider(
+                id: "episode-\(link.serviceName.lowercased())-\(link.url.absoluteString)",
                 name: link.serviceName,
                 offer: "Subscription",
                 episodeURL: link.url,
                 sceneURL: nil,
                 symbolName: style.symbol,
                 brandColorHex: style.color,
+                destinationLevel: .exactEpisode,
+                destinationDiagnostic: "\(link.serviceName)'s own page for this exact "
+                    + "\(top.mediaType == .movie ? "film" : "episode"), confirmed by the title on "
+                    + "that page before it was offered."
+            ))
+        }
+
+        if let officialLink, !episodeLinks.contains(where: { $0.service == officialLink.service }) {
+            providers.removeAll { StreamingProviderKind(provider: $0) == officialLink.service }
+            let style = providerStyle(for: officialLink.serviceName)
+            promoted.append(WatchProvider(
+                id: "official-\(officialLink.serviceName.lowercased())-\(top.mediaTitle.lowercased())",
+                name: officialLink.serviceName,
+                offer: "Subscription",
+                episodeURL: officialLink.url,
+                sceneURL: nil,
+                symbolName: style.symbol,
+                brandColorHex: style.color,
                 destinationLevel: .show,
-                destinationDiagnostic: "\(link.serviceName)'s own page for this show, published by "
-                    + "the show itself — a real link rather than a guessed one."
-            ),
-            at: 0
-        )
+                destinationDiagnostic: "\(officialLink.serviceName)'s own page for this show, "
+                    + "published by the show itself — a real link rather than a guessed one."
+            ))
+        }
+
+        guard !promoted.isEmpty else { return candidates }
         var updated = candidates
-        updated[0] = top.replacingWatchProviders(providers)
+        updated[0] = top.replacingWatchProviders(promoted + providers)
         return updated
     }
 

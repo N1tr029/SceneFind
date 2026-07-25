@@ -82,10 +82,24 @@ The app does not scrape restricted media, bypass DRM, or access social accounts.
 
 ## Watch destinations
 
-SceneFind does not let the model invent provider URLs. A guessed content id
-produces a link that opens to "not found", so the model is asked only which
-services carry a title; SceneFind builds the destination itself and falls back to
-the service's own search page rather than dead-ending.
+SceneFind does not let the model invent provider URLs — a guessed content id
+opens to "not found". Instead it finds the real page the way a search engine
+does, then proves it.
+
+Provider ids such as Apple TV's `umc.cmc.3151jcjocan3bys22epi0qeg6` or Peacock's
+per-episode UUID cannot be derived from a title, but every provider publishes
+crawlable episode pages, so those ids are sitting in public search results.
+`EpisodeWatchLinkFinder` searches for the episode, collects any provider URLs,
+then **fetches each one and checks the page's own `og:title` names the same show
+and season/episode** before offering it. A link is therefore only ever shown when
+the provider's own page confirms it. Verified for *The Middle* S5E8 on
+2026-07-24, which yielded working Apple TV and HBO Max episode URLs.
+
+Reading search results without a key is unreliable — DuckDuckGo's HTML endpoint
+answered one request with `200` and the next two with `202`. Set a Brave Search
+API key (Settings, or `BraveSearchAPIKey` in `PrototypeSecrets.plist`) to make
+this dependable; without one SceneFind still falls back to the keyless attempt
+and then to the service's own search page.
 
 Checked against the live services on 2026-07-24:
 
