@@ -12,6 +12,7 @@
 // is served from KV — so spend scales with distinct episodes, not with users.
 
 import type { Env, PublicError, PublicErrorCode, WatchLink, WatchLinksResponse } from "./types";
+import { searchWeb } from "./webSearch";
 
 /** Hosts we are willing to hand a viewer, and the service each one is. */
 const PROVIDER_HOSTS: ReadonlyArray<readonly [string, WatchLink["service"], string]> = [
@@ -41,6 +42,7 @@ export interface WatchLinkQuery {
   seasonNumber?: number;
   episodeNumber?: number;
   episodeTitle?: string;
+  region: string;
 }
 
 export async function handleWatchLinks(req: Request, env: Env): Promise<Response> {
@@ -86,6 +88,7 @@ function parseQuery(url: URL): WatchLinkQuery | null {
     seasonNumber: number("season"),
     episodeNumber: number("episode"),
     episodeTitle: url.searchParams.get("episodeTitle")?.trim() || undefined,
+    region: normalizedRegion(url.searchParams.get("region")),
   };
 }
 
@@ -97,6 +100,7 @@ function cacheKey(query: WatchLinkQuery): string {
     query.seasonNumber ?? "-",
     query.episodeNumber ?? "-",
     query.releaseYear ?? "-",
+    query.region,
   ].join("|");
 }
 
@@ -119,46 +123,11 @@ export function searchQuery(query: WatchLinkQuery): string {
 /** Accepts a SerpApi key (64 hex chars) or a Brave key (`BSA…`), told apart by
  *  shape so the deployment only has to set one secret. */
 async function search(query: WatchLinkQuery, env: Env): Promise<string[]> {
-  const key = env.SEARCH_API_KEY?.trim();
-  if (!key) return [];
-  const q = searchQuery(query);
-  if (/^[0-9a-f]{64}$/i.test(key)) return serpAPISearch(q, key);
-  if (key.startsWith("BSA")) return braveSearch(q, key);
-  return [];
-}
-
-async function serpAPISearch(q: string, apiKey: string): Promise<string[]> {
-  const url = new URL("https://serpapi.com/search.json");
-  url.searchParams.set("engine", "google");
-  url.searchParams.set("q", q);
-  url.searchParams.set("num", "20");
-  url.searchParams.set("gl", "us");
-  url.searchParams.set("hl", "en");
-  url.searchParams.set("api_key", apiKey);
-  const response = await fetch(url, { headers: { accept: "application/json" } });
-  if (!response.ok) return [];
-  const body = (await response.json()) as {
-    organic_results?: Array<{ link?: string }>;
-    inline_videos?: Array<{ link?: string }>;
-  };
-  return [
-    ...(body.organic_results ?? []).map((r) => r.link),
-    ...(body.inline_videos ?? []).map((r) => r.link),
-  ].filter((link): link is string => typeof link === "string");
-}
-
-async function braveSearch(q: string, apiKey: string): Promise<string[]> {
-  const url = new URL("https://api.search.brave.com/res/v1/web/search");
-  url.searchParams.set("q", q);
-  url.searchParams.set("count", "20");
-  const response = await fetch(url, {
-    headers: { accept: "application/json", "x-subscription-token": apiKey },
-  });
-  if (!response.ok) return [];
-  const body = (await response.json()) as { web?: { results?: Array<{ url?: string }> } };
-  return (body.web?.results ?? [])
-    .map((r) => r.url)
-    .filter((link): link is string => typeof link === "string");
+  return (await searchWeb({
+    apiKey: env.SEARCH_API_KEY,
+    query: searchQuery(query),
+    region: query.region,
+  })).map((result) => result.url);
 }
 
 // --- verification ----------------------------------------------------------
@@ -173,7 +142,7 @@ async function verifyCandidates(
   query: WatchLinkQuery,
 ): Promise<WatchLink[]> {
   const bestPerService = new Map<WatchLink["service"], { url: URL; serviceName: string }>();
-  for (const raw of rank(results)) {
+  for (const raw of rank(results, query.region)) {
     let url: URL;
     try {
       url = new URL(raw);
@@ -199,12 +168,12 @@ async function verifyCandidates(
 
 /** Episode-specific paths first, and no other country's storefront — a `/ca/`
  *  page will not play for a US viewer even though it verifies. */
-function rank(results: string[]): string[] {
+function rank(results: string[], region: string): string[] {
   const markers = ["/episode", "/watch", "/video", "/movie", "/play", "/detail"];
   return results
     .filter((raw) => {
       try {
-        return !isForeignStorefront(new URL(raw));
+        return !isForeignStorefront(new URL(raw), region);
       } catch {
         return false;
       }
@@ -216,10 +185,15 @@ function rank(results: string[]): string[] {
     });
 }
 
-export function isForeignStorefront(url: URL): boolean {
+export function isForeignStorefront(url: URL, region = "US"): boolean {
   const first = url.pathname.split("/").filter(Boolean)[0]?.toLowerCase();
   if (!first || first.length !== 2 || !/^[a-z]{2}$/.test(first)) return false;
-  return first !== "us" && first !== "en";
+  return first !== region.toLowerCase() && first !== "en";
+}
+
+function normalizedRegion(raw: string | null): string {
+  const value = raw?.trim().toUpperCase();
+  return value && /^[A-Z]{2}$/.test(value) ? value : "US";
 }
 
 async function pageConfirms(url: URL, query: WatchLinkQuery): Promise<boolean> {

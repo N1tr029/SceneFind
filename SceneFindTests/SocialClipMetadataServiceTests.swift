@@ -25,6 +25,17 @@ final class SocialClipMetadataServiceTests: XCTestCase {
         XCTAssertTrue(metadata(title: "#fyp", transcript: twelveWords).supportsTextIdentification)
     }
 
+    func testTikTokJSONUtterancesRetainCaptionTiming() throws {
+        let payload = #"{"utterances":[{"text":"You are sad.","start_time":120,"end_time":920},{"text":"We are getting the best burger in New York.","start_time":1320,"end_time":4840}]}"#
+
+        let cues = WebVTTParser.cues(from: payload)
+
+        XCTAssertEqual(cues.count, 2)
+        XCTAssertEqual(cues[0].startSeconds, 0.12, accuracy: 0.001)
+        XCTAssertEqual(cues[0].endSeconds, 0.92, accuracy: 0.001)
+        XCTAssertEqual(cues[1].text, "We are getting the best burger in New York.")
+    }
+
     private func metadata(
         title: String? = nil,
         caption: String? = nil,
@@ -117,6 +128,49 @@ final class SocialClipMetadataServiceTests: XCTestCase {
         XCTAssertEqual(metadata.canonicalURL, canonical)
         XCTAssertEqual(metadata.videoURL?.absoluteString, "https://cdn.example/clip.mp4?token=one&quality=high")
         XCTAssertEqual(metadata.thumbnailURL?.absoluteString, "https://cdn.example/cover.jpg")
+    }
+
+    func testTikTokParserPrefersHighestBitrateH264Rendition() throws {
+        let h265 = "https://cdn.example/compact-h265.mp4"
+        let h264Low = "https://cdn.example/low-h264.mp4"
+        let h264High = "https://cdn.example/high-h264.mp4"
+        let pageJSON: [String: Any] = [
+            "__DEFAULT_SCOPE__": [
+                "webapp.video-detail": [
+                    "itemInfo": [
+                        "itemStruct": [
+                            "video": [
+                                "playAddr": h265,
+                                "bitrateInfo": [
+                                    [
+                                        "Bitrate": 523_306,
+                                        "CodecType": "h265_hvc1",
+                                        "PlayAddr": ["UrlList": [h265]]
+                                    ],
+                                    [
+                                        "Bitrate": 400_000,
+                                        "CodecType": "h264",
+                                        "PlayAddr": ["UrlList": [h264Low]]
+                                    ],
+                                    [
+                                        "Bitrate": 931_823,
+                                        "CodecType": "h264",
+                                        "PlayAddr": ["UrlList": [h264High]]
+                                    ]
+                                ]
+                            ]
+                        ]
+                    ]
+                ]
+            ]
+        ]
+        let json = try JSONSerialization.data(withJSONObject: pageJSON)
+        let jsonText = try XCTUnwrap(String(data: json, encoding: .utf8))
+        let html = Data("<script id=\"__UNIVERSAL_DATA_FOR_REHYDRATION__\">\(jsonText)</script>".utf8)
+
+        let metadata = try XCTUnwrap(TikTokPageParser.metadata(from: html))
+
+        XCTAssertEqual(metadata.videoURL?.absoluteString, h264High)
     }
 }
 

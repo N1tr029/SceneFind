@@ -28,6 +28,14 @@
        Export Compliance" and never reaches a tester group. -->
   <key>ITSAppUsesNonExemptEncryption</key>
   <false/>
+  <key>SCENEFIND_BACKEND_URL</key>
+  <string>$(SCENEFIND_BACKEND_URL)</string>
+  <key>SCENEFIND_PRIVACY_URL</key>
+  <string>$(SCENEFIND_PRIVACY_URL)</string>
+  <key>SCENEFIND_TERMS_URL</key>
+  <string>$(SCENEFIND_TERMS_URL)</string>
+  <key>SCENEFIND_SUPPORT_URL</key>
+  <string>$(SCENEFIND_SUPPORT_URL)</string>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>

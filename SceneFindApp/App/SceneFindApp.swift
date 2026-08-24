@@ -5,19 +5,15 @@ struct SceneFindApp: App {
     @StateObject private var router = AppRouter()
     @StateObject private var model = SceneFindModel()
     @StateObject private var subscription = SubscriptionManager()
-    @StateObject private var usage = DailyUsageLimiter()
     @StateObject private var coordinator: AnalysisCoordinator
 
     init() {
         let model = SceneFindModel()
-        let usage = DailyUsageLimiter()
         let subscription = SubscriptionManager()
         _model = StateObject(wrappedValue: model)
-        _usage = StateObject(wrappedValue: usage)
         _subscription = StateObject(wrappedValue: subscription)
         _coordinator = StateObject(wrappedValue: AnalysisCoordinator(
             model: model,
-            usage: usage,
             subscription: subscription
         ))
     }
@@ -28,7 +24,6 @@ struct SceneFindApp: App {
                 .environmentObject(router)
                 .environmentObject(model)
                 .environmentObject(subscription)
-                .environmentObject(usage)
                 .environmentObject(coordinator)
                 .preferredColorScheme(.dark)
                 .onOpenURL { router.handle(url: $0) }

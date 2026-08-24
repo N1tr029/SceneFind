@@ -1,74 +1,110 @@
-# SceneFind Backend (Cloudflare Workers)
+# SceneFind Backend
 
-Production proxy that holds the Groq/Gemini keys server-side and implements the
-`/v1` contract in [`../docs/PRODUCTION_BACKEND.md`](../docs/PRODUCTION_BACKEND.md).
-The iOS app calls this instead of the providers directly, so no provider secret
-ever ships in the app binary.
+Cloudflare Worker that owns provider credentials, verifies Apple transactions
+and App Attest assertions, enforces allowances atomically, and streams analysis
+progress to the iOS app.
 
-## Status
+## Entitlement policy
 
-This is a **working skeleton**, not the finished backend. What's implemented vs.
-stubbed:
+| Product | Product ID | Price | Successful identifications |
+| --- | --- | ---: | ---: |
+| Free | none | $0 | 2 total per installation |
+| Starter | `com.kavigandham.scenefind.starter.monthly` | $0.99/month | 10 per Apple billing period |
+| Pro | `com.kavigandham.scenefind.pro.monthly` | $9.99/month | 50 per Apple billing period |
+| Lifetime | `com.kavigandham.scenefind.lifetime` | $19.99 once | 10 per UTC calendar month |
 
-| Area | State |
-| --- | --- |
-| Routing for all 5 `/v1` endpoints | ✅ implemented |
-| Per-analysis Durable Object + SSE progress stream | ✅ implemented |
-| Server-side Gemini identification + Groq verification | ✅ real calls (needs frames/transcript wired in) |
-| App Attest / DeviceCheck auth | ⛔ stub, **fails closed** (see `src/auth.ts`) |
-| Entitlement / StoreKit verification | ⛔ KV stub (`src/entitlement.ts`) |
-| Media retrieval, artwork (TMDB), provider resolution | ⛔ TODOs in `src/session.ts` |
+The `EntitlementLedger` Durable Object serializes reserve/commit/release
+operations. A reservation is committed only when an identification succeeds;
+failures and cancellation release it. Idempotency keys prevent a repeated
+client request from consuming allowance twice.
 
-Search the source for `TODO` for the remaining work.
+## Security boundaries
+
+- Provider keys exist only as Worker secrets.
+- Every production client request requires a fresh App Attest challenge and an
+  assertion over installation ID, key ID, method, path, body hash, and time.
+- App Store transaction and notification JWS values are verified against the
+  bundled Apple G2/G3 roots with Apple's official server library.
+- The first transaction claim must carry the attested installation UUID as its
+  StoreKit `appAccountToken`. A verified restore on another device joins the
+  original transaction's existing ledger, so all devices share one allowance
+  instead of creating additional quota.
+- Only Apple Sandbox and Production environments, the SceneFind bundle ID, and
+  the three known product IDs are accepted.
+- Rate limits are applied by installation and IP. Exact quota accounting lives
+  in a Durable Object; Cloudflare KV is not used as the quota authority.
+- Public errors and logs exclude raw provider responses, shared URLs,
+  transcripts, media, assertions, and transaction payloads.
+
+Public YouTube URLs are sent to Gemini as video input when signature-protected
+platform playback prevents bounded direct-media retrieval. Other remote URLs
+are never forwarded as provider `fileData`; they use retrieved, size-limited
+media or metadata/thumbnail evidence instead.
+
+TikTok and YouTube timed captions are preserved as individual cues. Scene
+timestamps are emitted only when QuoDB returns the identified title and either
+multiple dialogue anchors agree within four seconds or one high-similarity
+anchor ends within eight seconds of the shared clip. Multiple-anchor matches
+must also cover the clip ending within 20 seconds. Missing, early-only, or
+inconsistent anchors produce no timestamp. With three or more anchors, the last
+one is held out and must agree with the earlier alignment within four seconds.
+The end time uses the median offset of the latest three anchors plus source
+duration; it is not a model estimate. TikTok's integer-only duration receives a
+0.5-second midpoint correction to remove its systematic early bias. If platform
+captions are absent or do not align, the Worker can request timed segment
+transcription from Groq and applies the same fail-closed timeline rules.
+
+For television results, the dialogue-index episode title is independently
+mapped to an exact season and episode through TVMaze. When result snippets are
+insufficient, an untrusted caption/model coordinate may select a real guide
+entry to investigate, but the episode passes only when the clip's dialogue is
+found on that episode's transcript page. Deterministic evidence returns before
+the optional Groq tie-breaker, so a Groq outage cannot invalidate an already
+proven episode. Ambiguous multi-part episode names remain unresolved.
+
+The App Attest verifier is the third-party `node-app-attest` package. Its
+behavior must be proven on a physical production-entitled device against the
+deployed Worker before release; a simulator cannot satisfy that gate.
 
 ## Endpoints
 
-- `POST /v1/analysis` → `{ id, requestID }`
-- `GET /v1/analysis/{id}/events` → `text/event-stream` of `AnalysisProgressEvent`
-- `DELETE /v1/analysis/{id}` → cancel + drop evidence
-- `GET /v1/entitlement` → `EntitlementState`
-- `POST /v1/storekit/transaction` → verify + return `EntitlementState`
+- `POST /v1/attest/challenge`
+- `POST /v1/attest/register`
+- `POST /v1/analysis`
+- `GET /v1/analysis/{id}/events`
+- `DELETE /v1/analysis/{id}`
+- `GET /v1/entitlement`
+- `POST /v1/storekit/transaction`
+- `POST /v1/app-store/notifications`
 
-The SSE stream emits one `data:` line per `AnalysisProgressEvent`; the final
-`completed` event carries the full `ClipAnalysisResult` as JSON in its `detail`.
+## Local verification
 
-## Local development
+Node.js 22 or newer is required by the pinned production Wrangler toolchain.
 
-```bash
-cd backend
-npm install
-cp .dev.vars.example .dev.vars   # then fill in keys (see below)
+```sh
+npm ci
 npm run typecheck
-npm run dev                      # wrangler dev
+npm test
+npm run regression:tiktok:episodes
+npx wrangler deploy --dry-run --outdir /tmp/scenefind-worker
 ```
 
-`.dev.vars` (gitignored) for local runs:
+For local-only simulator work, copy `.dev.vars.example` to `.dev.vars`.
+`ALLOW_INSECURE_DEV_AUTH=1` is honored only when the request hostname is
+`localhost` or `127.0.0.1`.
 
-```
-GROQ_API_KEY=gsk_...
-GEMINI_API_KEY=AQ...
-ALLOW_INSECURE_DEV_AUTH=1
-```
+## Deployment prerequisites
 
-`ALLOW_INSECURE_DEV_AUTH=1` bypasses App Attest **locally only** — never set it
-in a deployed environment.
+1. Replace both `REPLACE_WITH_KV_NAMESPACE_ID` values in `wrangler.toml`.
+2. Set Worker secrets `GROQ_API_KEY`, `GEMINI_API_KEY`,
+   `APPLE_TEAM_ID`, and optionally `SEARCH_API_KEY`.
+3. Set `APPLE_APP_ID` to the numeric App Store Connect app ID.
+4. Create all three products in App Store Connect with the IDs and prices
+   above. Starter and Pro belong to one subscription group; Lifetime is a
+   non-consumable.
+5. Configure App Store Server Notifications V2 to post to
+   `/v1/app-store/notifications`.
+6. Configure the iOS build with the deployed HTTPS backend URL plus live
+   privacy, terms, and support URLs.
 
-## Deploy
-
-```bash
-npx wrangler kv:namespace create RATE_LIMIT   # put the id in wrangler.toml
-npx wrangler secret put GROQ_API_KEY
-npx wrangler secret put GEMINI_API_KEY
-npm run deploy
-```
-
-## Wiring the app to it
-
-The app currently calls Gemini/Groq directly in `Shared/Services/`. To switch:
-
-1. Add a `SceneFindBackendClient` that POSTs to `/v1/analysis` and consumes the
-   SSE stream into `AnalysisProgressEvent` / `ClipAnalysisResult`.
-2. Send the App Attest headers (`X-SceneFind-Install`, `X-SceneFind-Assertion`,
-   `X-SceneFind-Token`).
-3. Gate the direct provider clients behind `#if DEBUG` so prod always uses the
-   proxy.
+Do not deploy while any placeholder namespace ID remains.

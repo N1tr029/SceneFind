@@ -99,7 +99,7 @@ final class OEmbedSocialClipMetadataService: SocialClipMetadataService {
     static let mobileUserAgent =
         "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 " +
         "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
-    private static let desktopUserAgent =
+    static let desktopUserAgent =
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 
@@ -230,7 +230,12 @@ final class OEmbedSocialClipMetadataService: SocialClipMetadataService {
     }
 
     private func resolvedTikTokPage(for url: URL) async -> (url: URL, metadata: TikTokPageMetadata?)? {
-        guard let (data, response) = try? await rawData(for: url, userAgent: Self.mobileUserAgent, timeout: 12),
+        // TikTok's mobile page only exposes one generic `playAddr`, while its
+        // desktop payload includes every rendition and the codec for each one.
+        // Reading the desktop payload lets the parser deliberately choose H.264
+        // instead of ByteVC1/H.265, which video-analysis APIs frequently accept
+        // as an upload but then fail to decode into dialogue or frames.
+        guard let (data, response) = try? await rawData(for: url, userAgent: Self.desktopUserAgent, timeout: 12),
               let http = response as? HTTPURLResponse,
               200..<400 ~= http.statusCode else { return nil }
         return (response.url ?? url, TikTokPageParser.metadata(from: data))
@@ -500,7 +505,8 @@ enum TikTokPageParser {
 
     private static func metadata(from item: [String: Any]) -> TikTokPageMetadata? {
         let video = item["video"] as? [String: Any]
-        let videoURL = ((video?["urls"] as? [String])?.first).flatMap(URL.init(string:))
+        let videoURL = preferredVideoURL(in: video)
+            ?? ((video?["urls"] as? [String])?.first).flatMap(URL.init(string:))
             ?? (video?["playAddr"] as? String).flatMap(URL.init(string:))
             ?? (((video?["PlayAddrStruct"] as? [String: Any])?["UrlList"] as? [String])?.first)
                 .flatMap(URL.init(string:))
@@ -529,6 +535,28 @@ enum TikTokPageParser {
             durationSeconds: (video?["duration"] as? NSNumber)?.doubleValue,
             contentLabels: Array(labels.prefix(8))
         )
+    }
+
+    /// Gemini's video ingestion reliably handles H.264/AAC MP4. TikTok orders
+    /// its compact H.265 renditions ahead of H.264 on some clips, so selecting
+    /// the first bitrate entry can yield a valid-looking upload with no decoded
+    /// audio or frames. Prefer the highest-bitrate H.264 rendition explicitly.
+    static func preferredVideoURL(in video: [String: Any]?) -> URL? {
+        let renditions = video?["bitrateInfo"] as? [[String: Any]] ?? []
+        return renditions
+            .filter {
+                let codec = ($0["CodecType"] as? String)?.lowercased() ?? ""
+                return codec == "h264" || codec == "avc" || codec == "avc1"
+            }
+            .sorted {
+                (($0["Bitrate"] as? NSNumber)?.intValue ?? 0)
+                    > (($1["Bitrate"] as? NSNumber)?.intValue ?? 0)
+            }
+            .compactMap { rendition in
+                let address = rendition["PlayAddr"] as? [String: Any]
+                return (address?["UrlList"] as? [String])?.compactMap(URL.init(string:)).first
+            }
+            .first
     }
 
     /// TikTok ships several tracks; prefer an English one and skip burned-in

@@ -29,12 +29,13 @@
 		21B2B2B9DAC18BFF13C383AC /* MockMediaLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9EE400BB6CFC592AC483B3E /* MockMediaLibrary.swift */; };
 		24E013D2B24FC1B0E334A2FB /* WebSearchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACDCC5F28BD3F5DCBEEB6CCD /* WebSearchConfiguration.swift */; };
 		2506B155E5C391CAD006CAA6 /* SceneFindApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 400690C4C7DCF1480E2A1BBD /* SceneFindApp.swift */; };
+		25A0701459BF66C142BE9C6E /* SceneFindBackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 817B5D457579F22A18A5433C /* SceneFindBackendClient.swift */; };
 		2AAF29101D8E23BE13CC7781 /* SubtitleMatchingEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44B30EFCC82014B5312275A0 /* SubtitleMatchingEngine.swift */; };
 		2B5DE96D60B52E4F760CEB92 /* EpisodeWatchLinkFinder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1859389FF7B7296F311CFB5A /* EpisodeWatchLinkFinder.swift */; };
 		2D0B649521AE19B509A537AE /* SharedContainerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D40BB961A6803FBE6183E02 /* SharedContainerStore.swift */; };
 		2EDA2ACA914954505AB0D3B9 /* BackendClipIdentificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26A4E40984556588071CADEC /* BackendClipIdentificationService.swift */; };
 		30679113012EE20F789E6821 /* AnalysisModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B10982E4D5FCCE2C44945FE /* AnalysisModels.swift */; };
-		346E7A579C07BB12BB81C55A /* DailyUsageLimiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EECB93E4E06DDF887B49531B /* DailyUsageLimiter.swift */; };
+		32FF5EE62ECC1E4B7FEE380F /* SceneFindBackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 817B5D457579F22A18A5433C /* SceneFindBackendClient.swift */; };
 		35DDB5DEDD9E2A97BD007159 /* GeminiConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 574A7CBCE92330CF38158294 /* GeminiConfiguration.swift */; };
 		365462FA8E7BFD6E1E091CCC /* AppGroupConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D2EEF19C24D77FCBAF05F24 /* AppGroupConfiguration.swift */; };
 		3685C70E745E1A071D638345 /* SharedClipRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1970012BB9898A867E45BC3D /* SharedClipRequest.swift */; };
@@ -55,7 +56,6 @@
 		548092CD6D8F012F34EBE2A1 /* TranscriptionServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80EEE09A3D927CBD730B0CB5 /* TranscriptionServices.swift */; };
 		55105B56239E4F892A49EBAC /* AnalysisModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B10982E4D5FCCE2C44945FE /* AnalysisModels.swift */; };
 		566A7FEA50BBDCA67A390F38 /* MockMediaLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9EE400BB6CFC592AC483B3E /* MockMediaLibrary.swift */; };
-		57CACB52C933FD0D6335E6CE /* DailyUsageLimiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EECB93E4E06DDF887B49531B /* DailyUsageLimiter.swift */; };
 		5B94E2EDE8C3E63A6F687B88 /* ClipTranscript.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA9E575E29790AC7079C8E2E /* ClipTranscript.swift */; };
 		5D5FEDFCA26DC44B6C4A6943 /* StreamingDestinationResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EC7DEB00A6FD563F270F747 /* StreamingDestinationResolverTests.swift */; };
 		5F2953747189A98BAD56C023 /* EpisodeWatchLinkFinder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1859389FF7B7296F311CFB5A /* EpisodeWatchLinkFinder.swift */; };
@@ -76,6 +76,7 @@
 		85C4A29C4534E39079B74086 /* AlternativesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBC00544F5E68CA3B7BAA347 /* AlternativesView.swift */; };
 		85EA6EC8885A3DCE25C13BB3 /* FutureServiceProtocols.swift in Sources */ = {isa = PBXBuildFile; fileRef = A38061D468F4886A2F7843B6 /* FutureServiceProtocols.swift */; };
 		86DBF76552EB4AD729C78FFF /* AnalyzeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A94389880C5D2B1865E7668 /* AnalyzeView.swift */; };
+		88F6EE0887EFA19C32DBE125 /* SceneFindBackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 817B5D457579F22A18A5433C /* SceneFindBackendClient.swift */; };
 		8C1675330FC852CB6663EB2C /* MediaModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2466D94DFC0F28D100F60BBC /* MediaModels.swift */; };
 		8CA3EC4D2C3AAB251EB1FD12 /* WatchDestinationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD4D9AE158C68FBE87123E0D /* WatchDestinationPolicy.swift */; };
 		8E3DE81BC3394080B20FBE31 /* WebSearchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACDCC5F28BD3F5DCBEEB6CCD /* WebSearchConfiguration.swift */; };
@@ -97,7 +98,6 @@
 		AF57B26A90168C51189675AD /* GroqConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B99609E5908ED6F2539B8CA /* GroqConfiguration.swift */; };
 		B0912DA92E349EA7D19CE6B1 /* GeminiConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 574A7CBCE92330CF38158294 /* GeminiConfiguration.swift */; };
 		B0FA3304300026F51367FA3E /* SceneFindError.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD220C739747F97245BE53AE /* SceneFindError.swift */; };
-		B1F8A30DD739F045B5B97C74 /* DailyUsageLimiterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19C5AB1AC4D5D99821B89603 /* DailyUsageLimiterTests.swift */; };
 		B6DCDB3F81A7577132F3C771 /* ResultRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AAFE66E592C751DCC1776EB /* ResultRepository.swift */; };
 		B9DDBAB959166D23606CC59C /* GeminiConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 574A7CBCE92330CF38158294 /* GeminiConfiguration.swift */; };
 		BB7FB2BE340E14946F8998C4 /* SocialClipMetadataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2DAA16057D3E43ABE1A3F24 /* SocialClipMetadataService.swift */; };
@@ -164,7 +164,6 @@
 		1859389FF7B7296F311CFB5A /* EpisodeWatchLinkFinder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeWatchLinkFinder.swift; sourceTree = "<group>"; };
 		18D97163E932A071902BF476 /* OpenAIClipIdentificationServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIClipIdentificationServiceTests.swift; sourceTree = "<group>"; };
 		1970012BB9898A867E45BC3D /* SharedClipRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedClipRequest.swift; sourceTree = "<group>"; };
-		19C5AB1AC4D5D99821B89603 /* DailyUsageLimiterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyUsageLimiterTests.swift; sourceTree = "<group>"; };
 		1B10982E4D5FCCE2C44945FE /* AnalysisModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalysisModels.swift; sourceTree = "<group>"; };
 		1B32EAE565D0A552F0D8073F /* GeminiClipIdentificationServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiClipIdentificationServiceTests.swift; sourceTree = "<group>"; };
 		1D40BB961A6803FBE6183E02 /* SharedContainerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedContainerStore.swift; sourceTree = "<group>"; };
@@ -196,6 +195,7 @@
 		7EC7DEB00A6FD563F270F747 /* StreamingDestinationResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingDestinationResolverTests.swift; sourceTree = "<group>"; };
 		7EF20A7E8249128CF104275F /* OpenAIClipIdentificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIClipIdentificationService.swift; sourceTree = "<group>"; };
 		80EEE09A3D927CBD730B0CB5 /* TranscriptionServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionServices.swift; sourceTree = "<group>"; };
+		817B5D457579F22A18A5433C /* SceneFindBackendClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneFindBackendClient.swift; sourceTree = "<group>"; };
 		8A94389880C5D2B1865E7668 /* AnalyzeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyzeView.swift; sourceTree = "<group>"; };
 		97655876A8BE956A74A41873 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		A38061D468F4886A2F7843B6 /* FutureServiceProtocols.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FutureServiceProtocols.swift; sourceTree = "<group>"; };
@@ -214,7 +214,6 @@
 		DD220C739747F97245BE53AE /* SceneFindError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneFindError.swift; sourceTree = "<group>"; };
 		E7BC83CE29F5C7E777D523B6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		ECAA6E72D984C4F059872517 /* SocialClipMetadataServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocialClipMetadataServiceTests.swift; sourceTree = "<group>"; };
-		EECB93E4E06DDF887B49531B /* DailyUsageLimiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyUsageLimiter.swift; sourceTree = "<group>"; };
 		F2DAA16057D3E43ABE1A3F24 /* SocialClipMetadataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocialClipMetadataService.swift; sourceTree = "<group>"; };
 		F6F7036A85853B8B070DB6B4 /* SceneFindShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SceneFindShareExtension.entitlements; sourceTree = "<group>"; };
 		F8523706C031EABABDAE5174 /* ClipAnalysisPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipAnalysisPipeline.swift; sourceTree = "<group>"; };
@@ -249,7 +248,6 @@
 			isa = PBXGroup;
 			children = (
 				7E25C21DA1F0D0066E957EEA /* AnalysisCoordinator.swift */,
-				EECB93E4E06DDF887B49531B /* DailyUsageLimiter.swift */,
 				04AC7180D63DCD48EC47C098 /* SubscriptionManager.swift */,
 			);
 			path = Services;
@@ -269,6 +267,7 @@
 				C0A5C15D7902FF79B6344119 /* OfficialWatchLinkService.swift */,
 				7EF20A7E8249128CF104275F /* OpenAIClipIdentificationService.swift */,
 				534A23DBAD85140AC5BCFBE6 /* OpenAIConfiguration.swift */,
+				817B5D457579F22A18A5433C /* SceneFindBackendClient.swift */,
 				14C9320AD4D86A0EE2743092 /* SceneTimestampResolver.swift */,
 				F2DAA16057D3E43ABE1A3F24 /* SocialClipMetadataService.swift */,
 				43A1A506AE1A2597BDD3DFE0 /* StreamingDestinationResolver.swift */,
@@ -423,7 +422,6 @@
 			isa = PBXGroup;
 			children = (
 				1EF8BAC114819CBCF28C3C08 /* ClipAnalysisPipelineTests.swift */,
-				19C5AB1AC4D5D99821B89603 /* DailyUsageLimiterTests.swift */,
 				1B32EAE565D0A552F0D8073F /* GeminiClipIdentificationServiceTests.swift */,
 				3C320F5F210D8ED31110C211 /* Info.plist */,
 				33A4FD6CCD9FA212C2506D59 /* LiveRegressionCorpusTests.swift */,
@@ -598,7 +596,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "SECRETS_FILE=\"${SRCROOT}/SceneFindApp/Resources/PrototypeSecrets.plist\"\nBUNDLE_PATH=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n# Debug and TestFlight embed provider keys (local dev + INTERNAL\n# TestFlight testing). Release stays keyless and is guarded below so\n# the eventual public App Store build can never ship a secret.\n# Before public release, switch the archive to Release + backend proxy.\nif { [ \"${CONFIGURATION}\" = \"Debug\" ] || [ \"${CONFIGURATION}\" = \"TestFlight\" ]; } && [ -f \"${SECRETS_FILE}\" ]; then\n  mkdir -p \"${BUNDLE_PATH}\"\n  cp \"${SECRETS_FILE}\" \"${BUNDLE_PATH}/PrototypeSecrets.plist\"\nelse\n  rm -f \"${BUNDLE_PATH}/PrototypeSecrets.plist\"\n  if [ -f \"${BUNDLE_PATH}/PrototypeSecrets.plist\" ]; then\n    echo \"error: Release build contains PrototypeSecrets.plist\"\n    exit 1\n  fi\n  if grep -R -a -E -q '(gsk_[A-Za-z0-9_-]{20,}|AQ\\.[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|BSA[A-Za-z0-9_-]{20,}|SearchAPIKey)' \"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"; then\n    echo \"error: Release build appears to contain a provider secret\"\n    exit 1\n  fi\nfi\n";
+			shellScript = "SECRETS_FILE=\"${SRCROOT}/SceneFindApp/Resources/PrototypeSecrets.plist\"\nBUNDLE_PATH=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n# Provider keys are available only to local Debug builds. TestFlight\n# and Release always use the backend and must remain keyless.\nif [ \"${CONFIGURATION}\" = \"Debug\" ] && [ -f \"${SECRETS_FILE}\" ]; then\n  mkdir -p \"${BUNDLE_PATH}\"\n  cp \"${SECRETS_FILE}\" \"${BUNDLE_PATH}/PrototypeSecrets.plist\"\nelse\n  for SETTING_NAME in SCENEFIND_BACKEND_URL SCENEFIND_PRIVACY_URL SCENEFIND_TERMS_URL SCENEFIND_SUPPORT_URL; do\n    eval \"SETTING_VALUE=\\${${SETTING_NAME}:-}\"\n    case \"${SETTING_VALUE}\" in\n      https://*) ;;\n      *)\n        echo \"error: ${SETTING_NAME} must be configured as an HTTPS URL for ${CONFIGURATION}.\"\n        exit 1\n        ;;\n    esac\n  done\n  rm -f \"${BUNDLE_PATH}/PrototypeSecrets.plist\"\n  if [ -f \"${BUNDLE_PATH}/PrototypeSecrets.plist\" ]; then\n    echo \"error: Release build contains PrototypeSecrets.plist\"\n    exit 1\n  fi\n  if grep -R -a -E -q '(gsk_[A-Za-z0-9_-]{20,}|AQ\\.[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|BSA[A-Za-z0-9_-]{20,})' \"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"; then\n    echo \"error: Release build appears to contain a provider secret\"\n    exit 1\n  fi\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -613,8 +611,6 @@
 				3A64096793D75C2EEFD08230 /* ClipAnalysisPipeline.swift in Sources */,
 				F811BCCF51ABBD6361A2F81B /* ClipAnalysisPipelineTests.swift in Sources */,
 				3EFD469DF404E351F5D62FBF /* ClipTranscript.swift in Sources */,
-				57CACB52C933FD0D6335E6CE /* DailyUsageLimiter.swift in Sources */,
-				B1F8A30DD739F045B5B97C74 /* DailyUsageLimiterTests.swift in Sources */,
 				2B5DE96D60B52E4F760CEB92 /* EpisodeWatchLinkFinder.swift in Sources */,
 				85EA6EC8885A3DCE25C13BB3 /* FutureServiceProtocols.swift in Sources */,
 				92772F29D88DB9062A19A511 /* GeminiClipIdentificationService.swift in Sources */,
@@ -629,6 +625,7 @@
 				40544B7CEFBEABF4AFE34ECC /* OpenAIClipIdentificationServiceTests.swift in Sources */,
 				7A40AEC01E3F8C25C6B35880 /* OpenAIConfiguration.swift in Sources */,
 				B6DCDB3F81A7577132F3C771 /* ResultRepository.swift in Sources */,
+				32FF5EE62ECC1E4B7FEE380F /* SceneFindBackendClient.swift in Sources */,
 				1BF63433581339648FD7925D /* SceneFindError.swift in Sources */,
 				F6CB78E6E7AEB8F47641B955 /* SceneTimestampResolver.swift in Sources */,
 				A503E42D6FAFC79833781BF4 /* SharedClipRequest.swift in Sources */,
@@ -668,6 +665,7 @@
 				DBDD515A8B9B2F34C85E0FB0 /* OpenAIClipIdentificationService.swift in Sources */,
 				3E49D7251E68918AA9F86718 /* OpenAIConfiguration.swift in Sources */,
 				1ABB5AC80A1119FAFFB08146 /* ResultRepository.swift in Sources */,
+				88F6EE0887EFA19C32DBE125 /* SceneFindBackendClient.swift in Sources */,
 				16575E8A7472A1EF19A52453 /* SceneFindError.swift in Sources */,
 				C2738ED19CF8E56EB1BD630C /* SceneTimestampResolver.swift in Sources */,
 				76BDF6F5899147B64E0330C1 /* ShareExtensionView.swift in Sources */,
@@ -699,7 +697,6 @@
 				2EDA2ACA914954505AB0D3B9 /* BackendClipIdentificationService.swift in Sources */,
 				74BAB7A57351BA719EE2E328 /* ClipAnalysisPipeline.swift in Sources */,
 				5B94E2EDE8C3E63A6F687B88 /* ClipTranscript.swift in Sources */,
-				346E7A579C07BB12BB81C55A /* DailyUsageLimiter.swift in Sources */,
 				1B3FB5C20ACB5718CD26378B /* EpisodeWatchLinkFinder.swift in Sources */,
 				942106F6010A0D0AE9121999 /* FutureServiceProtocols.swift in Sources */,
 				9C45B93D73FE835FB4872CA5 /* GeminiClipIdentificationService.swift in Sources */,
@@ -716,6 +713,7 @@
 				4D528F6DB9BDF325E2DEE250 /* ResultView.swift in Sources */,
 				2034524BDDA188667DAF3BF6 /* SavedView.swift in Sources */,
 				2506B155E5C391CAD006CAA6 /* SceneFindApp.swift in Sources */,
+				25A0701459BF66C142BE9C6E /* SceneFindBackendClient.swift in Sources */,
 				061A3CD59837DF840A5364BA /* SceneFindComponents.swift in Sources */,
 				B0FA3304300026F51367FA3E /* SceneFindError.swift in Sources */,
 				CAF722F2D025B7185762799B /* SceneTimestampResolver.swift in Sources */,
@@ -754,6 +752,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				APP_ATTEST_ENVIRONMENT = production;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -785,7 +784,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = T4VT6R837D;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -831,6 +830,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				APP_ATTEST_ENVIRONMENT = production;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -862,7 +862,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = T4VT6R837D;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -881,7 +881,6 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) SCENEFIND_TESTFLIGHT";
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.9;
@@ -992,6 +991,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				APP_ATTEST_ENVIRONMENT = development;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -1023,7 +1023,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = T4VT6R837D;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;

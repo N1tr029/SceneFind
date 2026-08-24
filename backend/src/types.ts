@@ -9,6 +9,8 @@ export interface Env {
   GROQ_API_KEY: string;
   GEMINI_API_KEY: string;
   APPLE_TEAM_ID?: string;
+  APPLE_APP_ID?: string;
+  APPLE_BUNDLE_ID: string;
   /** SerpApi (64 hex chars) or Brave Search (`BSA…`) key, told apart by shape.
    *  Optional: without it /v1/watch-links resolves nothing and the app falls
    *  back to opening a service's own search page. */
@@ -16,11 +18,17 @@ export interface Env {
 
   // Vars (wrangler.toml [vars])
   GEMINI_MODEL: string;
+  GEMINI_FALLBACK_MODEL: string;
   GROQ_MODEL: string;
+  GROQ_TRANSCRIPTION_MODEL: string;
   ALLOW_INSECURE_DEV_AUTH: string;
+  APP_ATTEST_ALLOW_DEVELOPMENT: string;
+  APPLE_ENABLE_ONLINE_CHECKS: string;
 
   // Bindings
   ANALYSIS: DurableObjectNamespace;
+  APP_ATTEST: DurableObjectNamespace;
+  ENTITLEMENTS: DurableObjectNamespace;
   RATE_LIMIT: KVNamespace;
   /** Resolved episode → provider URL cache, shared by every install. */
   WATCH_LINKS: KVNamespace;
@@ -50,6 +58,7 @@ export interface WatchLinksResponse {
 export type AnalysisProgressKind =
   | "requestRead"
   | "metadataRetrieved"
+  | "transcriptRetrieved"
   | "mediaRetrieved"
   | "mediaAnalysisStarted"
   | "dialogueDetected"
@@ -57,6 +66,7 @@ export type AnalysisProgressKind =
   | "episodeCandidatesFound"
   | "episodeVerified"
   | "episodeUnverified"
+  | "timestampResolved"
   | "providersChecked"
   | "artworkRetrieved"
   | "completed";
@@ -90,6 +100,8 @@ export interface SceneCandidate {
   streamingURL?: string | null;
   heroImageURL?: string | null;
   watchProviders?: WatchProvider[] | null;
+  timestampAccuracy?: "matchedDialogue" | "estimated" | null;
+  timestampBasis?: string | null;
 }
 
 export interface WatchProvider {
@@ -131,16 +143,21 @@ export interface ClipAnalysisResult {
 export interface AnalysisRequest {
   // Exactly one of these identifies the media to analyze.
   sourceURL?: string; // a shared clip/social URL
-  // For direct uploads the client first PUTs media to a signed URL (future);
-  // for now a URL is required.
+  sourceType?: "url" | "video" | "image" | "plainText" | "file";
+  sourceText?: string;
+  /** Direct user-selected media. Capped and validated again by the Worker. */
+  sourceDataBase64?: string;
+  sourceMimeType?: string;
   platformHint?: string;
-  idempotencyKey?: string;
+  region?: string;
+  idempotencyKey: string;
 }
 
 // Stable public error codes — provider errors are mapped to these, raw bodies
 // never reach the client.
 export type PublicErrorCode =
   | "unauthorized"
+  | "attestation_required"
   | "rate_limited"
   | "entitlement_exhausted"
   | "invalid_request"
@@ -153,9 +170,30 @@ export interface PublicError {
   error: { code: PublicErrorCode; message: string };
 }
 
+export type EntitlementPlan = "freeTrial" | "starter" | "pro" | "lifetime";
+
+export type EntitlementStatus =
+  | "active"
+  | "gracePeriod"
+  | "billingRetry"
+  | "expired"
+  | "revoked"
+  | "refunded";
+
 export interface EntitlementState {
-  freeRemaining: number;
-  isPremium: boolean;
+  plan: EntitlementPlan;
+  status: EntitlementStatus;
+  allowance: number;
+  remaining: number;
+  periodStart?: string | null;
+  periodEnd?: string | null;
   renewsAt?: string | null;
-  fairUseLimited: boolean;
+  canAnalyze: boolean;
+  lastSyncedAt: string;
+}
+
+export interface AllowanceReservation {
+  reservationID: string;
+  state: EntitlementState;
+  duplicate: boolean;
 }

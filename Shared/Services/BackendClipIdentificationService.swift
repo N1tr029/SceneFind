@@ -1,8 +1,9 @@
 import Foundation
+import UniformTypeIdentifiers
 
 enum ClipIdentificationServiceFactory {
     static func makeDefault() -> ClipIdentificationService {
-        #if DEBUG || SCENEFIND_TESTFLIGHT
+        #if DEBUG
         HybridClipIdentificationService()
         #else
         BackendClipIdentificationService()
@@ -10,41 +11,110 @@ enum ClipIdentificationServiceFactory {
     }
 }
 
-final class BackendClipIdentificationService: ClipIdentificationService {
+final class BackendClipIdentificationService: ProgressReportingClipIdentificationService {
     private struct RequestBody: Encodable {
-        let request: SharedClipRequest
+        let sourceURL: String?
+        let sourceType: String
+        let sourceText: String?
+        let sourceDataBase64: String?
+        let sourceMimeType: String?
+        let platformHint: String
+        let region: String
+        let idempotencyKey: String
     }
 
-    private let session: URLSession
-    private let endpointProvider: () -> URL?
+    private let client: SceneFindBackendClient
+    private let store: SharedContainerStore
+    private let encoder = JSONEncoder()
 
     init(
-        session: URLSession = .shared,
-        endpointProvider: @escaping () -> URL? = {
-            (Bundle.main.object(forInfoDictionaryKey: "SCENEFIND_BACKEND_URL") as? String)
-                .flatMap(URL.init(string:))
-        }
+        client: SceneFindBackendClient = .shared,
+        store: SharedContainerStore = .shared
     ) {
-        self.session = session
-        self.endpointProvider = endpointProvider
+        self.client = client
+        self.store = store
     }
 
-    func identify(request sharedRequest: SharedClipRequest) async throws -> ClipAnalysisResult {
-        guard let baseURL = endpointProvider(),
-              baseURL.scheme?.lowercased() == "https",
-              let endpoint = URL(string: "v1/analysis/synchronous", relativeTo: baseURL)?.absoluteURL else {
-            throw SceneFindError.productionBackendUnavailable
-        }
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 45
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(RequestBody(request: sharedRequest))
+    func identify(request: SharedClipRequest) async throws -> ClipAnalysisResult {
+        try await identify(request: request, progress: { _ in })
+    }
 
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
-            throw SceneFindError.analysisFailed
+    func identify(
+        request sharedRequest: SharedClipRequest,
+        progress: @escaping (AnalysisProgressEvent) -> Void
+    ) async throws -> ClipAnalysisResult {
+        let body = try requestBody(for: sharedRequest)
+        let start: SceneFindBackendClient.AnalysisStart
+        do {
+            start = try await client.startAnalysis(body: encoder.encode(body))
+        } catch let error as SceneFindBackendError {
+            throw map(error)
         }
-        return try JSONDecoder().decode(ClipAnalysisResult.self, from: data)
+
+        return try await withTaskCancellationHandler {
+            do {
+                return try await client.analysisEvents(id: start.id, progress: progress)
+            } catch let error as SceneFindBackendError {
+                throw map(error)
+            }
+        } onCancel: {
+            Task { await self.client.cancelAnalysis(id: start.id) }
+        }
+    }
+
+    private func requestBody(for request: SharedClipRequest) throws -> RequestBody {
+        let fileURL = store.resolveFileURL(fileName: request.localFileName)
+        let fileData: Data?
+        if let fileURL {
+            let values = try fileURL.resourceValues(forKeys: [.fileSizeKey])
+            guard (values.fileSize ?? 0) <= 8_000_000 else {
+                throw SceneFindError.mediaTooLarge
+            }
+            fileData = try Data(contentsOf: fileURL, options: [.mappedIfSafe])
+        } else {
+            fileData = nil
+        }
+
+        let mimeType: String?
+        if let fileURL,
+           let type = UTType(filenameExtension: fileURL.pathExtension),
+           let preferred = type.preferredMIMEType {
+            mimeType = preferred
+        } else {
+            mimeType = nil
+        }
+        let text = [request.sharedText, request.pageTitle]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        return RequestBody(
+            sourceURL: request.originalURL?.absoluteString,
+            sourceType: request.sourceType.rawValue,
+            sourceText: request.originalURL == nil && fileData == nil && !text.isEmpty ? text : nil,
+            sourceDataBase64: fileData?.base64EncodedString(),
+            sourceMimeType: mimeType,
+            platformHint: request.sourcePlatform.rawValue,
+            region: Locale.current.region?.identifier ?? "US",
+            idempotencyKey: request.id.uuidString.lowercased()
+        )
+    }
+
+    private func map(_ error: SceneFindBackendError) -> SceneFindError {
+        switch error {
+        case .rejected(let code, _):
+            switch code {
+            case "entitlement_exhausted": .identificationAllowanceExhausted
+            case "not_found": .noLikelyMatch
+            case "rate_limited": .analysisRateLimited
+            case "attestation_required", "unauthorized": .deviceVerificationFailed
+            default: .productionBackendUnavailable
+            }
+        case .attestationUnavailable:
+            .deviceVerificationFailed
+        case .notConfigured:
+            .productionBackendUnavailable
+        case .invalidResponse, .streamEnded:
+            .analysisFailed
+        }
     }
 }

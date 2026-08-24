@@ -1,14 +1,3 @@
-// AnalysisSession Durable Object.
-//
-// One instance per analysis id. It owns the pipeline run, buffers progress
-// events durably, and fans them out to any connected SSE client. The worker
-// (index.ts) routes to it by id.
-//
-// Internal routes (worker -> DO):
-//   POST   /start   { request, requestID }   begin the pipeline
-//   GET    /events                           Server-Sent Events stream
-//   DELETE /cancel                           stop work + drop evidence
-
 import type {
   AnalysisProgressEvent,
   AnalysisProgressKind,
@@ -16,28 +5,55 @@ import type {
   ClipAnalysisResult,
   Env,
   SceneCandidate,
+  WatchProvider,
 } from "./types";
+import { finishAllowance } from "./entitlement";
 import { identifyClip } from "./providers/gemini";
-import { verifyEpisode } from "./providers/groq";
+import type { EpisodeVerification } from "./providers/groq";
+import { resolveEpisodeEvidence } from "./episodeEvidence";
+import {
+  evidenceParts,
+  hasRemoteYouTubeVideo,
+  retrieveEvidence,
+  type RetrievedEvidence,
+} from "./sourceRetrieval";
+import { handleWatchLinks } from "./watchLinks";
+import { resolveSceneTimeline } from "./timestampResolver";
+import { resolveEpisodeMetadata } from "./episodeCatalog";
+import { transcribeMedia } from "./providers/groqTranscription";
 
 interface SessionState {
   requestID: string;
   request: AnalysisRequest;
+  entitlementOwner: string;
+  reservationID: string;
   startedAtMs: number;
   events: AnalysisProgressEvent[];
   status: "running" | "completed" | "cancelled" | "failed";
+  allowanceFinished: boolean;
   result?: ClipAnalysisResult;
   errorCode?: string;
 }
+
+const TERMINAL_RETENTION_MS = 15 * 60 * 1_000;
 
 export class AnalysisSession implements DurableObject {
   private session?: SessionState;
   private readonly writers = new Set<WritableStreamDefaultWriter<Uint8Array>>();
   private readonly encoder = new TextEncoder();
+  private readonly ready: Promise<void>;
 
-  constructor(private readonly state: DurableObjectState, private readonly env: Env) {}
+  constructor(
+    private readonly state: DurableObjectState,
+    private readonly env: Env,
+  ) {
+    this.ready = state.blockConcurrencyWhile(async () => {
+      this.session = await state.storage.get<SessionState>("session");
+    });
+  }
 
   async fetch(req: Request): Promise<Response> {
+    await this.ready;
     const url = new URL(req.url);
     switch (`${req.method} ${url.pathname}`) {
       case "POST /start":
@@ -51,22 +67,29 @@ export class AnalysisSession implements DurableObject {
     }
   }
 
+  async alarm(): Promise<void> {
+    this.session = undefined;
+    for (const writer of this.writers) await this.closeWriter(writer);
+    await this.state.storage.deleteAll();
+  }
+
   private async handleStart(req: Request): Promise<Response> {
-    if (this.session) {
-      return Response.json({ ok: true, alreadyStarted: true });
-    }
-    const body = (await req.json()) as { request: AnalysisRequest; requestID: string };
+    if (this.session) return Response.json({ ok: true, alreadyStarted: true });
+    const body = await req.json() as {
+      request: AnalysisRequest;
+      requestID: string;
+      entitlementOwner: string;
+      reservationID: string;
+    };
     this.session = {
-      requestID: body.requestID,
-      request: body.request,
+      ...body,
       startedAtMs: Date.now(),
       events: [],
       status: "running",
+      allowanceFinished: false,
     };
-    // Kick off the pipeline; it survives as long as an SSE client is connected.
-    // TODO: for durability across eviction between POST and GET, drive the
-    // pipeline from a Durable Object alarm instead of a bare promise.
-    void this.runPipeline().catch((err) => this.fail(err));
+    await this.persist();
+    this.state.waitUntil(this.runPipeline().catch((error) => this.fail(error)));
     return Response.json({ ok: true });
   }
 
@@ -74,224 +97,446 @@ export class AnalysisSession implements DurableObject {
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
     const writer = writable.getWriter();
     this.writers.add(writer);
-
-    // Replay everything buffered so far, then stream live events.
     const backlog = this.session?.events ?? [];
-    for (const evt of backlog) void this.push(writer, evt);
-    if (this.session?.status === "completed" || this.session?.status === "cancelled") {
+    for (const event of backlog) void this.push(writer, event);
+    if (this.session?.status === "failed") {
+      void this.pushRaw(writer, `event: error\ndata: ${JSON.stringify({ code: this.session.errorCode ?? "internal" })}\n\n`)
+        .finally(() => this.closeWriter(writer));
+    } else if (this.session?.status === "completed" || this.session?.status === "cancelled") {
       void this.closeWriter(writer);
     }
-
     return new Response(readable, {
       headers: {
         "content-type": "text/event-stream",
-        "cache-control": "no-cache",
+        "cache-control": "no-cache, no-store",
         connection: "keep-alive",
       },
     });
   }
 
   private async handleCancel(): Promise<Response> {
-    if (this.session && this.session.status === "running") {
+    if (this.session?.status === "running") {
       this.session.status = "cancelled";
+      await this.finishAllowance(false);
+      this.discardSensitiveInput();
+      await this.persist();
+      await this.scheduleExpiry();
     }
-    await this.state.storage.deleteAll(); // drop temporary evidence
-    for (const w of this.writers) await this.closeWriter(w);
+    for (const writer of this.writers) await this.closeWriter(writer);
     return new Response(null, { status: 204 });
   }
 
-  // --- pipeline ------------------------------------------------------------
-
   private async runPipeline(): Promise<void> {
-    const s = this.session!;
+    const session = this.requiredSession();
+    await this.emit("requestRead", "Source received", sourceLabel(session.request));
 
-    await this.emit("requestRead", "Reading shared clip");
-
-    // TODO: fetch source metadata + media. For social/web URLs this is the
-    // retrieval stage the app used to do locally. Until ported, we pass the URL
-    // straight to the model as context.
-    await this.emit("metadataRetrieved", "Resolved source", s.request.sourceURL ?? undefined);
-    await this.emit("mediaRetrieved", "Fetched media");
-
+    const evidence = await retrieveEvidence(session.request);
     if (this.cancelled()) return;
-    await this.emit("mediaAnalysisStarted", "Analyzing frames + dialogue");
-
-    // Real provider work — key stays server-side.
-    const parts: unknown[] = [
-      {
-        text:
-          `Identify the show or film for this shared clip. Source URL: ` +
-          `${s.request.sourceURL ?? "(none)"}.`,
-      },
-    ];
-    // TODO: attach extracted frames as inlineData image parts + transcript.
-
-    const id = await identifyClip(this.env, parts);
-    await this.emit("dialogueDetected", "Detected dialogue", id.detectedDialogue || undefined);
-
-    if (!id.showTitle) {
-      // Nothing to verify — finish with a low-confidence "unidentified" result.
-      await this.emit("episodeUnverified", "Could not identify the show");
-      return this.complete(this.buildResult(s, id.detectedDialogue, null, []));
+    await this.emit(
+      "metadataRetrieved",
+      "Source retrieved",
+      evidence.title ?? sourceHost(evidence.finalURL) ?? "Direct media",
+    );
+    if (evidence.dialogue) {
+      await this.emit("transcriptRetrieved", "Dialogue found", preview(evidence.dialogue));
+    }
+    if (evidence.mediaDataBase64 || evidence.thumbnailDataBase64 || hasRemoteYouTubeVideo(evidence)) {
+      await this.emit(
+        "mediaRetrieved",
+        evidence.mediaDataBase64 || hasRemoteYouTubeVideo(evidence)
+          ? "Video evidence retrieved"
+          : "Thumbnail retrieved",
+      );
     }
 
-    await this.emit("showIdentified", "Identified show", id.showTitle);
-    await this.emit("episodeCandidatesFound", "Found episode candidates");
-
+    await this.emit("mediaAnalysisStarted", "Analyzing dialogue and visuals");
+    const identification = await identifyClip(this.env, evidenceParts(session.request, evidence));
     if (this.cancelled()) return;
-    const verification = await verifyEpisode(this.env, {
-      showTitle: id.showTitle,
-      detectedDialogue: id.detectedDialogue,
-      visualEvidence: id.visualEvidence,
-      candidateSeason: id.seasonNumber,
-      candidateEpisode: id.episodeNumber,
-    });
+    if (identification.detectedDialogue) {
+      await this.emit("dialogueDetected", "Dialogue found", preview(identification.detectedDialogue));
+    }
+    if (!identification.showTitle) throw new PublicPipelineError("not_found");
+    await this.emit("showIdentified", "Possible show or movie", identification.showTitle);
 
+    const timelineTask = evidence.transcriptCues?.length
+      ? resolveSceneTimeline({
+          cues: evidence.transcriptCues,
+          durationSeconds: evidence.durationSeconds,
+          expectedTitle: identification.showTitle,
+        }).catch(() => null)
+      : Promise.resolve(null);
+
+    let verification: EpisodeVerification = {
+      verified: false,
+      seasonNumber: null,
+      episodeNumber: null,
+      episodeTitle: null,
+      evidence: "No exact episode was supported by the supplied evidence.",
+      confidence: 0,
+    };
+    if (identification.mediaType === "television") {
+      await this.emit(
+        "episodeCandidatesFound",
+        "Researching exact episode",
+        identification.seasonNumber !== null && identification.episodeNumber !== null
+          ? `Untrusted candidate S${identification.seasonNumber} E${identification.episodeNumber}`
+          : "Searching transcript anchors, images, and the canonical episode guide",
+      );
+      try {
+        verification = await resolveEpisodeEvidence(this.env, {
+          showTitle: identification.showTitle,
+          detectedDialogue: identification.detectedDialogue || evidence.dialogue || "",
+          transcriptCues: evidence.transcriptCues,
+          visualEvidence: [identification.episodeEvidence, ...identification.visualEvidence]
+            .filter(Boolean),
+          captionEvidence: [
+            evidence.title,
+            evidence.description,
+            session.request.sourceText,
+          ].filter((value): value is string => Boolean(value)).join("\n"),
+          candidateSeason: identification.seasonNumber,
+          candidateEpisode: identification.episodeNumber,
+        });
+      } catch {
+        verification = { ...verification, evidence: "Episode verifier was unavailable." };
+      }
+    }
+    let timeline = await timelineTask;
+    if (!timeline && (evidence.mediaURL || evidence.mediaDataBase64)) {
+      const transcribedCues = await transcribeMedia(this.env, evidence).catch(() => []);
+      if (transcribedCues.length > 0) {
+        await this.emit(
+          "transcriptRetrieved",
+          "Timed audio transcription recovered",
+          `${transcribedCues.length} speech segments`,
+        );
+        timeline = await resolveSceneTimeline({
+          cues: transcribedCues,
+          durationSeconds: evidence.durationSeconds,
+          expectedTitle: identification.showTitle,
+        }).catch(() => null);
+      }
+    }
+    if (timeline?.seriesTitle && timeline.episodeTitle) {
+      const catalogEpisode = await resolveEpisodeMetadata({
+        showTitle: timeline.seriesTitle,
+        episodeTitle: timeline.episodeTitle,
+      }).catch(() => null);
+      if (catalogEpisode) {
+        verification = {
+          verified: true,
+          seasonNumber: catalogEpisode.seasonNumber,
+          episodeNumber: catalogEpisode.episodeNumber,
+          episodeTitle: catalogEpisode.episodeTitle,
+          evidence:
+            `Timed dialogue matched “${timeline.episodeTitle}”; TVMaze maps it to ` +
+            `S${catalogEpisode.seasonNumber} E${catalogEpisode.episodeNumber}. ` +
+            catalogEpisode.sourceURL,
+          confidence: Math.max(0.94, timeline.confidence),
+        };
+      }
+    }
+    if (this.cancelled()) return;
     await this.emit(
       verification.verified ? "episodeVerified" : "episodeUnverified",
-      verification.verified ? "Verified episode" : "Episode unverified",
-      verification.evidence || undefined,
+      verification.verified ? "Verified result" : "Show verified; episode uncertain",
+      verification.evidence,
+    );
+    if (timeline) {
+      await this.emit(
+        "timestampResolved",
+        "Exact clip window matched",
+        `${formatTimestamp(timeline.startSeconds)}–${formatTimestamp(timeline.endSeconds)} · ` +
+          `${timeline.anchorCount} dialogue anchor${timeline.anchorCount === 1 ? "" : "s"}`,
+      );
+    }
+
+    const candidate = this.buildCandidate(identification, verification, timeline);
+    const [artworkURL, providers] = await Promise.all([
+      fetchArtwork(candidate.mediaTitle).catch(() => null),
+      fetchWatchProviders(this.env, candidate, session.request.region).catch(() => []),
+    ]);
+    if (this.cancelled()) return;
+    const completedCandidate: SceneCandidate = {
+      ...candidate,
+      heroImageURL: artworkURL,
+      watchProviders: providers,
+    };
+    if (artworkURL) await this.emit("artworkRetrieved", "Artwork found", candidate.mediaTitle);
+    await this.emit(
+      "providersChecked",
+      providers.length > 0 ? "Streaming availability" : "No verified streaming destination",
+      providers.length > 0 ? `${providers.length} verified destination${providers.length === 1 ? "" : "s"}` : undefined,
     );
 
-    // TODO: provider resolution (where to watch) + artwork lookup (TMDB).
-    await this.emit("providersChecked", "Checked streaming providers");
-    await this.emit("artworkRetrieved", "Fetched artwork");
-
-    const candidate = this.buildCandidate(id, verification);
-    return this.complete(this.buildResult(s, id.detectedDialogue, candidate, [candidate]));
+    const result = this.buildResult(
+      session,
+      evidence,
+      identification,
+      completedCandidate,
+      verification,
+    );
+    await this.complete(result);
   }
 
   private buildCandidate(
-    id: Awaited<ReturnType<typeof identifyClip>>,
-    v: Awaited<ReturnType<typeof verifyEpisode>>,
+    identification: Awaited<ReturnType<typeof identifyClip>>,
+    verification: EpisodeVerification,
+    timeline: Awaited<ReturnType<typeof resolveSceneTimeline>>,
   ): SceneCandidate {
-    const confidence = Math.max(id.rawConfidence, v.confidence);
+    const episodeVerified = identification.mediaType === "television" && verification.verified;
     return {
       id: crypto.randomUUID(),
-      mediaTitle: id.showTitle ?? "Unknown",
-      mediaType: id.mediaType,
-      releaseYear: id.releaseYear ?? 0,
-      seasonNumber: v.seasonNumber ?? id.seasonNumber ?? null,
-      episodeNumber: v.episodeNumber ?? id.episodeNumber ?? null,
-      episodeTitle: v.episodeTitle,
-      sceneTimestampSeconds: null,
-      clipEndTimestampSeconds: null,
-      matchedSubtitleText: null,
-      confidence,
-      subtitleScore: 0,
-      visualScore: id.rawConfidence,
-      metadataScore: v.confidence,
-      streamingService: null, // TODO: provider resolution
+      mediaTitle: identification.showTitle!,
+      mediaType: identification.mediaType,
+      releaseYear: identification.releaseYear ?? 0,
+      seasonNumber: episodeVerified ? verification.seasonNumber : null,
+      episodeNumber: episodeVerified ? verification.episodeNumber : null,
+      episodeTitle: episodeVerified ? verification.episodeTitle : null,
+      sceneTimestampSeconds: timeline?.startSeconds ?? null,
+      clipEndTimestampSeconds: timeline?.endSeconds ?? null,
+      matchedSubtitleText: timeline?.matchedDialogue ?? null,
+      confidence: Math.min(0.99, Math.max(0.55, episodeVerified
+        ? (identification.rawConfidence + verification.confidence) / 2
+        : identification.rawConfidence)),
+      subtitleScore: Math.max(verification.confidence, timeline?.confidence ?? 0),
+      visualScore: identification.rawConfidence,
+      metadataScore: 0,
+      streamingService: null,
       streamingURL: null,
-      heroImageURL: null, // TODO: artwork lookup
-      watchProviders: null,
+      heroImageURL: null,
+      watchProviders: [],
+      timestampAccuracy: timeline ? "matchedDialogue" : null,
+      timestampBasis: timeline
+        ? `Matched ${timeline.anchorCount} timed dialogue anchor${timeline.anchorCount === 1 ? "" : "s"} ` +
+          `within ${timeline.maximumAnchorDeviationSeconds.toFixed(1)}s; ending anchor ` +
+          `${timeline.endExtrapolationSeconds.toFixed(1)}s before the clip finished` +
+          (timeline.heldOutEndAnchorErrorSeconds === null
+            ? "."
+            : ` with ${timeline.heldOutEndAnchorErrorSeconds.toFixed(1)}s held-out error.`)
+        : null,
     };
   }
 
   private buildResult(
-    s: SessionState,
-    dialogue: string,
-    top: SceneCandidate | null,
-    alternatives: SceneCandidate[],
+    session: SessionState,
+    evidence: RetrievedEvidence,
+    identification: Awaited<ReturnType<typeof identifyClip>>,
+    topCandidate: SceneCandidate,
+    verification: EpisodeVerification,
   ): ClipAnalysisResult {
-    const placeholder: SceneCandidate = top ?? {
-      id: crypto.randomUUID(),
-      mediaTitle: "Unidentified",
-      mediaType: "other",
-      releaseYear: 0,
-      confidence: 0,
-      subtitleScore: 0,
-      visualScore: 0,
-      metadataScore: 0,
-    } as SceneCandidate;
     return {
       id: crypto.randomUUID(),
-      requestID: s.requestID,
-      createdAt: new Date(s.startedAtMs).toISOString(),
-      detectedDialogue: dialogue,
-      topCandidate: placeholder,
-      alternativeCandidates: alternatives,
+      requestID: session.requestID,
+      createdAt: new Date(session.startedAtMs).toISOString(),
+      detectedDialogue: identification.detectedDialogue || evidence.dialogue || "",
+      topCandidate,
+      alternativeCandidates: [],
       analysisDetails: {
-        sourcePlatform: s.request.platformHint ?? "unknown",
-        sourceType: "url",
-        extractedFrameCount: 0,
-        subtitleCandidatesCompared: 0,
-        totalProcessingDuration: (Date.now() - s.startedAtMs) / 1000,
-        directMediaAnalyzed: false,
-        progressEvents: s.events,
+        sourcePlatform: session.request.platformHint ?? "unknown",
+        sourceType: session.request.sourceType ?? (session.request.sourceURL ? "url" : "file"),
+        extractedFrameCount:
+          evidence.thumbnailDataBase64 || evidence.mediaMimeType?.startsWith("image/") ? 1 : 0,
+        subtitleCandidatesCompared: evidence.transcriptCues?.length ?? (evidence.dialogue ? 1 : 0),
+        totalProcessingDuration: (Date.now() - session.startedAtMs) / 1_000,
+        directMediaAnalyzed: Boolean(evidence.mediaDataBase64 || hasRemoteYouTubeVideo(evidence)),
+        visualEvidence: identification.visualEvidence,
+        episodeVerificationEvidence: verification.evidence,
+        progressEvents: session.events,
       },
     };
   }
 
-  // --- event fan-out -------------------------------------------------------
-
   private async emit(kind: AnalysisProgressKind, title: string, detail?: string): Promise<void> {
-    const s = this.session!;
-    const evt: AnalysisProgressEvent = {
+    const session = this.requiredSession();
+    const event: AnalysisProgressEvent = {
       id: crypto.randomUUID(),
       kind,
       title,
       detail: detail ?? null,
-      elapsedSeconds: (Date.now() - s.startedAtMs) / 1000,
+      elapsedSeconds: (Date.now() - session.startedAtMs) / 1_000,
     };
-    s.events.push(evt);
-    await this.state.storage.put("session", s);
-    for (const w of this.writers) await this.push(w, evt);
+    session.events.push(event);
+    await this.persist();
+    for (const writer of this.writers) await this.push(writer, event);
   }
 
   private async complete(result: ClipAnalysisResult): Promise<void> {
-    const s = this.session!;
-    s.result = result;
-    s.status = "completed";
-    await this.state.storage.put("session", s);
-    // Final "completed" event carries the full result as its detail payload.
-    const evt: AnalysisProgressEvent = {
+    const session = this.requiredSession();
+    if (session.status !== "running") return;
+    await this.finishAllowance(true);
+    session.result = result;
+    session.status = "completed";
+    const event: AnalysisProgressEvent = {
       id: crypto.randomUUID(),
       kind: "completed",
-      title: "Done",
+      title: "Verified result ready",
       detail: JSON.stringify(result),
-      elapsedSeconds: (Date.now() - s.startedAtMs) / 1000,
+      elapsedSeconds: (Date.now() - session.startedAtMs) / 1_000,
     };
-    s.events.push(evt);
-    for (const w of this.writers) {
-      await this.push(w, evt);
-      await this.closeWriter(w);
+    session.events.push(event);
+    this.discardSensitiveInput();
+    await this.persist();
+    await this.scheduleExpiry();
+    for (const writer of this.writers) {
+      await this.push(writer, event);
+      await this.closeWriter(writer);
     }
   }
 
-  private async fail(err: unknown): Promise<void> {
-    if (this.session) {
-      this.session.status = "failed";
-      this.session.errorCode = err instanceof Error ? err.message : "internal";
-    }
-    for (const w of this.writers) {
-      await this.pushRaw(w, `event: error\ndata: {"code":"internal"}\n\n`);
-      await this.closeWriter(w);
+  private async fail(error: unknown): Promise<void> {
+    const session = this.session;
+    if (!session || session.status !== "running") return;
+    session.status = "failed";
+    session.errorCode = error instanceof PublicPipelineError ? error.code : "provider_unavailable";
+    await this.finishAllowance(false);
+    this.discardSensitiveInput();
+    await this.persist();
+    await this.scheduleExpiry();
+    for (const writer of this.writers) {
+      await this.pushRaw(writer, `event: error\ndata: ${JSON.stringify({ code: session.errorCode })}\n\n`);
+      await this.closeWriter(writer);
     }
   }
 
-  private push(w: WritableStreamDefaultWriter<Uint8Array>, evt: AnalysisProgressEvent) {
-    return this.pushRaw(w, `data: ${JSON.stringify(evt)}\n\n`);
+  private async finishAllowance(success: boolean): Promise<void> {
+    const session = this.requiredSession();
+    if (session.allowanceFinished) return;
+    await finishAllowance(
+      this.env,
+      session.entitlementOwner,
+      session.reservationID,
+      success,
+    );
+    session.allowanceFinished = true;
   }
 
-  private async pushRaw(w: WritableStreamDefaultWriter<Uint8Array>, text: string) {
+  private persist(): Promise<void> {
+    return this.state.storage.put("session", this.requiredSession());
+  }
+
+  private requiredSession(): SessionState {
+    if (!this.session) throw new Error("analysis not started");
+    return this.session;
+  }
+
+  private discardSensitiveInput(): void {
+    const session = this.requiredSession();
+    session.request = {
+      sourceType: session.request.sourceType,
+      platformHint: session.request.platformHint,
+      region: session.request.region,
+      idempotencyKey: session.request.idempotencyKey,
+    };
+  }
+
+  private scheduleExpiry(): Promise<void> {
+    return this.state.storage.setAlarm(Date.now() + TERMINAL_RETENTION_MS);
+  }
+
+  private push(writer: WritableStreamDefaultWriter<Uint8Array>, event: AnalysisProgressEvent) {
+    return this.pushRaw(writer, `data: ${JSON.stringify(event)}\n\n`);
+  }
+
+  private async pushRaw(writer: WritableStreamDefaultWriter<Uint8Array>, text: string) {
     try {
-      await w.write(this.encoder.encode(text));
+      await writer.write(this.encoder.encode(text));
     } catch {
-      this.writers.delete(w);
+      this.writers.delete(writer);
     }
   }
 
-  private async closeWriter(w: WritableStreamDefaultWriter<Uint8Array>) {
-    this.writers.delete(w);
+  private async closeWriter(writer: WritableStreamDefaultWriter<Uint8Array>) {
+    this.writers.delete(writer);
     try {
-      await w.close();
+      await writer.close();
     } catch {
-      /* already closed */
+      // Already closed by the client.
     }
   }
 
   private cancelled(): boolean {
     return this.session?.status === "cancelled";
   }
+}
+
+class PublicPipelineError extends Error {
+  constructor(public readonly code: "not_found") {
+    super(code);
+  }
+}
+
+function sourceLabel(request: AnalysisRequest): string {
+  if (request.sourceURL) return new URL(request.sourceURL).hostname;
+  return request.sourceType ?? "direct media";
+}
+
+function preview(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 180 ? `${normalized.slice(0, 177)}…` : normalized;
+}
+
+function formatTimestamp(value: number): string {
+  const seconds = Math.max(0, Math.round(value));
+  const hours = Math.floor(seconds / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  const remainder = seconds % 60;
+  return [hours, minutes, remainder].map((part) => String(part).padStart(2, "0")).join(":");
+}
+
+function sourceHost(value?: string): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchArtwork(title: string): Promise<string | null> {
+  const url = new URL("https://api.tvmaze.com/search/shows");
+  url.searchParams.set("q", title);
+  const response = await fetch(url, { signal: AbortSignal.timeout(4_000) });
+  if (!response.ok) return null;
+  const values = await response.json() as Array<{
+    show?: { name?: string; image?: { original?: string; medium?: string } };
+  }>;
+  const normalized = normalize(title);
+  const match = values.find((value) => normalize(value.show?.name ?? "") === normalized);
+  return match?.show?.image?.original ?? match?.show?.image?.medium ?? null;
+}
+
+async function fetchWatchProviders(
+  env: Env,
+  candidate: SceneCandidate,
+  region?: string,
+): Promise<WatchProvider[]> {
+  const url = new URL("https://internal/v1/watch-links");
+  url.searchParams.set("title", candidate.mediaTitle);
+  url.searchParams.set("type", candidate.mediaType === "television" ? "tv" : candidate.mediaType);
+  if (candidate.releaseYear > 0) url.searchParams.set("year", String(candidate.releaseYear));
+  if (candidate.seasonNumber) url.searchParams.set("season", String(candidate.seasonNumber));
+  if (candidate.episodeNumber) url.searchParams.set("episode", String(candidate.episodeNumber));
+  if (candidate.episodeTitle) url.searchParams.set("episodeTitle", candidate.episodeTitle);
+  if (region) url.searchParams.set("region", region);
+  const response = await handleWatchLinks(new Request(url), env);
+  if (!response.ok) return [];
+  const body = await response.json() as {
+    links?: Array<{ url: string; service: string; serviceName: string }>;
+  };
+  return (body.links ?? []).map((link) => ({
+    id: link.service,
+    name: link.serviceName,
+    offer: candidate.seasonNumber ? "Verified episode" : "Verified title",
+    episodeURL: link.url,
+    sceneURL: null,
+    symbolName: "play.tv.fill",
+    brandColorHex: "FFFFFF",
+    destinationLevel: candidate.seasonNumber ? "exactEpisode" : "show",
+    destinationDiagnostic: "The provider page confirmed this title.",
+  }));
+}
+
+function normalize(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }

@@ -215,6 +215,16 @@ protocol WebSearchProvider {
     func search(query: String) async -> [URL]
 }
 
+/// The evidence-bearing form of a search result. Episode identification needs
+/// the title and snippet as well as the URL: that is where an indexed transcript
+/// exposes both a quoted line and its season/episode label without trusting a
+/// social caption.
+struct WebSearchResult: Equatable {
+    let url: URL
+    let title: String
+    let snippet: String
+}
+
 /// Uses a configured search API when there is one, and otherwise makes a
 /// best-effort keyless attempt.
 ///
@@ -231,8 +241,15 @@ struct CompositeWebSearchProvider: WebSearchProvider {
     }
 
     func search(query: String) async -> [URL] {
-        if let credentials = WebSearchConfiguration.credentials {
-            let results: [URL]?
+        await searchResults(query: query).map(\.url)
+    }
+
+    /// Detailed results for episode research. The public watch-link interface
+    /// still consumes URLs only, while the episode resolver can corroborate
+    /// dialogue against the indexed title/snippet.
+    func searchResults(query: String) async -> [WebSearchResult] {
+        for credentials in WebSearchConfiguration.credentialCandidates {
+            let results: [WebSearchResult]?
             switch credentials.provider {
             case .brave:
                 results = await braveSearch(query: query, apiKey: credentials.key)
@@ -241,7 +258,9 @@ struct CompositeWebSearchProvider: WebSearchProvider {
             }
             if let results, !results.isEmpty { return results }
         }
-        return await duckDuckGoSearch(query: query) ?? []
+        return (await duckDuckGoSearch(query: query) ?? []).map {
+            WebSearchResult(url: $0, title: "", snippet: "")
+        }
     }
 
     /// SerpApi returns Google's own results, which is exactly the index that
@@ -250,7 +269,7 @@ struct CompositeWebSearchProvider: WebSearchProvider {
     /// Its free plan allows 250 searches a month, so every result is cached by
     /// title/season/episode — an episode's page URL never changes, and without
     /// caching a handful of testers would exhaust the month in an afternoon.
-    private func serpAPISearch(query: String, apiKey: String) async -> [URL]? {
+    private func serpAPISearch(query: String, apiKey: String) async -> [WebSearchResult]? {
         var components = URLComponents(string: "https://serpapi.com/search.json")
         components?.queryItems = [
             URLQueryItem(name: "engine", value: "google"),
@@ -270,14 +289,28 @@ struct CompositeWebSearchProvider: WebSearchProvider {
               let payload = try? JSONDecoder().decode(SerpAPIResponse.self, from: data) else { return nil }
         // Organic results first, then whatever Google surfaced in its own
         // watch-options block, which often names the providers directly.
-        let organic = payload.organicResults?.compactMap { URL(string: $0.link) } ?? []
-        let inline = payload.inlineVideos?.compactMap { $0.link.flatMap(URL.init(string:)) } ?? []
+        let organic = payload.organicResults?.compactMap { result -> WebSearchResult? in
+            guard let url = URL(string: result.link) else { return nil }
+            return WebSearchResult(
+                url: url,
+                title: result.title ?? "",
+                snippet: result.snippet ?? ""
+            )
+        } ?? []
+        let inline = payload.inlineVideos?.compactMap { result -> WebSearchResult? in
+            guard let rawURL = result.link, let url = URL(string: rawURL) else { return nil }
+            return WebSearchResult(
+                url: url,
+                title: result.title ?? "",
+                snippet: result.snippet ?? ""
+            )
+        } ?? []
         return organic + inline
     }
 
     /// Brave's Search API is documented, keyed, and permits this use. It returns
     /// the same provider pages a browser search does.
-    private func braveSearch(query: String, apiKey: String) async -> [URL]? {
+    private func braveSearch(query: String, apiKey: String) async -> [WebSearchResult]? {
         var components = URLComponents(string: "https://api.search.brave.com/res/v1/web/search")
         components?.queryItems = [
             URLQueryItem(name: "q", value: query),
@@ -292,7 +325,14 @@ struct CompositeWebSearchProvider: WebSearchProvider {
               let http = response as? HTTPURLResponse,
               200..<300 ~= http.statusCode,
               let payload = try? JSONDecoder().decode(BraveResponse.self, from: data) else { return nil }
-        return payload.web?.results.compactMap { URL(string: $0.url) } ?? []
+        return payload.web?.results.compactMap { result -> WebSearchResult? in
+            guard let url = URL(string: result.url) else { return nil }
+            return WebSearchResult(
+                url: url,
+                title: result.title ?? "",
+                snippet: result.description ?? ""
+            )
+        } ?? []
     }
 
     private func duckDuckGoSearch(query: String) async -> [URL]? {
@@ -338,15 +378,27 @@ struct CompositeWebSearchProvider: WebSearchProvider {
 
     private struct BraveResponse: Decodable {
         struct Web: Decodable {
-            struct Result: Decodable { let url: String }
+            struct Result: Decodable {
+                let url: String
+                let title: String?
+                let description: String?
+            }
             let results: [Result]
         }
         let web: Web?
     }
 
     private struct SerpAPIResponse: Decodable {
-        struct Organic: Decodable { let link: String }
-        struct InlineVideo: Decodable { let link: String? }
+        struct Organic: Decodable {
+            let link: String
+            let title: String?
+            let snippet: String?
+        }
+        struct InlineVideo: Decodable {
+            let link: String?
+            let title: String?
+            let snippet: String?
+        }
         let organicResults: [Organic]?
         let inlineVideos: [InlineVideo]?
 

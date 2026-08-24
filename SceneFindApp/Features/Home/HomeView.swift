@@ -5,7 +5,6 @@ struct HomeView: View {
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var model: SceneFindModel
     @EnvironmentObject private var subscription: SubscriptionManager
-    @EnvironmentObject private var usage: DailyUsageLimiter
     @State private var selectedVideo: PhotosPickerItem?
     @State private var pastedURL = ""
     @State private var errorMessage: String?
@@ -18,8 +17,7 @@ struct HomeView: View {
                 LazyVStack(alignment: .leading, spacing: 22) {
                     HomeHeader()
                     UsageAllowanceBanner(
-                        isPremium: subscription.hasPremiumAccess,
-                        remaining: usage.remainingFreeUses
+                        state: subscription.accessState
                     ) {
                         router.navigate(to: .paywall)
                     }
@@ -113,29 +111,42 @@ struct HomeView: View {
 }
 
 private struct UsageAllowanceBanner: View {
-    let isPremium: Bool
-    let remaining: Int
+    let state: SubscriptionAccessState
     let action: () -> Void
+
+    private var isAvailable: Bool {
+        if case .online = state { return true }
+        return false
+    }
+
+    private var label: String {
+        switch state {
+        case .loading:
+            "Checking identification allowance…"
+        case .online(let entitlement):
+            "\(entitlement.plan.name) · \(entitlement.remaining) of \(entitlement.allowance) remaining"
+        case .offline:
+            "Allowance unavailable offline"
+        }
+    }
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Image(systemName: isPremium ? "checkmark.seal.fill" : "sparkles")
-                    .foregroundStyle(isPremium ? Color.sceneGreen : Color.sceneGold)
-                Text(isPremium ? "Premium · Unlimited identifications" : "Free · \(remaining) identifications left today")
+                Image(systemName: isAvailable ? "checkmark.seal.fill" : "wifi.slash")
+                    .foregroundStyle(isAvailable ? Color.sceneGreen : Color.sceneGold)
+                Text(label)
                     .font(.subheadline.weight(.semibold))
                 Spacer()
-                if !isPremium {
-                    Image(systemName: "chevron.right")
-                        .font(.caption.bold())
-                        .foregroundStyle(.secondary)
-                }
+                Image(systemName: "chevron.right")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
             }
             .padding(12)
             .background(Color.sceneSurface, in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-        .accessibilityHint(isPremium ? "Shows premium status" : "Opens premium plans")
+        .accessibilityHint("Opens SceneFind plans and allowance details")
     }
 }
 

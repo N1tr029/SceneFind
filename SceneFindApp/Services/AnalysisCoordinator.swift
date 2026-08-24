@@ -33,12 +33,10 @@ final class AnalysisCoordinator: ObservableObject {
     private var tasks: [UUID: Task<Void, Never>] = [:]
     private var assertions: [UUID: UIBackgroundTaskIdentifier] = [:]
     private let model: SceneFindModel
-    private let usage: DailyUsageLimiter
     private let subscription: SubscriptionManager
 
-    init(model: SceneFindModel, usage: DailyUsageLimiter, subscription: SubscriptionManager) {
+    init(model: SceneFindModel, subscription: SubscriptionManager) {
         self.model = model
-        self.usage = usage
         self.subscription = subscription
     }
 
@@ -66,18 +64,6 @@ final class AnalysisCoordinator: ObservableObject {
     }
 
     private func start(requestID: UUID) {
-        guard usage.canStartAnalysis(hasPremium: subscription.hasPremiumAccess) else {
-            runs[requestID] = Run(
-                events: [],
-                startedAt: Date(),
-                state: .failed(
-                    title: "Daily limit reached",
-                    message: "You have used today's free identifications."
-                )
-            )
-            return
-        }
-
         runs[requestID] = Run(events: [], startedAt: Date(), state: .running)
 
         tasks[requestID] = Task { [weak self] in
@@ -147,7 +133,7 @@ final class AnalysisCoordinator: ObservableObject {
             }
             try Task.checkCancellation()
             model.record(result)
-            usage.recordSuccessfulIdentification(hasPremium: subscription.hasPremiumAccess)
+            await subscription.refreshEntitlement()
             finish(requestID: requestID, result: result)
         } catch is CancellationError {
             runs[requestID] = nil

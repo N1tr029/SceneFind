@@ -450,6 +450,235 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         XCTAssertEqual(result.analysisDetails.directMediaAnalyzed, true)
     }
 
+    func testVideoPassWithNoDirectEvidenceRetriesBeforePublishingMatch() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GeminiStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        var geminiRequestCount = 0
+        var videoRequestCount = 0
+
+        GeminiStubURLProtocol.requestHandler = Self.geminiOnly(alsoStubbing: ["cdn.example"]) { request in
+            let url = try XCTUnwrap(request.url)
+            if url.host == "cdn.example" {
+                let response = try XCTUnwrap(HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "video/mp4"]
+                ))
+                return (response, Data(repeating: 7, count: 1_024))
+            }
+
+            geminiRequestCount += 1
+            let body = try XCTUnwrap(Self.bodyData(from: request))
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            let contents = try XCTUnwrap(json["contents"] as? [[String: Any]])
+            let parts = try XCTUnwrap(contents.first?["parts"] as? [[String: Any]])
+            let hasVideo = parts.first?["inline_data"] != nil
+
+            let resultJSON: [String: Any]
+            if !hasVideo {
+                resultJSON = [
+                    "match_found": true,
+                    "needs_video": true,
+                    "detected_dialogue": "",
+                    "visual_evidence": [],
+                    "candidates": [[
+                        "media_title": "Caption Guess",
+                        "media_type": "other",
+                        "release_year": 2026,
+                        "confidence": 0.90,
+                        "watch_providers": []
+                    ]]
+                ]
+            } else {
+                videoRequestCount += 1
+                if videoRequestCount == 1 {
+                    resultJSON = [
+                        "match_found": true,
+                        "needs_video": false,
+                        "detected_dialogue": "",
+                        "visual_evidence": [],
+                        "candidates": [[
+                            "media_title": "Unsupported Caption Guess",
+                            "media_type": "other",
+                            "release_year": 2026,
+                            "confidence": 0.95,
+                            "watch_providers": []
+                        ]]
+                    ]
+                } else {
+                    let config = try XCTUnwrap(json["generationConfig"] as? [String: Any])
+                    let thinking = try XCTUnwrap(config["thinkingConfig"] as? [String: Any])
+                    XCTAssertEqual(thinking["thinkingLevel"] as? String, "medium")
+                    XCTAssertTrue((parts.last?["text"] as? String)?.contains("prior media read") == true)
+                    resultJSON = [
+                        "match_found": true,
+                        "needs_video": false,
+                        "detected_dialogue": "This line came directly from the attached clip.",
+                        "visual_evidence": ["The speaker stands in a mansion hallway."],
+                        "candidates": [[
+                            "media_title": "Verified From Video",
+                            "media_type": "other",
+                            "release_year": 2026,
+                            "confidence": 0.93,
+                            "watch_providers": []
+                        ]]
+                    ]
+                }
+            }
+            let data = try JSONSerialization.data(withJSONObject: resultJSON)
+            return try Self.geminiResponse(text: String(data: data, encoding: .utf8)!)
+        }
+
+        let service = GeminiClipIdentificationService(
+            session: session,
+            apiKeyProvider: { "gemini-test-key" },
+            modelProvider: { "gemini-test" },
+            artworkService: NoArtworkService(),
+            groqAPIKeyProvider: { nil }
+        )
+        let metadata = SocialClipMetadata(
+            title: "generic mansion clip",
+            authorName: "repost account",
+            thumbnailURL: nil,
+            videoURL: URL(string: "https://cdn.example/clip.mp4"),
+            caption: "generic mansion clip from a challenge"
+        )
+        let request = SharedClipRequest(
+            sourceType: .url,
+            sourcePlatform: .tiktok,
+            originalURL: URL(string: "https://www.tiktok.com/t/example")
+        )
+
+        let result = try await service.identify(request: request, metadata: metadata)
+
+        XCTAssertEqual(result.topCandidate.mediaTitle, "Verified From Video")
+        XCTAssertEqual(result.detectedDialogue, "This line came directly from the attached clip.")
+        XCTAssertEqual(result.analysisDetails.visualEvidence, ["The speaker stands in a mansion hallway."])
+        XCTAssertEqual(geminiRequestCount, 3)
+        XCTAssertEqual(videoRequestCount, 2)
+    }
+
+    func testSavedYouTubeResultIsEnrichedFromFirstAndFinalCaptionLines() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GeminiStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let sourceURL = try XCTUnwrap(URL(string: "https://www.youtube.com/watch?v=Af6i6ChAVTw"))
+        let captionURL = try XCTUnwrap(URL(string: "https://captions.example/timedtext?fmt=srv3"))
+
+        GeminiStubURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+            if url.host == "www.youtube.com", url.path == "/watch" {
+                return (response, Data(#"<html>"visitorData":"test-visitor"</html>"#.utf8))
+            }
+            if url.host == "www.youtube.com", url.path == "/youtubei/v1/player" {
+                let payload: [String: Any] = [
+                    "captions": ["playerCaptionsTracklistRenderer": ["captionTracks": [[
+                        "baseUrl": captionURL.absoluteString,
+                        "languageCode": "en"
+                    ]]]]
+                ]
+                return (response, try JSONSerialization.data(withJSONObject: payload))
+            }
+            if url.host == "captions.example" {
+                let payload: [String: Any] = ["events": [
+                    [
+                        "tStartMs": 2_848_767,
+                        "dDurationMs": 3_000,
+                        "segs": [["utf8": "You told us that this video could go on for two years, for four years."]]
+                    ],
+                    [
+                        "tStartMs": 2_984_534,
+                        "dDurationMs": 3_167,
+                        "segs": [["utf8": "Actually, we lose it 'cuz I'm competing now."]]
+                    ]
+                ]]
+                return (response, try JSONSerialization.data(withJSONObject: payload))
+            }
+            throw URLError(.unsupportedURL)
+        }
+
+        let provider = WatchProvider(
+            id: "youtube-exact",
+            name: "YouTube",
+            offer: "Watch",
+            episodeURL: sourceURL,
+            sceneURL: nil,
+            symbolName: "play.rectangle.fill",
+            brandColorHex: "FF0033",
+            destinationLevel: .exactEpisode
+        )
+        let candidate = SceneCandidate(
+            id: UUID(),
+            mediaTitle: "Last To Leave Mansion, Keeps It",
+            mediaType: .other,
+            releaseYear: 2026,
+            seasonNumber: nil,
+            episodeNumber: nil,
+            episodeTitle: nil,
+            sceneTimestampSeconds: nil,
+            clipEndTimestampSeconds: nil,
+            matchedSubtitleText: nil,
+            confidence: 0.98,
+            subtitleScore: 0.9,
+            visualScore: 0.98,
+            metadataScore: 0.8,
+            streamingService: "YouTube",
+            streamingURL: sourceURL,
+            heroImageURL: nil,
+            watchProviders: [provider],
+            timestampAccuracy: nil,
+            timestampBasis: nil
+        )
+        let result = ClipAnalysisResult(
+            id: UUID(),
+            requestID: UUID(),
+            createdAt: Date(),
+            detectedDialogue: """
+                You told us that this video could go on for 2 years or 4 years.
+                A contestant says the challenge could last years.
+                because I'm competing now.
+                """,
+            topCandidate: candidate,
+            alternativeCandidates: [],
+            analysisDetails: AnalysisDetails(
+                sourcePlatform: .tiktok,
+                sourceType: .url,
+                extractedFrameCount: 3,
+                subtitleCandidatesCompared: 0,
+                totalProcessingDuration: 1
+            )
+        )
+        let service = GeminiClipIdentificationService(
+            session: session,
+            apiKeyProvider: { nil },
+            artworkService: NoArtworkService(),
+            groqAPIKeyProvider: { nil }
+        )
+
+        let enrichedValue = await service.enrichVerifiedYouTubeTimestamp(in: result)
+        let enriched = try XCTUnwrap(enrichedValue)
+
+        XCTAssertEqual(
+            try XCTUnwrap(enriched.topCandidate.sceneTimestampSeconds),
+            2_848.767,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(enriched.topCandidate.clipEndTimestampSeconds),
+            2_987.701,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(enriched.topCandidate.timestampAccuracy, .matchedDialogue)
+    }
+
     func testYouTubeShortIsSentAsVideoAndMapsStructuredResult() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [GeminiStubURLProtocol.self]
@@ -648,6 +877,7 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
             return try Self.geminiResponse(text: """
                 {
                   "match_found": "true",
+                  "visual_evidence": ["Two characters stand in an office."],
                   "candidates": [{
                     "media_title": "Example Show",
                     "media_type": "tv",
@@ -1033,9 +1263,15 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         XCTAssertEqual(result.topCandidate.metadataScore, 0.30)
         XCTAssertEqual(result.analysisDetails.visualEvidence?.count, 3)
         XCTAssertEqual(result.analysisDetails.directMediaAnalyzed, true)
-        XCTAssertEqual(
-            result.analysisDetails.episodeVerificationEvidence,
-            "The Flyers, traffic, and unprecedented goal match the Mama Drama guide summary."
+        XCTAssertTrue(
+            result.analysisDetails.episodeVerificationEvidence?.contains(
+                "The Flyers, traffic, and unprecedented goal match the Mama Drama guide summary."
+            ) == true
+        )
+        XCTAssertTrue(
+            result.analysisDetails.episodeVerificationEvidence?.contains(
+                "guide-detail token(s)"
+            ) == true
         )
         XCTAssertEqual(generateCallCount, 1)
         XCTAssertEqual(verificationCallCount, 1)

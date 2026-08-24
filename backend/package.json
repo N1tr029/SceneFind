@@ -4,15 +4,27 @@
   "private": true,
   "description": "SceneFind production proxy — holds provider keys server-side and implements the /v1 analysis contract (see docs/PRODUCTION_BACKEND.md).",
   "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "regression:cross-platform:timestamps": "node --experimental-strip-types scripts/run-cross-platform-75-timestamps.ts",
+    "regression:tiktok:episodes": "node scripts/run-episode-regression.mjs",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "tail": "wrangler tail"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20240605.0",
+    "@cloudflare/workers-types": "^5.20260819.1",
     "typescript": "^5.5.0",
-    "wrangler": "^3.60.0"
+    "vitest": "^4.1.11",
+    "wrangler": "^4.124.0"
+  },
+  "dependencies": {
+    "@apple/app-store-server-library": "^3.1.0",
+    "cbor": "^10.0.12",
+    "node-app-attest": "^1.0.1"
   }
 }

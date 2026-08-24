@@ -26,6 +26,10 @@ enum SceneFindError: LocalizedError {
     case geminiInvalidResponse
     case geminiRequestFailed(String)
     case productionBackendUnavailable
+    case identificationAllowanceExhausted
+    case analysisRateLimited
+    case deviceVerificationFailed
+    case mediaTooLarge
 
     var errorDescription: String? {
         switch self {
@@ -54,6 +58,10 @@ enum SceneFindError: LocalizedError {
         case .geminiInvalidResponse: "Gemini answered, but SceneFind could not finish reading the result. Try again."
         case .geminiRequestFailed(let message): "Gemini request failed: \(message)"
         case .productionBackendUnavailable: "SceneFind's production analysis service is not configured in this build."
+        case .identificationAllowanceExhausted: "You have used all successful identifications in your current allowance period."
+        case .analysisRateLimited: "SceneFind is receiving too many requests from this device. Wait a moment and try again."
+        case .deviceVerificationFailed: "SceneFind could not verify this installation with the secure analysis service."
+        case .mediaTooLarge: "That media file is too large to upload. Choose a clip under 8 MB."
         }
     }
 
@@ -74,6 +82,10 @@ enum SceneFindError: LocalizedError {
         case .geminiInvalidResponse: "Couldn't read the result"
         case .geminiRequestFailed: "Gemini unavailable"
         case .productionBackendUnavailable: "Service unavailable"
+        case .identificationAllowanceExhausted: "Allowance used"
+        case .analysisRateLimited: "Too many requests"
+        case .deviceVerificationFailed: "Device verification failed"
+        case .mediaTooLarge: "Clip too large"
         default: "Analysis failed"
         }
     }

@@ -5,11 +5,12 @@ struct ResultView: View {
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var model: SceneFindModel
     @State private var selectedProvider: WatchProvider?
+    @State private var enrichedResult: ClipAnalysisResult?
 
     let resultID: UUID
 
     private var result: ClipAnalysisResult? {
-        router.resultsByID[resultID] ?? model.result(id: resultID)
+        enrichedResult ?? router.resultsByID[resultID] ?? model.result(id: resultID)
     }
 
     var body: some View {
@@ -50,6 +51,13 @@ struct ResultView: View {
         }
         .navigationTitle("Scene match")
         .navigationBarTitleDisplayMode(.inline)
+        .task(id: resultID) {
+            guard enrichedResult == nil,
+                  let current = router.resultsByID[resultID] ?? model.result(id: resultID),
+                  let updated = await model.enrichTimestampIfNeeded(current) else { return }
+            router.resultsByID[resultID] = updated
+            enrichedResult = updated
+        }
         .sheet(item: $selectedProvider) { provider in
             if let candidate = result?.topCandidate {
                 WatchOptionsSheet(provider: provider, candidate: candidate)

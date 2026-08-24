@@ -54,6 +54,23 @@ enum WebVTTParser {
     /// is not a well-formed cue is skipped rather than failing the whole track —
     /// a partial transcript is still useful evidence.
     static func cues(from text: String) -> [ClipTranscript.Cue] {
+        if let data = text.data(using: .utf8),
+           let payload = try? JSONDecoder().decode(TikTokJSONPayload.self, from: data),
+           !payload.utterances.isEmpty {
+            let jsonCues = payload.utterances.compactMap { utterance -> ClipTranscript.Cue? in
+                let spoken = utterance.text
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !spoken.isEmpty, utterance.endTime >= utterance.startTime else { return nil }
+                return ClipTranscript.Cue(
+                    startSeconds: Double(utterance.startTime) / 1_000,
+                    endSeconds: Double(utterance.endTime) / 1_000,
+                    text: spoken
+                )
+            }
+            if !jsonCues.isEmpty { return jsonCues }
+        }
+
         var cues: [ClipTranscript.Cue] = []
         for block in text.components(separatedBy: "\n\n") {
             let lines = block
@@ -73,6 +90,22 @@ enum WebVTTParser {
             cues.append(ClipTranscript.Cue(startSeconds: start, endSeconds: end, text: spoken))
         }
         return cues
+    }
+
+    private struct TikTokJSONPayload: Decodable {
+        struct Utterance: Decodable {
+            let text: String
+            let startTime: Int
+            let endTime: Int
+
+            enum CodingKeys: String, CodingKey {
+                case text
+                case startTime = "start_time"
+                case endTime = "end_time"
+            }
+        }
+
+        let utterances: [Utterance]
     }
 
     /// Accepts `HH:MM:SS.mmm`, `MM:SS.mmm`, and trailing cue settings such as

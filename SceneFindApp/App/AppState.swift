@@ -244,6 +244,16 @@ final class SceneFindModel: ObservableObject {
         allResults.first { $0.id == id }
     }
 
+    func enrichTimestampIfNeeded(_ result: ClipAnalysisResult) async -> ClipAnalysisResult? {
+        let enricher = GeminiClipIdentificationService()
+        guard let updated = await enricher.enrichVerifiedYouTubeTimestamp(in: result) else {
+            return nil
+        }
+        try? repository.save(updated)
+        reload()
+        return updated
+    }
+
     func isSaved(_ result: ClipAnalysisResult) -> Bool {
         savedResultIDs.contains(result.id)
     }

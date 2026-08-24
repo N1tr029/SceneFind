@@ -4,11 +4,25 @@
 
   ],
   "products" : [
-
+    {
+      "displayPrice" : "19.99",
+      "familyShareable" : false,
+      "internalID" : "C671B591-0255-4D22-B33B-C8830092A087",
+      "localizations" : [
+        {
+          "description" : "10 successful identifications per calendar month",
+          "displayName" : "SceneFind Lifetime",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.kavigandham.scenefind.lifetime",
+      "referenceName" : "SceneFind Lifetime",
+      "type" : "NonConsumable"
+    }
   ],
   "settings" : {
     "_applicationInternalID" : "SceneFind",
-    "_developerTeamID" : "",
+    "_developerTeamID" : "T4VT6R837D",
     "_failTransactionsEnabled" : false,
     "_lastSynchronizedDate" : 0,
     "_locale" : "en_US",
@@ -21,9 +35,13 @@
     {
       "id" : "4B4CF0E8-DC5C-4B62-A6A8-5204CE15AEF9",
       "localizations" : [
-
+        {
+          "description" : "Monthly SceneFind identification allowances",
+          "displayName" : "SceneFind Plans",
+          "locale" : "en_US"
+        }
       ],
-      "name" : "SceneFind Premium",
+      "name" : "SceneFind Plans",
       "subscriptions" : [
         {
           "adHocOffers" : [
@@ -32,21 +50,21 @@
           "codeOffers" : [
 
           ],
-          "displayPrice" : "4.99",
+          "displayPrice" : "0.99",
           "familyShareable" : false,
-          "groupNumber" : 1,
+          "groupNumber" : 2,
           "internalID" : "EEC2F8E5-97BD-4F55-B2D6-F23F55F9BA9A",
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Unlimited clip identifications",
-              "displayName" : "Premium Monthly",
+              "description" : "10 successful identifications per billing period",
+              "displayName" : "SceneFind Starter",
               "locale" : "en_US"
             }
           ],
-          "productID" : "com.kavigandham.scenefind.premium.monthly",
+          "productID" : "com.kavigandham.scenefind.starter.monthly",
           "recurringSubscriptionPeriod" : "P1M",
-          "referenceName" : "Premium Monthly",
+          "referenceName" : "SceneFind Starter",
           "subscriptionGroupID" : "4B4CF0E8-DC5C-4B62-A6A8-5204CE15AEF9"
         },
         {
@@ -56,21 +74,21 @@
           "codeOffers" : [
 
           ],
-          "displayPrice" : "39.99",
+          "displayPrice" : "9.99",
           "familyShareable" : false,
-          "groupNumber" : 2,
+          "groupNumber" : 1,
           "internalID" : "677227EE-E378-4F82-B046-D49314584B7E",
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Unlimited clip identifications with annual billing",
-              "displayName" : "Premium Yearly",
+              "description" : "50 successful identifications per billing period",
+              "displayName" : "SceneFind Pro",
               "locale" : "en_US"
             }
           ],
-          "productID" : "com.kavigandham.scenefind.premium.yearly",
-          "recurringSubscriptionPeriod" : "P1Y",
-          "referenceName" : "Premium Yearly",
+          "productID" : "com.kavigandham.scenefind.pro.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "SceneFind Pro",
           "subscriptionGroupID" : "4B4CF0E8-DC5C-4B62-A6A8-5204CE15AEF9"
         }
       ]

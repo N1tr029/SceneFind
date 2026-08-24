@@ -1,6 +1,6 @@
 name = "scenefind-backend"
 main = "src/index.ts"
-compatibility_date = "2024-06-01"
+compatibility_date = "2026-08-19"
 compatibility_flags = ["nodejs_compat"]
 
 # ---------------------------------------------------------------------------
@@ -18,9 +18,21 @@ compatibility_flags = ["nodejs_compat"]
 name = "ANALYSIS"
 class_name = "AnalysisSession"
 
+[[durable_objects.bindings]]
+name = "APP_ATTEST"
+class_name = "AppAttestationRegistry"
+
+[[durable_objects.bindings]]
+name = "ENTITLEMENTS"
+class_name = "EntitlementLedger"
+
 [[migrations]]
 tag = "v1"
 new_classes = ["AnalysisSession"]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["AppAttestationRegistry", "EntitlementLedger"]
 
 # Rate-limiting counters and short-lived install identities.
 [[kv_namespaces]]
@@ -39,6 +51,11 @@ id = "REPLACE_WITH_KV_NAMESPACE_ID"   # wrangler kv:namespace create WATCH_LINKS
 # Non-secret config. Model names can be overridden per environment.
 # 3.5-flash answered the same prompt in ~9.3s where 3.6-flash took ~1.7s.
 GEMINI_MODEL = "gemini-3.6-flash"
+GEMINI_FALLBACK_MODEL = "gemini-3.1-flash-lite"
 GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_TRANSCRIPTION_MODEL = "whisper-large-v3-turbo"
 # Set to "1" to allow unauthenticated calls during local development only.
 ALLOW_INSECURE_DEV_AUTH = "0"
+APP_ATTEST_ALLOW_DEVELOPMENT = "0"
+APPLE_ENABLE_ONLINE_CHECKS = "1"
+APPLE_BUNDLE_ID = "com.kavigandham.scenefind"

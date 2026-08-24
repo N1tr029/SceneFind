@@ -1,43 +1,42 @@
 import Foundation
 import StoreKit
-#if SCENEFIND_TESTFLIGHT
-import CryptoKit
-#endif
 
 enum SubscriptionProductIDs {
-    static let monthly = "com.kavigandham.scenefind.premium.monthly"
-    static let yearly = "com.kavigandham.scenefind.premium.yearly"
-    static let all = [monthly, yearly]
+    static let starter = "com.kavigandham.scenefind.starter.monthly"
+    static let pro = "com.kavigandham.scenefind.pro.monthly"
+    static let lifetime = "com.kavigandham.scenefind.lifetime"
+    static let all = [starter, pro, lifetime]
+
+    static func order(_ productID: String) -> Int {
+        all.firstIndex(of: productID) ?? .max
+    }
 }
 
 enum SubscriptionAccessState: Equatable {
     case loading
-    case free
-    case subscribed
-    case gracePeriod
-    case billingRetry
-    case expired
-    case revoked
-    case offline(lastKnownPremium: Bool)
+    case online(BackendEntitlementState)
+    case offline(lastKnown: BackendEntitlementState?)
 
-    var hasPremiumAccess: Bool {
+    var entitlement: BackendEntitlementState? {
         switch self {
-        case .subscribed, .gracePeriod, .billingRetry: true
-        case .offline(let lastKnownPremium): lastKnownPremium
-        default: false
+        case .online(let entitlement), .offline(let entitlement?): entitlement
+        case .loading, .offline(nil): nil
         }
+    }
+
+    var canAnalyze: Bool {
+        if case .online(let entitlement) = self { return entitlement.canAnalyze }
+        return false
     }
 
     var label: String {
         switch self {
-        case .loading: "Checking access"
-        case .free: "Free plan"
-        case .subscribed: "Premium active"
-        case .gracePeriod: "Premium grace period"
-        case .billingRetry: "Premium billing retry"
-        case .expired: "Premium expired"
-        case .revoked: "Premium revoked"
-        case .offline: "Entitlement unavailable offline"
+        case .loading:
+            "Checking allowance"
+        case .online(let entitlement):
+            "\(entitlement.plan.name) · \(entitlement.status.label)"
+        case .offline:
+            "Allowance unavailable offline"
         }
     }
 }
@@ -48,23 +47,12 @@ final class SubscriptionManager: ObservableObject {
     @Published private(set) var accessState: SubscriptionAccessState = .loading
     @Published private(set) var purchaseInProgress = false
     @Published var lastErrorMessage: String?
-    #if SCENEFIND_TESTFLIGHT
-    @Published private(set) var testerAccessUnlocked: Bool
-    #endif
 
-    private let defaults: UserDefaults
+    private let client: SceneFindBackendClient
     private var updatesTask: Task<Void, Never>?
-    private static let lastKnownPremiumKey = "subscription.lastKnownPremium.v1"
-    #if SCENEFIND_TESTFLIGHT
-    private static let testerAccessKey = "subscription.testFlightAccess.v1"
-    private static let testerCodeHash = "a9e48f0c4032531c1041e8160291acaa78ca4967c905ebae0850a058ac0c5bc7"
-    #endif
 
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        #if SCENEFIND_TESTFLIGHT
-        testerAccessUnlocked = defaults.bool(forKey: Self.testerAccessKey)
-        #endif
+    init(client: SceneFindBackendClient = .shared) {
+        self.client = client
         updatesTask = observeTransactions()
         Task { await refresh() }
     }
@@ -73,44 +61,38 @@ final class SubscriptionManager: ObservableObject {
         updatesTask?.cancel()
     }
 
-    var hasPremiumAccess: Bool {
-        #if SCENEFIND_TESTFLIGHT
-        accessState.hasPremiumAccess || testerAccessUnlocked
-        #else
-        accessState.hasPremiumAccess
-        #endif
-    }
+    var entitlement: BackendEntitlementState? { accessState.entitlement }
+    var canStartAnalysis: Bool { accessState.canAnalyze }
+    var accessLabel: String { accessState.label }
 
-    var accessLabel: String {
-        #if SCENEFIND_TESTFLIGHT
-        if testerAccessUnlocked { return "TestFlight full access" }
-        #endif
-        return accessState.label
+    var allowanceLabel: String {
+        guard let entitlement else { return "Unavailable" }
+        return "\(entitlement.remaining) of \(entitlement.allowance) remaining"
     }
-
-    #if SCENEFIND_TESTFLIGHT
-    @discardableResult
-    func unlockTesterAccess(code: String) -> Bool {
-        let normalized = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        let digest = SHA256.hash(data: Data(normalized.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
-        guard digest == Self.testerCodeHash else { return false }
-        testerAccessUnlocked = true
-        defaults.set(true, forKey: Self.testerAccessKey)
-        return true
-    }
-    #endif
 
     func refresh() async {
+        async let loadedProducts = loadProducts()
+        async let syncedEntitlement = syncTransactionsAndFetchEntitlement()
+        products = await loadedProducts
         do {
-            products = try await Product.products(for: SubscriptionProductIDs.all)
-                .sorted { $0.price < $1.price }
-            accessState = try await currentAccessState()
-            defaults.set(accessState.hasPremiumAccess, forKey: Self.lastKnownPremiumKey)
+            accessState = .online(try await syncedEntitlement)
             lastErrorMessage = nil
+        } catch is CancellationError {
+            return
         } catch {
-            accessState = .offline(lastKnownPremium: defaults.bool(forKey: Self.lastKnownPremiumKey))
+            accessState = .offline(lastKnown: accessState.entitlement)
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
+    func refreshEntitlement() async {
+        do {
+            accessState = .online(try await client.entitlement())
+            lastErrorMessage = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            accessState = .offline(lastKnown: accessState.entitlement)
             lastErrorMessage = error.localizedDescription
         }
     }
@@ -119,11 +101,18 @@ final class SubscriptionManager: ObservableObject {
         purchaseInProgress = true
         defer { purchaseInProgress = false }
         do {
-            switch try await product.purchase() {
+            let result = try await product.purchase(options: [
+                .appAccountToken(client.installationUUID)
+            ])
+            switch result {
             case .success(let verification):
                 let transaction = try verified(verification)
+                let serverState = try await client.submit(
+                    signedTransaction: verification.jwsRepresentation
+                )
+                accessState = .online(serverState)
                 await transaction.finish()
-                await refresh()
+                lastErrorMessage = nil
             case .pending:
                 lastErrorMessage = "The purchase is awaiting approval."
             case .userCancelled:
@@ -133,6 +122,7 @@ final class SubscriptionManager: ObservableObject {
             }
         } catch {
             lastErrorMessage = error.localizedDescription
+            accessState = .offline(lastKnown: accessState.entitlement)
         }
     }
 
@@ -141,48 +131,50 @@ final class SubscriptionManager: ObservableObject {
         defer { purchaseInProgress = false }
         do {
             try await AppStore.sync()
-            await refresh()
+            accessState = .online(try await syncTransactionsAndFetchEntitlement())
+            lastErrorMessage = nil
         } catch {
             lastErrorMessage = error.localizedDescription
+            accessState = .offline(lastKnown: accessState.entitlement)
         }
     }
 
-    private func currentAccessState() async throws -> SubscriptionAccessState {
-        var foundEntitlement = false
-        for await entitlement in Transaction.currentEntitlements {
-            let transaction = try verified(entitlement)
-            guard SubscriptionProductIDs.all.contains(transaction.productID),
-                  transaction.revocationDate == nil,
-                  transaction.expirationDate.map({ $0 > Date() }) ?? true else { continue }
-            foundEntitlement = true
+    private func loadProducts() async -> [Product] {
+        do {
+            return try await Product.products(for: SubscriptionProductIDs.all)
+                .sorted { SubscriptionProductIDs.order($0.id) < SubscriptionProductIDs.order($1.id) }
+        } catch {
+            return []
         }
+    }
 
-        var bestState: SubscriptionAccessState = foundEntitlement ? .subscribed : .free
-        for product in products where SubscriptionProductIDs.all.contains(product.id) {
-            guard let statuses = try await product.subscription?.status else { continue }
-            for status in statuses {
-                switch status.state {
-                case .subscribed: bestState = .subscribed
-                case .inGracePeriod where bestState != .subscribed: bestState = .gracePeriod
-                case .inBillingRetryPeriod where ![.subscribed, .gracePeriod].contains(bestState):
-                    bestState = .billingRetry
-                case .expired where bestState == .free: bestState = .expired
-                case .revoked where bestState == .free: bestState = .revoked
-                default: break
-                }
-            }
+    private func syncTransactionsAndFetchEntitlement() async throws -> BackendEntitlementState {
+        var latest: BackendEntitlementState?
+        for await verification in Transaction.currentEntitlements {
+            let transaction = try verified(verification)
+            latest = try await client.submit(signedTransaction: verification.jwsRepresentation)
+            await transaction.finish()
         }
-        return bestState
+        if let latest { return latest }
+        return try await client.entitlement()
     }
 
     private func observeTransactions() -> Task<Void, Never> {
         Task { [weak self] in
-            for await update in Transaction.updates {
+            for await verification in Transaction.updates {
                 guard let self else { return }
-                if case .verified(let transaction) = update {
+                do {
+                    let transaction = try self.verified(verification)
+                    let serverState = try await self.client.submit(
+                        signedTransaction: verification.jwsRepresentation
+                    )
+                    self.accessState = .online(serverState)
+                    self.lastErrorMessage = nil
                     await transaction.finish()
+                } catch {
+                    self.lastErrorMessage = error.localizedDescription
+                    self.accessState = .offline(lastKnown: self.accessState.entitlement)
                 }
-                await self.refresh()
             }
         }
     }

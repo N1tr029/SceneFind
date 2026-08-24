@@ -44,6 +44,20 @@ enum WebSearchConfiguration {
         return (key, provider)
     }
 
+    /// Search credentials in preference order. A tester may have an expired or
+    /// malformed key left in Keychain; that should not suppress the working
+    /// prototype credential bundled with a debug build.
+    static var credentialCandidates: [(key: String, provider: Provider)] {
+        var seen = Set<String>()
+        return [apiKey, bundledAPIKey].compactMap { rawValue in
+            guard let key = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !key.isEmpty,
+                  seen.insert(key).inserted,
+                  let provider = provider(for: key) else { return nil }
+            return (key, provider)
+        }
+    }
+
     private static let service = "com.example.SceneFind.websearch"
     private static let account = "episode-link-search-api-key"
     private static let debugAPIKey = "debugWebSearchAPIKey.v1"

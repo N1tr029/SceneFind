@@ -3,7 +3,6 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var model: SceneFindModel
     @EnvironmentObject private var subscription: SubscriptionManager
-    @EnvironmentObject private var usage: DailyUsageLimiter
     @State private var apiKey = ""
     @State private var modelName = GeminiConfiguration.defaultModel
     @State private var keyStatus: KeyStatus = .notConfigured
@@ -14,10 +13,6 @@ struct SettingsView: View {
     @State private var searchAPIKey = ""
     @State private var searchKeyStatus: KeyStatus = .notConfigured
     @State private var isSearchAPIKeyVisible = false
-    #if SCENEFIND_TESTFLIGHT
-    @State private var testerCode = ""
-    @State private var testerCodeRejected = false
-    #endif
 
     private enum KeyStatus: Equatable {
         case notConfigured
@@ -57,6 +52,7 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            #if DEBUG
             Section {
                 EngineStatusHeader(
                     label: keyStatus.label,
@@ -64,6 +60,7 @@ struct SettingsView: View {
                     tint: keyStatus.color
                 )
             }
+            #endif
 
             Section("Plan") {
                 NavigationLink {
@@ -73,43 +70,31 @@ struct SettingsView: View {
                         Text(subscription.accessLabel)
                             .foregroundStyle(.secondary)
                     } label: {
-                        Label("SceneFind Premium", systemImage: "sparkles")
+                        Label("SceneFind plans", systemImage: "sparkles")
                     }
                 }
-                if !subscription.hasPremiumAccess {
-                    LabeledContent(
-                        "Free uses remaining",
-                        value: "\(usage.remainingFreeUses) of \(DailyUsageLimiter.freeSuccessLimit)"
+                LabeledContent("Allowance", value: subscription.allowanceLabel)
+                if let entitlement = subscription.entitlement {
+                    LabeledContent("Status", value: entitlement.status.label)
+                    if let periodEnd = entitlement.periodEnd {
+                        LabeledContent(
+                            entitlement.plan == .lifetime ? "Monthly reset" : "Billing period ends",
+                            value: periodEnd.formatted(date: .abbreviated, time: .omitted)
+                        )
+                    }
+                }
+                if case .offline = subscription.accessState {
+                    Label(
+                        "Connect to verify your allowance before starting an analysis.",
+                        systemImage: "wifi.slash"
                     )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
                 Button("Restore purchases") {
                     Task { await subscription.restorePurchases() }
                 }
                 .disabled(subscription.purchaseInProgress)
-
-                #if SCENEFIND_TESTFLIGHT
-                if subscription.testerAccessUnlocked {
-                    Label("Tester access unlocked", systemImage: "checkmark.seal.fill")
-                        .foregroundStyle(.green)
-                } else {
-                    SecureField("TestFlight access code", text: $testerCode)
-                        .textInputAutocapitalization(.characters)
-                        .autocorrectionDisabled()
-                        .privacySensitive()
-                    Button {
-                        testerCodeRejected = !subscription.unlockTesterAccess(code: testerCode)
-                        if !testerCodeRejected { testerCode = "" }
-                    } label: {
-                        Label("Unlock full access", systemImage: "lock.open.fill")
-                    }
-                    .disabled(testerCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    if testerCodeRejected {
-                        Label("That access code is not valid.", systemImage: "exclamationmark.circle")
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-                }
-                #endif
             }
 
             Section("Streaming") {
@@ -125,7 +110,7 @@ struct SettingsView: View {
                 }
             }
 
-            #if DEBUG || SCENEFIND_TESTFLIGHT
+            #if DEBUG
             Section("Recognition") {
                 DisclosureGroup("API settings") {
                     VStack(alignment: .leading, spacing: 12) {
@@ -301,8 +286,14 @@ struct SettingsView: View {
             Section("Privacy") {
                 LabeledContent("Social accounts", value: "Not accessed")
                 LabeledContent("Streaming accounts", value: "Not accessed")
-                Text("Public clip data is sent to Gemini for identification. Transcripts and episode evidence may be sent to Groq for verification. Service access selections stay on this device.")
+                Text("Selected clip evidence is sent through SceneFind's secure service for identification and episode verification. Temporary media is discarded after analysis. Service access selections stay on this device.")
                     .font(.footnote)
+            }
+
+            Section("Legal & support") {
+                configuredLink("Privacy Policy", systemImage: "hand.raised.fill", key: "SCENEFIND_PRIVACY_URL")
+                configuredLink("Terms of Use", systemImage: "doc.text.fill", key: "SCENEFIND_TERMS_URL")
+                configuredLink("Support", systemImage: "questionmark.circle.fill", key: "SCENEFIND_SUPPORT_URL")
             }
 
             Section("Data") {
@@ -318,7 +309,9 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .background(CinematicBackground())
         .tint(Color.sceneCyan)
+        .task { await subscription.refresh() }
         .onAppear {
+            #if DEBUG
             loadSearchSettings()
             modelName = GeminiConfiguration.model
             switch GeminiConfiguration.storageLocation {
@@ -336,6 +329,7 @@ struct SettingsView: View {
                 keyStatus = .notConfigured
             }
             loadGroqSettings()
+            #endif
         }
     }
 
@@ -348,6 +342,25 @@ struct SettingsView: View {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
         return "\(version) (\(build))"
+    }
+
+    @ViewBuilder
+    private func configuredLink(_ title: String, systemImage: String, key: String) -> some View {
+        if let value = Bundle.main.object(forInfoDictionaryKey: key) as? String,
+           !value.contains("$("),
+           let url = URL(string: value),
+           url.scheme == "https" {
+            Link(destination: url) {
+                Label(title, systemImage: systemImage)
+            }
+        } else {
+            LabeledContent {
+                Text("Not configured")
+                    .foregroundStyle(.secondary)
+            } label: {
+                Label(title, systemImage: systemImage)
+            }
+        }
     }
 
     private func saveGeminiSettings() {

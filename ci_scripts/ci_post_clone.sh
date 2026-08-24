@@ -1,48 +1,15 @@
 #!/bin/sh
-# Xcode Cloud runs this automatically after cloning the repo, before the build.
+# Xcode Cloud runs this automatically after cloning the repository.
 #
-# It recreates SceneFindApp/Resources/PrototypeSecrets.plist from secret
-# environment variables so provider keys never live in git. Set these as
-# SECRET environment variables in the Xcode Cloud workflow:
-#   GROQ_API_KEY         -> written as <GroqAPIKey>
-#   GEMINI_API_KEY       -> written as <GeminiAPIKey>
-#   SEARCH_API_KEY       -> written as <SearchAPIKey>  (optional; makes the
-#                           "open in <service>" episode links dependable. Accepts
-#                           a SerpApi key (64 hex chars) or a Brave Search key
-#                           (BSA...); the app tells them apart by shape.)
-#
-# NOTE: This embeds provider keys directly in the app binary. It is intended
-# for INTERNAL TestFlight testing only. Before public App Store release, move
-# to the backend proxy (see docs/PRODUCTION_BACKEND.md) and ship a keyless
-# build (Release config strips secrets and hard-fails if any are present).
+# Production and TestFlight builds use the SceneFind backend. Provider keys
+# must be configured only as backend secrets and are never materialized in the
+# iOS checkout or copied into an app bundle.
 
-set -e
+set -eu
 
-# Xcode Cloud checks out into $CI_PRIMARY_REPOSITORY_PATH; fall back to the
-# repo root relative to this script when run locally.
-REPO_ROOT="${CI_PRIMARY_REPOSITORY_PATH:-$(cd "$(dirname "$0")/.." && pwd)}"
-SECRETS_FILE="${REPO_ROOT}/SceneFindApp/Resources/PrototypeSecrets.plist"
-
-if [ -z "${GROQ_API_KEY}" ] && [ -z "${GEMINI_API_KEY}" ] && [ -z "${SEARCH_API_KEY}" ]; then
-  echo "ci_post_clone: no GROQ_API_KEY/GEMINI_API_KEY env vars set; leaving PrototypeSecrets.plist untouched."
-  exit 0
+if [ -n "${GROQ_API_KEY:-}" ] || [ -n "${GEMINI_API_KEY:-}" ] || [ -n "${SEARCH_API_KEY:-}" ]; then
+  echo "error: Provider secrets must not be configured in the iOS Xcode Cloud workflow. Configure them on the backend."
+  exit 1
 fi
 
-mkdir -p "$(dirname "${SECRETS_FILE}")"
-
-cat > "${SECRETS_FILE}" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>GroqAPIKey</key>
-	<string>${GROQ_API_KEY}</string>
-	<key>GeminiAPIKey</key>
-	<string>${GEMINI_API_KEY}</string>
-	<key>SearchAPIKey</key>
-	<string>${SEARCH_API_KEY}</string>
-</dict>
-</plist>
-PLIST
-
-echo "ci_post_clone: wrote PrototypeSecrets.plist (GroqAPIKey set: $([ -n "${GROQ_API_KEY}" ] && echo yes || echo no), GeminiAPIKey set: $([ -n "${GEMINI_API_KEY}" ] && echo yes || echo no), SearchAPIKey set: $([ -n "${SEARCH_API_KEY}" ] && echo yes || echo no))."
+echo "ci_post_clone: keyless iOS build confirmed."
