@@ -251,6 +251,81 @@ final class GeminiClipIdentificationServiceTests: XCTestCase {
         XCTAssertEqual(result.analysisDetails.directMediaAnalyzed, true)
     }
 
+    func testInstagramReelVideoIsDownloadedAndAnalyzedWithFullConfidence() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GeminiStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        var downloadedReelVideo = false
+        var generateCallCount = 0
+
+        GeminiStubURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            if url.host == "www.instagram.com" {
+                // A crawler-visible Reel page exposes its real video via og:video.
+                let html = """
+                    <html><head>
+                    <meta property="og:video" content="https://cdn.ig.example/reel.mp4">
+                    <meta property="og:image" content="https://cdn.ig.example/cover.jpg">
+                    </head></html>
+                    """
+                let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+                return (response, Data(html.utf8))
+            }
+            if url.host == "cdn.ig.example", url.path == "/reel.mp4" {
+                downloadedReelVideo = true
+                let response = try XCTUnwrap(HTTPURLResponse(
+                    url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "video/mp4"]
+                ))
+                // Small enough to attach inline, so no upload round-trip is needed.
+                return (response, Data(repeating: 3, count: 4_096))
+            }
+            if url.host?.contains("generativelanguage") == true {
+                generateCallCount += 1
+            }
+            let resultJSON: [String: Any] = [
+                "match_found": true,
+                "detected_dialogue": "You come at the king, you best not miss.",
+                "candidates": [[
+                    "media_title": "The Wire",
+                    "media_type": "tv",
+                    "release_year": 2002,
+                    "season_number": 1,
+                    "episode_number": 8,
+                    "confidence": 0.95,
+                    "dialogue_score": 0.93,
+                    "visual_score": 0.88,
+                    "watch_providers": []
+                ]]
+            ]
+            let data = try JSONSerialization.data(withJSONObject: resultJSON)
+            return try Self.geminiResponse(text: String(data: data, encoding: .utf8)!)
+        }
+
+        let service = GeminiClipIdentificationService(
+            session: session,
+            apiKeyProvider: { "gemini-test-key" },
+            modelProvider: { "gemini-test" },
+            artworkService: NoArtworkService(),
+            groqAPIKeyProvider: { nil }
+        )
+        let request = SharedClipRequest(
+            sourceType: .url,
+            sourcePlatform: .instagram,
+            originalURL: URL(string: "https://www.instagram.com/reel/CxAbCdEf123/")
+        )
+
+        let result = try await service.identify(request: request, metadata: nil)
+
+        // The Reel's own video was fetched and analyzed, so a genuine full-video
+        // match survives at full confidence instead of being refused or capped.
+        XCTAssertTrue(downloadedReelVideo)
+        XCTAssertEqual(generateCallCount, 1)
+        XCTAssertEqual(result.topCandidate.mediaTitle, "The Wire")
+        XCTAssertEqual(result.topCandidate.confidence, 0.95, accuracy: 0.001)
+        XCTAssertEqual(result.analysisDetails.directMediaAnalyzed, true)
+        XCTAssertGreaterThan(result.analysisDetails.extractedFrameCount, 0)
+    }
+
     func testRetiredModelIsMigrated() {
         XCTAssertEqual(
             GeminiConfiguration.supportedModel("gemini-2.5-flash-lite"),
