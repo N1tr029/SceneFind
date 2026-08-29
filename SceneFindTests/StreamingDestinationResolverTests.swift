@@ -197,6 +197,73 @@ final class StreamingDestinationResolverTests: XCTestCase {
         XCTAssertEqual(destination?.primaryURL, netflix.episodeURL)
     }
 
+    func testEpisodeLinkFinderTriesMoreThanTheFirstNetflixResult() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StreamingStubURLProtocol.self]
+        StreamingStubURLProtocol.requestHandler = { request in
+            let correct = request.url?.path.hasSuffix("81012998") == true
+            let title = correct
+                ? "The First Time - All American (Season 8, Episode 1) | Netflix"
+                : "Random Comedy Special | Netflix"
+            let html = Data("<meta property=\"og:title\" content=\"\(title)\">".utf8)
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "text/html"]
+            ))
+            return (response, html)
+        }
+        let finder = EpisodeWatchLinkFinder(
+            session: URLSession(configuration: configuration),
+            searchProvider: FixedStreamingSearchProvider(urls: [
+                URL(string: "https://www.netflix.com/watch/111111111111")!,
+                URL(string: "https://www.netflix.com/watch/81012998")!
+            ])
+        )
+
+        let links = await finder.verifiedLinks(
+            for: candidate(
+                title: "All American",
+                season: 8,
+                episode: 1,
+                episodeTitle: "The First Time"
+            )
+        )
+
+        XCTAssertEqual(links.first?.url.absoluteString, "https://www.netflix.com/watch/81012998")
+    }
+
+    func testBackendVerifiedNetflixEpisodeDoesNotDowngradeWhenLoginWallCannotBeScraped() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StreamingStubURLProtocol.self]
+        let url = try XCTUnwrap(URL(string: "https://www.netflix.com/watch/81012998"))
+        let netflix = WatchProvider(
+            id: "netflix",
+            name: "Netflix",
+            offer: "Verified episode",
+            episodeURL: url,
+            sceneURL: nil,
+            symbolName: "play.tv.fill",
+            brandColorHex: "E50914",
+            destinationLevel: .exactEpisode,
+            destinationDiagnostic: "Backend-verified exact provider page for this episode."
+        )
+
+        // No stub handler is installed. Any second page fetch would fail the
+        // test, just as Netflix's logged-out shell failed on a real device.
+        let destination = await StreamingDestinationResolver(
+            session: URLSession(configuration: configuration)
+        ).destination(
+            for: netflix,
+            candidate: candidate(title: "All American", season: 8, episode: 1, episodeTitle: "The First Time")
+        )
+
+        XCTAssertEqual(destination?.level, .exactEpisode)
+        XCTAssertEqual(destination?.primaryURL, url)
+        XCTAssertNotEqual(destination?.primaryURL.path, "/search")
+    }
+
     func testNetflixDestinationRejectsUnrelatedWatchID() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StreamingStubURLProtocol.self]
@@ -381,4 +448,10 @@ private final class StreamingStubURLProtocol: URLProtocol {
     }
 
     override func stopLoading() {}
+}
+
+private struct FixedStreamingSearchProvider: WebSearchProvider {
+    let urls: [URL]
+
+    func search(query: String) async -> [URL] { urls }
 }

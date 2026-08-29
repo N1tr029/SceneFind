@@ -654,7 +654,9 @@ final class GeminiClipIdentificationService {
         let phrases = SceneTimestampResolver.searchablePhrases(
             transcript: metadata?.transcript,
             detectedDialogue: detectedDialogue,
-            limit: 3
+            // Reserve both boundary-adjacent phrases: social clips frequently
+            // start or end on a fragment that is not independently searchable.
+            limit: 5
         )
         var webSupports = await episodeSearchSupports(
             showTitle: candidate.mediaTitle,
@@ -773,7 +775,7 @@ final class GeminiClipIdentificationService {
         guard !phrases.isEmpty else { return [] }
         let provider = CompositeWebSearchProvider(session: session)
         let batches = await withTaskGroup(of: [EpisodeSearchSupport].self) { group in
-            for phrase in phrases.prefix(3) {
+            for phrase in phrases.prefix(5) {
                 group.addTask {
                     let safePhrase = phrase.replacingOccurrences(of: "\"", with: "")
                     let query = "\"\(safePhrase)\" \"\(showTitle)\" episode transcript"
@@ -854,11 +856,14 @@ final class GeminiClipIdentificationService {
             let searchable = Self.normalizedEvidenceText("\(result.title) \(result.snippet) \(page)")
             let pageTokens = Self.meaningfulTokens(in: searchable)
             for phrase in phrases {
+                let normalizedPhrase = Self.normalizedEvidenceText(phrase)
+                let phraseWordCount = normalizedPhrase.split(separator: " ").count
                 let phraseTokens = Self.meaningfulTokens(in: phrase)
-                guard phraseTokens.count >= 4 else { continue }
+                guard phraseWordCount >= 6, phraseTokens.count >= 3 else { continue }
                 let overlap = phraseTokens.intersection(pageTokens).count
-                let matched = searchable.contains(Self.normalizedEvidenceText(phrase))
-                    || Double(overlap) / Double(phraseTokens.count) >= 0.75
+                let exact = searchable.contains(normalizedPhrase)
+                let matched = exact || (phraseTokens.count >= 4
+                    && Double(overlap) / Double(phraseTokens.count) >= 0.75)
                 guard matched else { continue }
                 supports.append(EpisodeSearchSupport(
                     season: episode.season,
@@ -925,8 +930,9 @@ final class GeminiClipIdentificationService {
     ) -> [EpisodeSearchSupport] {
         let normalizedShow = normalizedEvidenceText(showTitle)
         let normalizedAnchor = normalizedEvidenceText(anchor)
+        let anchorWordCount = normalizedAnchor.split(separator: " ").count
         let anchorTokens = meaningfulTokens(in: anchor)
-        guard !normalizedShow.isEmpty, anchorTokens.count >= 4 else { return [] }
+        guard !normalizedShow.isEmpty, anchorWordCount >= 6, anchorTokens.count >= 3 else { return [] }
 
         return results.compactMap { result in
             let decodedURL = result.url.absoluteString.removingPercentEncoding
@@ -937,8 +943,9 @@ final class GeminiClipIdentificationService {
 
             let searchableTokens = meaningfulTokens(in: searchable)
             let overlap = anchorTokens.intersection(searchableTokens).count
-            let anchorMatched = normalizedSearchable.contains(normalizedAnchor)
-                || Double(overlap) / Double(anchorTokens.count) >= 0.70
+            let exact = normalizedSearchable.contains(normalizedAnchor)
+            let anchorMatched = exact || (anchorTokens.count >= 4
+                && Double(overlap) / Double(anchorTokens.count) >= 0.70)
             guard anchorMatched else { return nil }
 
             let numbered = episodeHints(in: searchable)
@@ -995,7 +1002,11 @@ final class GeminiClipIdentificationService {
         guide: [EpisodeGuideEntry]
     ) -> GeminiEpisodeVerificationPayload? {
         let groups = Dictionary(grouping: supports, by: { EpisodeHint(season: $0.season, episode: $0.episode) })
-        let ranked = groups.sorted { left, right in
+        let eligible = groups.filter { coordinate, values in
+            Set(values.map { normalizedEvidenceText($0.anchor) }).count >= 2
+                || captionHints.contains(coordinate)
+        }
+        let ranked = eligible.sorted { left, right in
             let leftAnchors = Set(left.value.map { normalizedEvidenceText($0.anchor) }).count
             let rightAnchors = Set(right.value.map { normalizedEvidenceText($0.anchor) }).count
             if leftAnchors != rightAnchors { return leftAnchors > rightAnchors }
@@ -1003,11 +1014,7 @@ final class GeminiClipIdentificationService {
         }
         guard let winner = ranked.first else { return nil }
         let distinctAnchors = Set(winner.value.map { normalizedEvidenceText($0.anchor) }).count
-        let independentlyStrong = distinctAnchors >= 2
-            || (distinctAnchors >= 1 && captionHints.contains(winner.key))
-            || winner.value.contains(where: \.episodeTitleMentioned)
-        guard independentlyStrong,
-              let episode = guide.first(where: {
+        guard let episode = guide.first(where: {
                   $0.season == winner.key.season && $0.number == winner.key.episode
               }) else { return nil }
         let sources = winner.value.prefix(3).map { $0.sourceURL.absoluteString }.joined(separator: ", ")

@@ -134,6 +134,69 @@ describe("resolveEpisodeEvidence", () => {
     expect(result.evidence).toContain("independent");
   });
 
+  it("does not let one conflicting indexed result override the caption candidate", async () => {
+    const anchor = "Can you please hand me that folder from the desk";
+    const result = await resolveEpisodeEvidence(env, {
+      showTitle: "Example Show",
+      detectedDialogue: anchor,
+      visualEvidence: [],
+      captionEvidence: "Example Show S2 E2",
+      candidateSeason: 2,
+      candidateEpisode: 2,
+    }, {
+      fetcher: guideFetcher,
+      searcher: async ({ query }) => query.includes("The Unprecedented Goal")
+        ? []
+        : [{
+            url: "https://social.example/wrong-clip",
+            title: "Example Show S4 E16 — The Dynamic Duo",
+            snippet: anchor,
+          }],
+      verifier: async () => ({
+        verified: false,
+        seasonNumber: null,
+        episodeNumber: null,
+        episodeTitle: null,
+        evidence: "No independent match",
+        confidence: 0,
+      }),
+    });
+
+    expect(result.verified).toBe(false);
+    expect(result.episodeNumber).toBeNull();
+  });
+
+  it("accepts an exact boundary sentence with three distinctive tokens when the caption agrees", async () => {
+    const anchor = "So the people that knew about our wedding before me";
+    const result = await resolveEpisodeEvidence({ ...env, GROQ_API_KEY: "" }, {
+      showTitle: "Example Show",
+      detectedDialogue: anchor,
+      visualEvidence: [],
+      captionEvidence: "Example Show Season 2 Episode 2",
+      candidateSeason: 2,
+      candidateEpisode: 2,
+    }, {
+      fetcher: guideFetcher,
+      searcher: async () => [
+        {
+          url: "https://social.example/conflicting",
+          title: "Example Show Season 4 Episode 16 clip",
+          snippet: anchor,
+        },
+        {
+          url: "https://transcripts.example/example-show/s02e02",
+          title: "Example Show Season 2 Episode 2 transcript",
+          snippet: anchor,
+        },
+      ],
+      verifier: async () => { throw new Error("Groq must not be called"); },
+    });
+
+    expect(result.verified).toBe(true);
+    expect(result.seasonNumber).toBe(2);
+    expect(result.episodeNumber).toBe(2);
+  });
+
   it("rejects a verifier result that is absent from the canonical guide", async () => {
     const result = await resolveEpisodeEvidence(env, {
       showTitle: "Example Show",

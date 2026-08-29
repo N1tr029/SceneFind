@@ -150,6 +150,13 @@ struct StreamingDestinationResolver {
         var resolved: ResolvedStreamingDestination?
         if kind == .hulu {
             resolved = await huluDestination(for: provider, candidate: candidate)
+        } else if Self.wasVerifiedByBackend(provider),
+                  let direct = Self.directDestination(for: provider, candidate: candidate) {
+            // Production analysis already fetched and verified this exact page.
+            // Re-fetching it on the phone is actively harmful for Netflix: its
+            // logged-out JS shell may omit title metadata, which used to turn a
+            // valid /watch/<id> route into /search at the last second.
+            resolved = direct
         } else if Self.routeLevel(provider: provider, candidate: candidate) != .exactEpisode {
             resolved = ResolvedStreamingDestination(
                 primaryURL: provider.episodeURL,
@@ -177,6 +184,13 @@ struct StreamingDestinationResolver {
         }
         if let resolved { await Self.cache.store(resolved, for: cacheKey) }
         return resolved
+    }
+
+    private static func wasVerifiedByBackend(_ provider: WatchProvider) -> Bool {
+        guard provider.destinationLevel == .exactEpisode,
+              let diagnostic = provider.destinationDiagnostic else { return false }
+        return diagnostic.hasPrefix("Backend-verified exact provider page")
+            || diagnostic == "The provider page confirmed this title."
     }
 
     /// Last resort that still lands somewhere real: the service's own search

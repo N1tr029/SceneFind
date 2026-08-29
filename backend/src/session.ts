@@ -533,7 +533,9 @@ async function fetchWatchProviders(
     symbolName: "play.tv.fill",
     brandColorHex: "FFFFFF",
     destinationLevel: candidate.seasonNumber ? "exactEpisode" : "show",
-    destinationDiagnostic: "The provider page confirmed this title.",
+    destinationDiagnostic: candidate.seasonNumber
+      ? "Backend-verified exact provider page for this episode."
+      : "The provider page confirmed this title.",
   }));
 }
 

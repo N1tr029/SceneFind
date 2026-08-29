@@ -39,6 +39,12 @@ struct ResolvedSceneTimestamp: Codable, Hashable, Sendable {
 /// 2. Otherwise fall back to the model's estimate, but bound it by the title's
 ///    real runtime so a 22-minute episode can never report a 40-minute mark.
 struct SceneTimestampResolver {
+    private struct TimestampSearchPhrase: Sendable {
+        let text: String
+        let startSeconds: Double
+        let endSeconds: Double
+    }
+
     private let session: URLSession
 
     init(session: URLSession = .shared) {
@@ -56,14 +62,19 @@ struct SceneTimestampResolver {
         estimatedEndSeconds: Double?,
         clipDurationSeconds: Double?
     ) async -> ResolvedSceneTimestamp? {
-        let phrases = Self.searchablePhrases(transcript: transcript, detectedDialogue: detectedDialogue)
-        if let matched = await matchedTimestamp(title: title, phrases: phrases) {
+        let phrases = Self.timedSearchablePhrases(
+            transcript: transcript,
+            detectedDialogue: detectedDialogue,
+            limit: 3
+        )
+        if let matchedOffset = await matchedTimelineOffset(title: title, phrases: phrases) {
+            let matched = max(0, matchedOffset)
             let end = clipDurationSeconds.map { matched + $0 } ?? estimatedEndSeconds
             return ResolvedSceneTimestamp(
                 startSeconds: matched,
                 endSeconds: end,
                 accuracy: .matchedDialogue,
-                basis: "Located by matching the clip's dialogue against a subtitle index for \(title)."
+                basis: "Located by aligning the clip's first/last dialogue against a subtitle index for \(title)."
             )
         }
 
@@ -97,11 +108,17 @@ struct SceneTimestampResolver {
     /// normal and simply falls through to the estimate path.
     /// Searches every candidate phrase at once and keeps the earliest-ranked hit.
     /// Sequentially these three lookups cost up to 18s on their own.
-    private func matchedTimestamp(title: String, phrases: [String]) async -> Double? {
+    private func matchedTimelineOffset(
+        title: String,
+        phrases: [TimestampSearchPhrase]
+    ) async -> Double? {
         guard !phrases.isEmpty else { return nil }
         return await withTaskGroup(of: (Int, Double?).self) { group in
             for (index, phrase) in phrases.enumerated() {
-                group.addTask { (index, await self.quoDBSearch(phrase: phrase, title: title)) }
+                group.addTask {
+                    let canonical = await self.quoDBSearch(phrase: phrase.text, title: title)
+                    return (index, canonical.map { $0 - phrase.startSeconds })
+                }
             }
             var hits: [(Int, Double)] = []
             for await case let (index, seconds?) in group { hits.append((index, seconds)) }
@@ -117,16 +134,78 @@ struct SceneTimestampResolver {
         detectedDialogue: String?,
         limit: Int = 3
     ) -> [String] {
+        timedSearchablePhrases(
+            transcript: transcript,
+            detectedDialogue: detectedDialogue,
+            limit: limit
+        ).map(\.text)
+    }
+
+    private static func timedSearchablePhrases(
+        transcript: ClipTranscript?,
+        detectedDialogue: String?,
+        limit: Int
+    ) -> [TimestampSearchPhrase] {
         if let transcript, !transcript.isEmpty {
-            return distinctivePhrases(in: transcript.cues.map(\.text), limit: limit)
+            var candidates: [TimestampSearchPhrase] = []
+            for start in transcript.cues.indices {
+                var text = ""
+                var end = transcript.cues[start].endSeconds
+                for length in 1...3 where start + length <= transcript.cues.count {
+                    let cue = transcript.cues[start + length - 1]
+                    if length > 1, cue.startSeconds - end > 2.5 { break }
+                    text = "\(text) \(cue.text)"
+                        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    end = cue.endSeconds
+                    let words = text.split(whereSeparator: \.isWhitespace).count
+                    guard (6...26).contains(words), text.count <= 220 else { continue }
+                    candidates.append(TimestampSearchPhrase(
+                        text: text,
+                        startSeconds: transcript.cues[start].startSeconds,
+                        endSeconds: end
+                    ))
+                }
+            }
+            guard !candidates.isEmpty else { return [] }
+            let firstStart = candidates.map(\.startSeconds).min()!
+            let lastEnd = candidates.map(\.endSeconds).max()!
+            let ranked = candidates.sorted {
+                let leftDistance = abs($0.text.split(whereSeparator: \.isWhitespace).count - 11)
+                let rightDistance = abs($1.text.split(whereSeparator: \.isWhitespace).count - 11)
+                if leftDistance != rightDistance { return leftDistance < rightDistance }
+                return $0.text.count > $1.text.count
+            }
+            var selected: [TimestampSearchPhrase] = []
+            func append(_ phrase: TimestampSearchPhrase?) {
+                guard let phrase, selected.count < limit,
+                      !selected.contains(where: {
+                          $0.startSeconds == phrase.startSeconds && $0.endSeconds == phrase.endSeconds
+                      }) else { return }
+                selected.append(phrase)
+            }
+            // Boundary anchors are load-bearing for the shared clip window.
+            append(ranked.first { $0.startSeconds == firstStart })
+            append(ranked.first { $0.endSeconds == lastEnd })
+            for phrase in ranked where selected.count < limit {
+                guard !selected.contains(where: { abs($0.startSeconds - phrase.startSeconds) < 3 }) else {
+                    continue
+                }
+                append(phrase)
+            }
+            return selected
         }
+
         guard let detectedDialogue, !detectedDialogue.isEmpty else { return [] }
-        // Model-transcribed dialogue arrives as prose, so split it on sentence
-        // and line boundaries to recover individual spoken lines.
-        let lines = detectedDialogue
-            .components(separatedBy: CharacterSet(charactersIn: ".!?\n"))
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        return distinctivePhrases(in: lines, limit: limit)
+        // Without platform timing, only the leading transcribed line has a
+        // defensible local offset (zero). Extra lines remain useful for episode
+        // research but cannot safely define the shared clip's start.
+        return distinctivePhrases(
+            in: detectedDialogue
+                .components(separatedBy: CharacterSet(charactersIn: ".!?\n"))
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) },
+            limit: limit
+        ).map { TimestampSearchPhrase(text: $0, startSeconds: 0, endSeconds: 0) }
     }
 
     /// Long, content-bearing lines identify a scene; "Yes, that's right." matches

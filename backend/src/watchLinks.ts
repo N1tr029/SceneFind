@@ -12,7 +12,7 @@
 // is served from KV — so spend scales with distinct episodes, not with users.
 
 import type { Env, PublicError, PublicErrorCode, WatchLink, WatchLinksResponse } from "./types";
-import { searchWeb } from "./webSearch";
+import { searchWeb, type WebSearchResult } from "./webSearch";
 
 /** Hosts we are willing to hand a viewer, and the service each one is. */
 const PROVIDER_HOSTS: ReadonlyArray<readonly [string, WatchLink["service"], string]> = [
@@ -95,7 +95,7 @@ function parseQuery(url: URL): WatchLinkQuery | null {
 function cacheKey(query: WatchLinkQuery): string {
   const normalized = query.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   return [
-    "wl:v1",
+    "wl:v2",
     normalized,
     query.seasonNumber ?? "-",
     query.episodeNumber ?? "-",
@@ -122,12 +122,27 @@ export function searchQuery(query: WatchLinkQuery): string {
 
 /** Accepts a SerpApi key (64 hex chars) or a Brave key (`BSA…`), told apart by
  *  shape so the deployment only has to set one secret. */
-async function search(query: WatchLinkQuery, env: Env): Promise<string[]> {
-  return (await searchWeb({
+async function search(query: WatchLinkQuery, env: Env): Promise<WebSearchResult[]> {
+  const queries = [searchQuery(query)];
+  if (query.mediaType === "tv" && query.seasonNumber && query.episodeNumber) {
+    // Netflix's generic title page routinely outranks the episode /watch page.
+    // Ask for the route shape explicitly so the opaque playback id is present.
+    queries.push([
+      "site:netflix.com/watch",
+      `"${query.title.replaceAll('"', "")}"`,
+      query.episodeTitle
+        ? `"${query.episodeTitle.replaceAll('"', "")}"`
+        : `"season ${query.seasonNumber} episode ${query.episodeNumber}"`,
+    ].join(" "));
+  }
+  const batches = await Promise.all(queries.map((value) => searchWeb({
     apiKey: env.SEARCH_API_KEY,
-    query: searchQuery(query),
+    query: value,
     region: query.region,
-  })).map((result) => result.url);
+  })));
+  const unique = new Map<string, WebSearchResult>();
+  for (const result of batches.flat()) unique.set(result.url, result);
+  return [...unique.values()];
 }
 
 // --- verification ----------------------------------------------------------
@@ -137,30 +152,45 @@ async function search(query: WatchLinkQuery, env: Env): Promise<string[]> {
  *  This is the step that makes a link trustworthy: a stale or wrong id is
  *  dropped rather than handed to a viewer as a button that opens to "not found".
  */
-async function verifyCandidates(
-  results: string[],
+export async function verifyCandidates(
+  results: WebSearchResult[],
   query: WatchLinkQuery,
+  fetcher: typeof fetch = fetch,
 ): Promise<WatchLink[]> {
-  const bestPerService = new Map<WatchLink["service"], { url: URL; serviceName: string }>();
-  for (const raw of rank(results, query.region)) {
+  const candidatesPerService = new Map<
+    WatchLink["service"],
+    Array<{ url: URL; serviceName: string; result: WebSearchResult }>
+  >();
+  for (const result of rank(results, query.region)) {
     let url: URL;
     try {
-      url = new URL(raw);
+      url = new URL(result.url);
     } catch {
       continue;
     }
     const match = PROVIDER_HOSTS.find(
       ([host]) => url.hostname === host || url.hostname.endsWith(`.${host}`),
     );
-    if (!match || bestPerService.has(match[1])) continue;
-    bestPerService.set(match[1], { url, serviceName: match[2] });
-    if (bestPerService.size >= MAX_SERVICES) break;
+    if (!match || (query.mediaType === "tv" && !isExactEpisodeRoute(url, match[1]))) continue;
+    const existing = candidatesPerService.get(match[1]) ?? [];
+    if (existing.length >= 4) continue;
+    existing.push({ url, serviceName: match[2], result });
+    candidatesPerService.set(match[1], existing);
   }
 
   const checked = await Promise.all(
-    [...bestPerService].map(async ([service, entry]) => {
-      const ok = await pageConfirms(entry.url, query);
-      return ok ? ({ url: entry.url.toString(), service, serviceName: entry.serviceName }) : null;
+    [...candidatesPerService].slice(0, MAX_SERVICES).map(async ([service, entries]) => {
+      // Do not discard a whole service because its first search result was a
+      // generic show page or stale id. Verify several ranked exact routes and
+      // keep the first one whose page or provider-indexed metadata matches.
+      for (const entry of entries) {
+        const confirmed = await pageConfirms(entry.url, query, fetcher)
+          || indexedResultConfirms(entry.result, query);
+        if (confirmed) {
+          return { url: entry.url.toString(), service, serviceName: entry.serviceName };
+        }
+      }
+      return null;
     }),
   );
   return checked.filter((link): link is WatchLink => link !== null);
@@ -168,21 +198,36 @@ async function verifyCandidates(
 
 /** Episode-specific paths first, and no other country's storefront — a `/ca/`
  *  page will not play for a US viewer even though it verifies. */
-function rank(results: string[], region: string): string[] {
+function rank(results: WebSearchResult[], region: string): WebSearchResult[] {
   const markers = ["/episode", "/watch", "/video", "/movie", "/play", "/detail"];
   return results
-    .filter((raw) => {
+    .filter((result) => {
       try {
-        return !isForeignStorefront(new URL(raw), region);
+        return !isForeignStorefront(new URL(result.url), region);
       } catch {
         return false;
       }
     })
     .sort((a, b) => {
-      const score = (value: string) => (markers.some((m) => value.includes(m)) ? 1 : 0);
+      const score = (value: WebSearchResult) =>
+        markers.some((marker) => new URL(value.url).pathname.toLowerCase().includes(marker)) ? 1 : 0;
       const diff = score(b) - score(a);
-      return diff !== 0 ? diff : b.length - a.length;
+      return diff !== 0 ? diff : b.url.length - a.url.length;
     });
+}
+
+export function isExactEpisodeRoute(url: URL, service: WatchLink["service"]): boolean {
+  const path = url.pathname.toLowerCase();
+  switch (service) {
+    case "netflix": return /^\/watch\/[^/]+/.test(path);
+    case "appleTV": return path.includes("/episode/");
+    case "disneyPlus": return path.includes("/video/");
+    case "hulu": return path.includes("/watch/") || path.includes("/videos/");
+    case "primeVideo": return path.includes("/video/detail/") || path.includes("/gp/video/detail/");
+    case "max": return path.includes("/video/watch/") || path.includes("/episode/");
+    case "peacock": return path.includes("/episodes/") || path.includes("/watch/playback/");
+    case "paramountPlus": return path.includes("/video/") || url.hostname === "link.us.paramountplus.com";
+  }
 }
 
 export function isForeignStorefront(url: URL, region = "US"): boolean {
@@ -196,10 +241,14 @@ function normalizedRegion(raw: string | null): string {
   return value && /^[A-Z]{2}$/.test(value) ? value : "US";
 }
 
-async function pageConfirms(url: URL, query: WatchLinkQuery): Promise<boolean> {
+async function pageConfirms(
+  url: URL,
+  query: WatchLinkQuery,
+  fetcher: typeof fetch,
+): Promise<boolean> {
   let html: string;
   try {
-    const response = await fetch(url, {
+    const response = await fetcher(url, {
       headers: {
         "user-agent":
           "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 " +
@@ -214,20 +263,27 @@ async function pageConfirms(url: URL, query: WatchLinkQuery): Promise<boolean> {
   }
 
   const titles = [metaContent(html, "og:title"), metaContent(html, "twitter:title"), pageTitle(html)]
-    .filter((value): value is string => Boolean(value))
-    .map(normalize);
-  if (titles.length === 0) return false;
+    .filter((value): value is string => Boolean(value));
+  return evidenceTextConfirms(titles, query);
+}
 
-  const showMatch = titles.some((value) => value.includes(normalize(query.title)));
+function indexedResultConfirms(result: WebSearchResult, query: WatchLinkQuery): boolean {
+  return evidenceTextConfirms([result.title, result.snippet], query);
+}
+
+function evidenceTextConfirms(values: string[], query: WatchLinkQuery): boolean {
+  const normalizedValues = values.filter(Boolean).map(normalize);
+  if (normalizedValues.length === 0) return false;
+  const showMatch = normalizedValues.some((value) => value.includes(normalize(query.title)));
   if (query.mediaType !== "tv") return showMatch;
 
   const episodeMatch = query.episodeTitle
-    ? titles.some((value) => value.includes(normalize(query.episodeTitle!)))
+    ? normalizedValues.some((value) => value.includes(normalize(query.episodeTitle!)))
     : false;
   const numberMatch =
     query.seasonNumber !== undefined &&
     query.episodeNumber !== undefined &&
-    titles.some((value) =>
+    normalizedValues.some((value) =>
       [
         `s${query.seasonNumber} e${query.episodeNumber}`,
         `${query.seasonNumber}x${query.episodeNumber}`,

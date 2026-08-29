@@ -39,31 +39,51 @@ struct EpisodeWatchLinkFinder {
     func verifiedLinks(for candidate: SceneCandidate, limit: Int = 3) async -> [Found] {
         if let cached = await Self.cache.value(for: candidate) { return cached }
 
-        let results = await searchProvider.search(query: Self.query(for: candidate))
+        async let generalResults = searchProvider.search(query: Self.query(for: candidate))
+        async let netflixResults: [URL] = candidate.mediaType == .television
+            && candidate.seasonNumber != nil && candidate.episodeNumber != nil
+            ? searchProvider.search(query: Self.netflixQuery(for: candidate))
+            : []
+        var seenURLs = Set<String>()
+        let results = await (generalResults + netflixResults).filter {
+            seenURLs.insert($0.absoluteString).inserted
+        }
         guard !results.isEmpty else { return [] }
 
-        // One best URL per service, so a service with many indexed pages cannot
-        // crowd out the others.
-        var bestPerService: [(kind: StreamingProviderKind, url: URL)] = []
+        // Keep a few exact-route candidates per service. A generic or stale
+        // Netflix result commonly ranks first; throwing away every later
+        // /watch/<id> candidate is what made a valid episode degrade to search.
+        var candidatesPerService: [(kind: StreamingProviderKind, urls: [URL])] = []
         for url in Self.rankedProviderURLs(in: results) {
             let kind = StreamingProviderKind(name: "", host: url.host)
-            guard kind != .other, !bestPerService.contains(where: { $0.kind == kind }) else { continue }
-            bestPerService.append((kind, url))
-            if bestPerService.count >= Self.maximumServicesChecked { break }
+            guard kind != .other,
+                  candidate.mediaType != .television || Self.isExactEpisodeRoute(url, kind: kind) else {
+                continue
+            }
+            if let index = candidatesPerService.firstIndex(where: { $0.kind == kind }) {
+                if candidatesPerService[index].urls.count < 4 {
+                    candidatesPerService[index].urls.append(url)
+                }
+            } else if candidatesPerService.count < Self.maximumServicesChecked {
+                candidatesPerService.append((kind, [url]))
+            }
         }
-        guard !bestPerService.isEmpty else { return [] }
+        guard !candidatesPerService.isEmpty else { return [] }
 
         let verified = await withTaskGroup(of: (Int, Found?).self) { group in
-            for (index, entry) in bestPerService.enumerated() {
+            for (index, entry) in candidatesPerService.enumerated() {
                 group.addTask {
-                    guard await self.pageConfirms(entry.url, candidate: candidate, kind: entry.kind) else {
-                        return (index, nil)
+                    for url in entry.urls {
+                        guard await self.pageConfirms(url, candidate: candidate, kind: entry.kind) else {
+                            continue
+                        }
+                        return (index, Found(
+                            url: WatchDestinationPolicy.normalized(url),
+                            service: entry.kind,
+                            serviceName: OfficialWatchLinkService.displayName(for: entry.kind)
+                        ))
                     }
-                    return (index, Found(
-                        url: WatchDestinationPolicy.normalized(entry.url),
-                        service: entry.kind,
-                        serviceName: OfficialWatchLinkService.displayName(for: entry.kind)
-                    ))
+                    return (index, nil)
                 }
             }
             var found: [(Int, Found)] = []
@@ -101,6 +121,33 @@ struct EpisodeWatchLinkFinder {
         }
         parts.append("watch")
         return parts.joined(separator: " ")
+    }
+
+    static func netflixQuery(for candidate: SceneCandidate) -> String {
+        var parts = ["site:netflix.com/watch", "\"\(candidate.mediaTitle)\""]
+        if let title = candidate.episodeTitle, !title.isEmpty {
+            parts.append("\"\(title)\"")
+        } else if let season = candidate.seasonNumber, let episode = candidate.episodeNumber {
+            parts.append("\"season \(season) episode \(episode)\"")
+        }
+        return parts.joined(separator: " ")
+    }
+
+    static func isExactEpisodeRoute(_ url: URL, kind: StreamingProviderKind) -> Bool {
+        let path = url.path.lowercased()
+        switch kind {
+        case .netflix: return path.hasPrefix("/watch/") && url.pathComponents.count >= 3
+        case .appleTV: return path.contains("/episode/")
+        case .disneyPlus: return path.contains("/video/")
+        case .hulu: return path.contains("/watch/") || path.contains("/videos/")
+        case .primeVideo: return path.contains("/video/detail/") || path.contains("/gp/video/detail/")
+        case .max: return path.contains("/video/watch/") || path.contains("/episode/")
+        case .peacock: return path.contains("/episodes/") || path.contains("/watch/playback/")
+        case .paramountPlus:
+            return url.host?.lowercased() == "link.us.paramountplus.com" || path.contains("/video/")
+        case .youtube: return path.contains("/watch") || url.host?.lowercased() == "youtu.be"
+        case .other: return false
+        }
     }
 
     /// Prefers URLs that look episode-specific over a service's front page, and
@@ -163,7 +210,7 @@ private actor WatchLinkCache {
 
     private var entries: Entries?
 
-    private static let fileName = "watch-links.v1.json"
+    private static let fileName = "watch-links.v2.json"
 
     private static var fileURL: URL? {
         FileManager.default

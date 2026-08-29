@@ -1,6 +1,36 @@
 import XCTest
 
 final class GeminiClipIdentificationServiceTests: XCTestCase {
+    func testTimestampPhraseSelectionReservesClipBoundaries() {
+        var cues: [ClipTranscript.Cue] = []
+        for index in 0..<12 {
+            let text: String
+            if index == 0 {
+                text = "Opening boundary dialogue has enough plain words to search"
+            } else if index == 11 {
+                text = "Closing boundary dialogue has enough plain words to search"
+            } else {
+                text = "Highly distinctive middle dialogue number \(index) contains searchable subtitle words now"
+            }
+            cues.append(ClipTranscript.Cue(
+                startSeconds: Double(index * 5),
+                endSeconds: Double(index * 5 + 3),
+                text: text
+            ))
+        }
+        let transcript = ClipTranscript(cues: cues, source: .tikTokASR)
+
+        let phrases = SceneTimestampResolver.searchablePhrases(
+            transcript: transcript,
+            detectedDialogue: nil,
+            limit: 3
+        )
+
+        XCTAssertEqual(phrases.count, 3)
+        XCTAssertTrue(phrases.contains { $0.contains("Opening boundary") })
+        XCTAssertTrue(phrases.contains { $0.contains("Closing boundary") })
+    }
+
     func testMediaTypeClassifiesNativeOnlineMediaAsOther() {
         XCTAssertEqual(MediaType(apiValue: "movie"), .movie)
         XCTAssertEqual(MediaType(apiValue: "tv"), .television)

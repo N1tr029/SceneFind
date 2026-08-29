@@ -19,6 +19,11 @@ export interface EpisodeEvidenceDependencies {
   fetcher?: typeof fetch;
   searcher?: typeof searchWeb;
   verifier?: typeof verifyEpisode;
+  diagnostic?: (snapshot: {
+    phrases: string[];
+    captionHints: string[];
+    supports: SearchSupport[];
+  }) => void;
 }
 
 /**
@@ -58,6 +63,7 @@ export async function resolveEpisodeEvidence(
   }));
   const captionHints = parseEpisodeCoordinates(args.captionEvidence);
   let supports = deduplicateSupports(batches.flat());
+  dependencies.diagnostic?.({ phrases, captionHints: [...captionHints], supports });
   let deterministic = strongSearchResolution(supports, captionHints, guide.episodes);
 
   // A caption S/E is not proof, but it gives us a canonical episode title to
@@ -87,6 +93,7 @@ export async function resolveEpisodeEvidence(
       })
     ));
     supports = deduplicateSupports([...supports, ...pageSupports.flat()]);
+    dependencies.diagnostic?.({ phrases, captionHints: [...captionHints], supports });
     deterministic = strongSearchResolution(supports, captionHints, guide.episodes);
   }
 
@@ -164,11 +171,13 @@ async function candidateTranscriptSupports(options: {
     if (!page) continue;
     const searchable = normalize(`${result.title} ${result.snippet} ${page}`);
     for (const anchor of options.anchors) {
+      const anchorNormalized = normalize(anchor);
+      const anchorWordCount = anchorNormalized.split(" ").filter(Boolean).length;
       const anchorTokens = tokens(anchor);
-      if (anchorTokens.size < 4) continue;
+      if (anchorWordCount < 6 || anchorTokens.size < 3) continue;
       const overlap = intersectionSize(anchorTokens, tokens(searchable));
-      const exact = searchable.includes(normalize(anchor));
-      if (!exact && overlap / anchorTokens.size < 0.75) continue;
+      const exact = searchable.includes(anchorNormalized);
+      if (!exact && (anchorTokens.size < 4 || overlap / anchorTokens.size < 0.75)) continue;
       supports.push({
         season: options.episode.seasonNumber,
         episode: options.episode.episodeNumber,
@@ -239,7 +248,19 @@ function unsafeSearchHost(hostname: string): boolean {
 }
 
 function dialoguePhrases(cues: TranscriptCue[] | undefined, dialogue: string): string[] {
-  if (cues?.length) return searchablePhrases(cues).slice(0, 3).map((phrase) => phrase.text);
+  if (cues?.length) {
+    const timed = searchablePhrases(cues);
+    if (timed.length <= 5) return timed.map((phrase) => phrase.text);
+    const middle = timed.slice(2, -2)
+      .sort((left, right) => right.wordCount - left.wordCount)[0];
+    // Social clips commonly begin/end mid-sentence. Keep the two earliest and
+    // two latest searchable lines so a clipped fragment cannot hide the first
+    // or last complete sentence, plus one strong interior discriminator.
+    const boundaryAndMiddle = [timed[0], timed[1], timed.at(-2), timed.at(-1), middle]
+      .flatMap((phrase) => phrase ? [phrase] : [])
+      .sort((left, right) => left.startSeconds - right.startSeconds);
+    return [...new Map(boundaryAndMiddle.map((phrase) => [phrase.text, phrase.text])).values()];
+  }
   return dialogue.split(/[.!?\n]+/)
     .map((line) => line.trim())
     .filter((line) => line.split(/\s+/).length >= 6)
@@ -247,7 +268,7 @@ function dialoguePhrases(cues: TranscriptCue[] | undefined, dialogue: string): s
     .slice(0, 3);
 }
 
-function searchSupports(
+export function searchSupports(
   results: WebSearchResult[],
   showTitle: string,
   anchor: string,
@@ -255,14 +276,16 @@ function searchSupports(
 ): SearchSupport[] {
   const show = normalize(showTitle);
   const anchorNormalized = normalize(anchor);
+  const anchorWordCount = anchorNormalized.split(" ").filter(Boolean).length;
   const anchorTokens = tokens(anchor);
-  if (!show || anchorTokens.size < 4) return [];
+  if (!show || anchorWordCount < 6 || anchorTokens.size < 3) return [];
   return results.flatMap((result): SearchSupport[] => {
     const text = `${result.title} ${result.snippet} ${decodeURIComponentSafe(result.url)}`;
     const normalizedText = normalize(text);
     if (!normalizedText.includes(show)) return [];
     const overlap = intersectionSize(anchorTokens, tokens(text));
-    if (!normalizedText.includes(anchorNormalized) && overlap / anchorTokens.size < 0.7) return [];
+    const exact = normalizedText.includes(anchorNormalized);
+    if (!exact && (anchorTokens.size < 4 || overlap / anchorTokens.size < 0.7)) return [];
 
     const numbered = parseEpisodeCoordinates(text);
     let matches = guide.filter((episode) => numbered.has(coordinateKey({
@@ -348,14 +371,17 @@ function strongSearchResolution(
     const key = coordinateKey(support);
     groups.set(key, [...(groups.get(key) ?? []), support]);
   }
-  const winner = [...groups].sort((left, right) =>
+  const eligible = [...groups].filter(([coordinate, values]) =>
+    distinctAnchors(values) >= 2 || captionHints.has(coordinate),
+  );
+  const winner = eligible.sort((left, right) =>
     distinctAnchors(right[1]) - distinctAnchors(left[1]) || right[1].length - left[1].length,
   )[0];
   if (!winner) return null;
   const anchors = distinctAnchors(winner[1]);
-  if (anchors < 2 && !captionHints.has(winner[0]) && !winner[1].some((item) => item.titleMentioned)) {
-    return null;
-  }
+  // One indexed line is enough only when it corroborates the caption's
+  // canonical coordinate. A result title alone must not override a conflicting
+  // S/E claim (the exact Google-redirect failure seen on the Friends pivot clip).
   const coordinate = parseCoordinateKey(winner[0]);
   const canonical = guide.find((episode) =>
     episode.seasonNumber === coordinate.season && episode.episodeNumber === coordinate.episode,

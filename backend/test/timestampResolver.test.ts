@@ -276,6 +276,24 @@ describe("timestamp phrase selection", () => {
     expect(phrases[0].startSeconds).toBeLessThan(phrases.at(-1)!.startSeconds);
   });
 
+  it("always reserves the first and last searchable clip sentences", () => {
+    const boundaryCues: TranscriptCue[] = Array.from({ length: 12 }, (_, index) => ({
+      startSeconds: index * 5,
+      endSeconds: index * 5 + 3,
+      text: index === 0
+        ? "Opening boundary dialogue has enough plain words to search"
+        : index === 11
+          ? "Closing boundary dialogue has enough plain words to search"
+          : `Highly distinctive middle dialogue number ${index} contains eleven searchable subtitle words now`,
+    }));
+
+    const phrases = searchablePhrases(boundaryCues);
+
+    expect(phrases).toHaveLength(8);
+    expect(phrases.some((phrase) => phrase.startSeconds === boundaryCues[0].startSeconds)).toBe(true);
+    expect(phrases.some((phrase) => phrase.endSeconds === boundaryCues.at(-1)!.endSeconds)).toBe(true);
+  });
+
   it("reserves query coverage near the end of a long clip", () => {
     const longCues = Array.from({ length: 24 }, (_, index) => ({
       startSeconds: index * 60,

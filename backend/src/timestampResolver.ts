@@ -205,13 +205,29 @@ export function searchablePhrases(cues: TranscriptCue[]): SearchPhrase[] {
   const byQuality = [...candidates].sort((left, right) => right.score - left.score);
   const selected: SearchPhrase[] = [];
   const firstStart = Math.min(...candidates.map((candidate) => candidate.startSeconds));
+  const lastEnd = Math.max(...candidates.map((candidate) => candidate.endSeconds));
   const lastStart = Math.max(...candidates.map((candidate) => candidate.startSeconds));
   const span = Math.max(1, lastStart - firstStart);
+
+  const append = (candidate: typeof candidates[number] | undefined) => {
+    if (!candidate || selected.length >= MAX_QUERIES) return;
+    if (selected.some((item) =>
+      item.startSeconds === candidate.startSeconds && item.endSeconds === candidate.endSeconds
+    )) return;
+    const { score: _, ...phrase } = candidate;
+    selected.push(phrase);
+  };
+  // Reserve the clip boundaries before quality ranking. Matching the first and
+  // last searchable sentences to the full-episode subtitle clock gives the
+  // actual shared window; spending all eight queries on middle dialogue can
+  // identify an episode while still leaving its beginning or ending unmeasured.
+  append(byQuality.find((candidate) => candidate.startSeconds === firstStart));
+  append(byQuality.find((candidate) => candidate.endSeconds === lastEnd));
+
   if (span <= 300) {
     for (const candidate of byQuality) {
       if (selected.some((item) => Math.abs(item.startSeconds - candidate.startSeconds) < 3)) continue;
-      const { score: _, ...phrase } = candidate;
-      selected.push(phrase);
+      append(candidate);
       if (selected.length === MAX_QUERIES) break;
     }
     return selected.sort((left, right) => left.startSeconds - right.startSeconds);
@@ -232,14 +248,12 @@ export function searchablePhrases(cues: TranscriptCue[]): SearchPhrase[] {
       )
       .sort((left, right) => right.startSeconds - left.startSeconds || right.score - left.score)[0];
     if (!candidate) continue;
-    const { score: _, ...phrase } = candidate;
-    selected.push(phrase);
+    append(candidate);
   }
   for (const candidate of byQuality) {
     if (selected.length === MAX_QUERIES) break;
     if (selected.some((item) => Math.abs(item.startSeconds - candidate.startSeconds) < 3)) continue;
-    const { score: _, ...phrase } = candidate;
-    selected.push(phrase);
+    append(candidate);
   }
   return selected.sort((left, right) => left.startSeconds - right.startSeconds);
 }

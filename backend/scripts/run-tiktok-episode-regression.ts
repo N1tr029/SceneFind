@@ -69,7 +69,7 @@ for (const [index, item] of corpus.entries()) {
     const rawTranscript = await fetchText(transcriptURL);
     const cues = parseTimedCaptions(rawTranscript);
     if (process.env.SCENEFIND_VERBOSE === "1") {
-      const diagnosticPhrases = searchablePhrases(cues).slice(0, 3).map((phrase) => phrase.text);
+      const diagnosticPhrases = searchablePhrases(cues).map((phrase) => phrase.text);
       const searches = process.env.SEARCH_API_KEY
         ? await Promise.all(diagnosticPhrases.map(async (phrase) => ({
             phrase,
@@ -116,7 +116,17 @@ for (const [index, item] of corpus.entries()) {
           captionEvidence: tiktokCaption(page),
           candidateSeason: null,
           candidateEpisode: null,
-        })
+        }, process.env.SCENEFIND_VERBOSE === "1" ? {
+          searcher: async (options: Parameters<typeof searchWeb>[0]) => {
+            const searchResults = await searchWeb(options);
+            console.log(JSON.stringify({ evidenceSearch: {
+              query: options.query,
+              results: searchResults.slice(0, 12),
+            } }));
+            return searchResults;
+          },
+          diagnostic: (snapshot) => console.log(JSON.stringify({ episodeEvidence: snapshot })),
+        } : undefined)
       : null;
     const resolution = await resolveSceneTimeline({
       cues,

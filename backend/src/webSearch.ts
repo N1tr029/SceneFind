@@ -31,7 +31,7 @@ export async function searchWeb(options: {
     };
     return [...(body.organic_results ?? []), ...(body.inline_videos ?? [])]
       .flatMap((result) => typeof result.link === "string"
-        ? [{ url: result.link, title: result.title ?? "", snippet: result.snippet ?? "" }]
+        ? [{ url: normalizedResultURL(result.link), title: result.title ?? "", snippet: result.snippet ?? "" }]
         : []);
   }
   if (key.startsWith("BSA")) {
@@ -48,8 +48,17 @@ export async function searchWeb(options: {
     };
     return (body.web?.results ?? []).flatMap((result) =>
       typeof result.url === "string"
-        ? [{ url: result.url, title: result.title ?? "", snippet: result.description ?? "" }]
+        ? [{ url: normalizedResultURL(result.url), title: result.title ?? "", snippet: result.description ?? "" }]
         : []);
   }
   return [];
+}
+
+/** Some search responses double-escape query delimiters (`\\u003d`,
+ * `\\u0026`) inside result URLs. Fetching that literal string drops the
+ * transcript page's episode selector and can verify the wrong page. */
+function normalizedResultURL(value: string): string {
+  return value
+    .replace(/\\u([0-9a-f]{4})/gi, (_, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)))
+    .replaceAll("&amp;", "&");
 }
