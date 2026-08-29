@@ -72,11 +72,34 @@ provider pages, follows bounded redirects, checks page metadata for the same
 title and requested episode, rejects foreign storefronts for the selected
 region, and omits any destination that cannot be verified.
 
+## Deploy the backend
+
+Production and TestFlight builds carry no provider keys, so they are inert
+until the Worker is live. After `npx wrangler login` and setting the Worker
+secrets, one command provisions, verifies, deploys, and wires the URL into the
+app:
+
+```sh
+./backend/deploy.sh
+```
+
+Until it has run, `SCENEFIND_BACKEND_URL` is empty and every non-Debug build
+fails at the configuration gate. That is deliberate: a guessed URL would ship a
+build that silently fails every identification.
+
+## Public pages
+
+`site/` holds the privacy policy, terms of use, and support pages that the App
+Store listing and the app's `SCENEFIND_*_URL` settings point at. Pushing to
+`main` publishes them to <https://n1tr029.github.io/SceneFind/> via
+`.github/workflows/pages.yml`; nothing else in the repository is served.
+
 ## Release status
 
 The current evidence and every open external gate are recorded in
-`docs/APP_STORE_READINESS_AUDIT.md`. A successful local build is not sufficient
-for release: deployed backend, App Store Connect products, physical App Attest,
-signed StoreKit scenarios, the 50-Instagram ground-truth regression,
-observability, legal URLs, metadata, signed archive, and TestFlight validation
+`docs/APP_STORE_READINESS_AUDIT.md`, and the order to clear them in is in
+`docs/APP_STORE_SUBMISSION_CHECKLIST.md`. A successful local build is not
+sufficient for release: deployed backend, App Store Connect products, physical
+App Attest, signed StoreKit scenarios, the 50-Instagram ground-truth
+regression, observability, metadata, signed archive, and TestFlight validation
 are required.

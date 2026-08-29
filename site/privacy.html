@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>SceneFind — Privacy Policy</title>
+</head>
+<body>
+<div class="wrap">
+<header class="site">
+  <div class="mark" aria-hidden="true"></div>
+  <div class="name">SceneFind</div>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="privacy.html" aria-current="page">Privacy</a>
+    <a href="terms.html">Terms</a>
+    <a href="support.html">Support</a>
+  </nav>
+</header>
+
+<h1>Privacy Policy</h1>
+<p class="updated">Last updated 29 August 2026</p>
+
+<p class="lede">SceneFind identifies the movie or TV moment behind a clip you
+share with it. It has no accounts, no advertising, and no tracking. This policy
+describes exactly what leaves your device, why, and how long it is kept.</p>
+
+<h2>What SceneFind processes</h2>
+
+<h3>Content you explicitly share</h3>
+<p>When you share a clip, import a video or image, paste text, or submit a URL,
+that content is sent over HTTPS to the SceneFind backend, which forwards it to
+the AI providers listed below so the scene can be identified. SceneFind only
+ever receives content you deliberately hand to it — through the share sheet,
+the media picker, or by typing it in. It does not scan your photo library, read
+your clipboard in the background, or monitor other apps.</p>
+<p>If you enable transcription, spoken dialogue in the clip you shared is
+converted to text so it can be matched against subtitle indexes.</p>
+
+<h3>An installation identifier</h3>
+<p>On first launch the app generates a random UUID and stores it in the device
+Keychain. It identifies the installation — not you — so that your plan
+allowance can be counted and so the backend can verify, using Apple's App
+Attest, that requests come from a genuine copy of SceneFind. It is not derived
+from any device or advertising identifier and is destroyed when you delete the
+app and its Keychain entry.</p>
+
+<h3>Purchase records</h3>
+<p>When you subscribe or restore a purchase, the signed transaction Apple
+issues is sent to the backend for verification and to determine your
+allowance. SceneFind receives the transaction, not your payment method: card
+numbers and billing details stay with Apple and are never visible to us.</p>
+
+<h3>Diagnostics</h3>
+<p>The backend records operational data such as request counts, timings, and
+error categories to keep the service running and to enforce rate limits. Shared
+URLs, media, transcripts, App Attest assertions, and transaction payloads are
+excluded from logs.</p>
+
+<h2>What SceneFind never collects</h2>
+<ul>
+  <li>Your name, email address, phone number, or contacts</li>
+  <li>Your location</li>
+  <li>Your browsing or app-usage history</li>
+  <li>Advertising or cross-app tracking identifiers</li>
+</ul>
+<p>SceneFind does not track you across apps or websites, does not sell or share
+personal information, and contains no third-party advertising or analytics
+SDKs.</p>
+
+<h2>Who else processes your content</h2>
+<p>To identify a scene, the backend sends the content you shared to:</p>
+<ul>
+  <li><strong>Google (Gemini)</strong> — visual and multimodal identification</li>
+  <li><strong>Groq</strong> — dialogue transcription and text reasoning</li>
+  <li><strong>Cloudflare</strong> — hosts the backend and processes requests in transit</li>
+  <li><strong>A web search provider and public subtitle/episode indexes</strong> —
+      queried with short dialogue phrases and title text to confirm an episode,
+      timestamp, or watch link</li>
+</ul>
+<p>These providers act as processors for SceneFind under their own terms and
+are not permitted to use your content to train their models on our behalf.
+Apple processes your purchases.</p>
+
+<h2>How long it is kept</h2>
+<table>
+  <thead><tr><th>Data</th><th>Retention</th></tr></thead>
+  <tbody>
+    <tr><td>Clip, image, text, or URL you shared</td><td>Held only for the analysis; the session record is erased 15 minutes after the result is delivered</td></tr>
+    <tr><td>App Attest challenge</td><td>5 minutes</td></tr>
+    <tr><td>Watch-link lookups</td><td>Cached up to 90 days, keyed by episode and shared by all users — it contains no user content</td></tr>
+    <tr><td>Rate-limit counters</td><td>Until the current window resets</td></tr>
+    <tr><td>Allowance and purchase ledger</td><td>For the life of the entitlement, so your plan survives reinstalling</td></tr>
+  </tbody>
+</table>
+
+<h2>Your choices</h2>
+<ul>
+  <li><strong>Stop sharing.</strong> Nothing is sent unless you share or import it.</li>
+  <li><strong>Photo and speech access.</strong> Both are optional and revocable in iOS Settings; SceneFind only reads items you pick.</li>
+  <li><strong>Deletion.</strong> Deleting the app removes the installation identifier and local history. To have the allowance ledger tied to your installation deleted, contact us and include nothing more than your request — we will ask for the installation ID shown in Settings.</li>
+</ul>
+
+<h2>Children</h2>
+<p>SceneFind is not directed at children under 13 and does not knowingly
+collect information from them.</p>
+
+<h2>Changes</h2>
+<p>If this policy changes materially, the updated version will be posted here
+with a new date before the change takes effect.</p>
+
+<h2>Contact</h2>
+<p>Questions about privacy can be raised at
+<a href="https://github.com/N1tr029/SceneFind/issues">github.com/N1tr029/SceneFind/issues</a>
+or through the contact address listed on our App Store page.</p>
+
+<footer>SceneFind · <a href="index.html">Home</a> · <a href="terms.html">Terms of Use</a> · <a href="support.html">Support</a></footer>
+</div>
+</body>
+</html>

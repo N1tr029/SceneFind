@@ -784,7 +784,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = T4VT6R837D;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -802,6 +802,10 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SCENEFIND_BACKEND_URL = "";
+				SCENEFIND_PRIVACY_URL = "https://n1tr029.github.io/SceneFind/privacy.html";
+				SCENEFIND_SUPPORT_URL = "https://n1tr029.github.io/SceneFind/support.html";
+				SCENEFIND_TERMS_URL = "https://n1tr029.github.io/SceneFind/terms.html";
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
@@ -862,7 +866,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = T4VT6R837D;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -880,6 +884,10 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SCENEFIND_BACKEND_URL = "";
+				SCENEFIND_PRIVACY_URL = "https://n1tr029.github.io/SceneFind/privacy.html";
+				SCENEFIND_SUPPORT_URL = "https://n1tr029.github.io/SceneFind/support.html";
+				SCENEFIND_TERMS_URL = "https://n1tr029.github.io/SceneFind/terms.html";
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
@@ -1023,7 +1031,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = T4VT6R837D;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;

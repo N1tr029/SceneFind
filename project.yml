@@ -14,14 +14,31 @@ settings:
     DEVELOPMENT_TEAM: T4VT6R837D
     CODE_SIGN_STYLE: Automatic
     MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "10"
+    CURRENT_PROJECT_VERSION: "11"
   configs:
     Debug:
       APP_ATTEST_ENVIRONMENT: development
+    # Release and TestFlight are keyless: the app reaches providers only through
+    # the Worker, so these four URLs are the entire external configuration. The
+    # post-build gate below rejects the build unless all four are HTTPS, which
+    # is what stops a keyless build from shipping with a dead backend.
+    #
+    # SCENEFIND_BACKEND_URL is written by backend/deploy.sh from the deployed
+    # Worker's real URL. Leave it empty until the Worker is deployed -- an empty
+    # value fails the build loudly, which is correct; a guessed value would ship
+    # a build that silently fails every identification.
     Release:
       APP_ATTEST_ENVIRONMENT: production
+      SCENEFIND_BACKEND_URL: ""
+      SCENEFIND_PRIVACY_URL: https://n1tr029.github.io/SceneFind/privacy.html
+      SCENEFIND_TERMS_URL: https://n1tr029.github.io/SceneFind/terms.html
+      SCENEFIND_SUPPORT_URL: https://n1tr029.github.io/SceneFind/support.html
     TestFlight:
       APP_ATTEST_ENVIRONMENT: production
+      SCENEFIND_BACKEND_URL: ""
+      SCENEFIND_PRIVACY_URL: https://n1tr029.github.io/SceneFind/privacy.html
+      SCENEFIND_TERMS_URL: https://n1tr029.github.io/SceneFind/terms.html
+      SCENEFIND_SUPPORT_URL: https://n1tr029.github.io/SceneFind/support.html
 targets:
   SceneFind:
     type: application

@@ -1,6 +1,6 @@
 # SceneFind App Store Readiness Audit
 
-Audit date: 2026-08-19. “Implemented” means present in the repository and
+Audit date: 2026-08-29 (previous: 2026-08-19). “Implemented” means present in the repository and
 covered by the stated local evidence. It does not mean an external App Store,
 Cloudflare, physical-device, or social-platform gate was completed.
 
@@ -25,27 +25,44 @@ Cloudflare, physical-device, or social-platform gate was completed.
 - Episode/storefront URLs are emitted only after destination-page evidence.
 - Privacy manifest, Keychain identity, App Group, share extension, custom deep
   link, cancellation, loading/error states, and purchase disclosure are present.
-- Simulator evidence: Debug build/install/launch succeeded; 54 tests passed,
-  0 failed, 1 live-network test skipped; accessibility snapshot succeeded.
-- TestFlight configuration compiled and archived for generic iOS with signing
-  disabled; version 1.0 build 10 and the app/share extension were present, no
-  prototype plist or provider-key pattern was found. This is not an uploadable
-  archive, and its four release URLs were empty; a subsequent build gate now
-  rejects that configuration. A signed attempt failed because Xcode has no account for team
-  `T4VT6R837D` and no provisioning profiles for either bundle ID.
-- Worker evidence: typecheck passed, 11 quota/status/restore/retrieval-payload
-  tests passed, production bundle dry-run succeeded with Wrangler 4.124.0 on
+- Simulator evidence (2026-08-29): 63 Swift tests passed, 0 failed, 2
+  live-network tests skipped.
+- TestFlight configuration builds for generic iOS with signing disabled at
+  version 1.0 build 11. The app and share extension are present, no prototype
+  plist or provider-key pattern is found, and `ITSAppUsesNonExemptEncryption`
+  is set so distribution is not held at export compliance. This is not an
+  uploadable archive. A signed attempt failed because Xcode has no account for
+  team `T4VT6R837D` and no provisioning profiles for either bundle ID.
+- The four release URLs are wired in `project.yml` for Release and TestFlight.
+  Privacy, terms, and support resolve to the GitHub Pages site published from
+  `site/` by `.github/workflows/pages.yml`. `SCENEFIND_BACKEND_URL` is
+  deliberately empty until the Worker is deployed. Both directions of the gate
+  were exercised on 2026-08-29: an empty backend URL fails the build with
+  `error: SCENEFIND_BACKEND_URL must be configured as an HTTPS URL for
+  TestFlight`, and with all four set the build succeeds and the values appear
+  in the built `Info.plist`.
+- Final app icon is in place: a film cell inside autofocus brackets, replacing
+  the generic magnifying glass. All eight catalog sizes plus the 1024 marketing
+  asset are RGB with no alpha channel, and the compiled 120px bundle icon was
+  confirmed byte-identical to its source.
+- Worker evidence (2026-08-29): typecheck passed, 42 tests across 8 files
+  passed, production bundle dry-run succeeded with Wrangler 4.124.0 on
   Node 24 (1,927.83 KiB upload / 319.52 KiB gzip), and the complete dependency
   audit reported 0 vulnerabilities.
 
 ## Release blockers
 
-- Authenticate Wrangler, replace both Cloudflare KV namespace placeholders,
-  and deploy the Worker. The audit environment is not logged in to Cloudflare.
-- Configure Worker secrets: Gemini, Groq, Apple team ID, numeric Apple app ID,
-  and optional search provider. Configure Notifications V2.
-- Configure the iOS build with real backend, privacy policy, terms, and support
-  HTTPS URLs. They are currently undefined.
+- **Deploy the Worker.** This is the gating blocker: nothing downstream can be
+  validated without it, and until it is done every non-Debug build fails closed
+  at the URL gate by design. Run `npx wrangler login`, set the secrets
+  (`GEMINI_API_KEY`, `GROQ_API_KEY`, `APPLE_TEAM_ID`, `APPLE_APP_ID`, and
+  optionally `SEARCH_API_KEY`) with `wrangler secret put`, then run
+  `backend/deploy.sh`. The script provisions both KV namespaces and writes their
+  real IDs into `wrangler.toml`, verifies the secrets, runs typecheck and tests,
+  deploys, smoke-tests `/healthz`, writes the deployed URL into `project.yml` as
+  `SCENEFIND_BACKEND_URL`, and regenerates the project. Configure App Store
+  Server Notifications V2 to point at the deployed Worker afterwards.
+  The privacy, terms, and support URLs are configured and no longer block.
 - Create/approve all three exact products and subscription metadata in App
   Store Connect. StoreKit configuration is local metadata, not proof of App
   Store Connect state.
@@ -72,10 +89,12 @@ Cloudflare, physical-device, or social-platform gate was completed.
   by Apple's App Store Server Library. It has no reported audit vulnerability
   in this lockfile, but remains a maintenance/supply-chain risk.
 - Supply App Store screenshots, privacy labels, age rating, review notes,
-  export compliance, localizations, support/privacy pages, and final icon
-  review in App Store Connect.
+  localizations, and a support contact email in App Store Connect. The icon,
+  privacy page, terms page, and support page are done; export compliance is
+  answered in `Info.plist`. Before submission, replace the `[LEGAL ENTITY]` and
+  `[JURISDICTION]` placeholders in `site/terms.html`.
 - Produce and validate a signed archive only after the preceding configuration
-  exists; then upload a new build 10 to TestFlight and run the physical share,
+  exists; then upload build 11 to TestFlight and run the physical share,
   playback, background/foreground, poor-network, and offline matrix.
 
 ## Accuracy and latency gate
