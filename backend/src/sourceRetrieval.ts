@@ -47,11 +47,26 @@ export async function retrieveEvidence(request: AnalysisRequest): Promise<Retrie
   if (!request.sourceURL) return {};
 
   const sourceURL = safePublicURL(request.sourceURL);
-  const pageResponse = await fetchWithRetry(sourceURL, {
-    headers: { "user-agent": USER_AGENT, "accept-language": "en-US,en;q=0.9" },
-    redirect: "follow",
-  }, 8_000);
-  if (!pageResponse.ok) throw new RetrievalError(`Source returned HTTP ${pageResponse.status}.`);
+  // TikTok and YouTube sometimes deny the page request to cloud IP ranges even
+  // while their public oEmbed endpoint remains available. Start that request
+  // first so a blocked page can still yield a real title and preview image.
+  const oEmbedTask = fetchOEmbed(sourceURL).catch(() => null);
+  let pageResponse: Response;
+  try {
+    pageResponse = await fetchWithRetry(sourceURL, {
+      headers: { "user-agent": USER_AGENT, "accept-language": "en-US,en;q=0.9" },
+      redirect: "follow",
+    }, 8_000);
+  } catch (error) {
+    const fallback = await oEmbedEvidence(sourceURL, await oEmbedTask);
+    if (fallback) return fallback;
+    throw error;
+  }
+  if (!pageResponse.ok) {
+    const fallback = await oEmbedEvidence(sourceURL, await oEmbedTask);
+    if (fallback) return fallback;
+    throw new RetrievalError(`Source returned HTTP ${pageResponse.status}.`);
+  }
   const finalURL = safePublicURL(pageResponse.url || sourceURL.toString());
   const directMimeType = (pageResponse.headers.get("content-type") ?? "")
     .split(";")[0]
@@ -76,7 +91,6 @@ export async function retrieveEvidence(request: AnalysisRequest): Promise<Retrie
   const player = youtubePlayerResponse(page);
   const metadata = pageMetadata(page);
 
-  const oEmbedTask = fetchOEmbed(finalURL).catch(() => null);
   const youtubeTranscriptTask = fetchYouTubeTranscript(player).catch(() => null);
   const tiktokTranscriptTask = fetchTikTokTranscript(page).catch(() => null);
   const oEmbed = await oEmbedTask;
@@ -450,6 +464,25 @@ async function fetchOEmbed(url: URL): Promise<{
   endpoint.searchParams.set("format", "json");
   const response = await fetchWithRetry(endpoint, { headers: { "user-agent": USER_AGENT } }, 5_000);
   return response.ok ? response.json() : null;
+}
+
+async function oEmbedEvidence(
+  sourceURL: URL,
+  oEmbed: Awaited<ReturnType<typeof fetchOEmbed>>,
+): Promise<RetrievedEvidence | null> {
+  if (!oEmbed) return null;
+  const thumbnailURL = firstPublicURL([oEmbed.thumbnail_url]);
+  const thumbnail = thumbnailURL
+    ? await fetchBinary(thumbnailURL, MAX_IMAGE_BYTES, ["image/"]).catch(() => null)
+    : null;
+  return {
+    finalURL: sourceURL.toString(),
+    title: oEmbed.title,
+    author: oEmbed.author_name,
+    thumbnailURL: thumbnailURL?.toString(),
+    thumbnailDataBase64: thumbnail?.base64,
+    thumbnailMimeType: thumbnail?.mimeType,
+  };
 }
 
 async function fetchBinary(

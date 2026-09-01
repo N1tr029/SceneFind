@@ -28,16 +28,12 @@ class_name = "EntitlementLedger"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["AnalysisSession"]
-
-[[migrations]]
-tag = "v2"
-new_classes = ["AppAttestationRegistry", "EntitlementLedger"]
+new_sqlite_classes = ["AnalysisSession", "AppAttestationRegistry", "EntitlementLedger"]
 
 # Rate-limiting counters and short-lived install identities.
 [[kv_namespaces]]
 binding = "RATE_LIMIT"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"   # wrangler kv:namespace create RATE_LIMIT
+id = "d735950d74b54e8d988927a667834a5d"   # wrangler kv:namespace create RATE_LIMIT
 
 # Episode -> provider URL cache. Shared by every install, which is the whole
 # point: a search costs quota, an episode's page URL never changes, so the first
@@ -45,7 +41,7 @@ id = "REPLACE_WITH_KV_NAMESPACE_ID"   # wrangler kv:namespace create RATE_LIMIT
 # episodes rather than with users.
 [[kv_namespaces]]
 binding = "WATCH_LINKS"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"   # wrangler kv:namespace create WATCH_LINKS
+id = "7f8a495fb7944fb7b29dc6447bfe79c0"   # wrangler kv:namespace create WATCH_LINKS
 
 [vars]
 # Non-secret config. Model names can be overridden per environment.

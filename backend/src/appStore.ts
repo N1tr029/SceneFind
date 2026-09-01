@@ -1,10 +1,7 @@
-import {
-  Environment,
-  NotificationTypeV2,
+import type {
+  JWSRenewalInfoDecodedPayload,
+  JWSTransactionDecodedPayload,
   SignedDataVerifier,
-  Status,
-  type JWSRenewalInfoDecodedPayload,
-  type JWSTransactionDecodedPayload,
 } from "@apple/app-store-server-library";
 import { Buffer } from "node:buffer";
 import { applyVerifiedTransaction, PRODUCT_IDS, type VerifiedTransaction } from "./entitlement";
@@ -18,6 +15,7 @@ const APPLE_ROOT_CA_G3 =
   "MIICQzCCAcmgAwIBAgIILcX8iNLFS5UwCgYIKoZIzj0EAwMwZzEbMBkGA1UEAwwSQXBwbGUgUm9vdCBDQSAtIEczMSYwJAYDVQQLDB1BcHBsZSBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0eTETMBEGA1UECgwKQXBwbGUgSW5jLjELMAkGA1UEBhMCVVMwHhcNMTQwNDMwMTgxOTA2WhcNMzkwNDMwMTgxOTA2WjBnMRswGQYDVQQDDBJBcHBsZSBSb290IENBIC0gRzMxJjAkBgNVBAsMHUFwcGxlIENlcnRpZmljYXRpb24gQXV0aG9yaXR5MRMwEQYDVQQKDApBcHBsZSBJbmMuMQswCQYDVQQGEwJVUzB2MBAGByqGSM49AgEGBSuBBAAiA2IABJjpLz1AcqTtkyJygRMc3RCV8cWjTnHcFBbZDuWmBSp3ZHtfTjjTuxxEtX/1H7YyYl3J6YRbTzBPEVoA/VhYDKX1DyxNB0cTddqXl5dvMVztK517IDvYuVTZXpmkOlEKMaNCMEAwHQYDVR0OBBYEFLuw3qFYM4iapIqZ3r6966/ayySrMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgEGMAoGCCqGSM49BAMDA2gAMGUCMQCD6cHEFl4aXTQY2e3v9GwOAEZLuN+yRhHFD/3meoyhpmvOwgPUnPWTxnS4at+qIxUCMG1mihDK1A3UT82NQz60imOlM27jbdoXt2QfyFMm+YhidDkLF1vLUagM6BgD56KyKA==";
 
 const supportedProducts = new Set<string>(Object.values(PRODUCT_IDS));
+type AppleEnvironment = "Sandbox" | "Production";
 
 export class StoreKitVerificationError extends Error {}
 
@@ -29,7 +27,7 @@ export async function verifyStoreKitTransaction(
   const signedTransaction = value(body, "signedTransaction");
   if (!signedTransaction) throw new StoreKitVerificationError("Missing signed transaction.");
   const environment = decodedEnvironment(signedTransaction);
-  const verifier = verifierFor(env, environment);
+  const verifier = await verifierFor(env, environment);
   const decoded = await verifier.verifyAndDecodeTransaction(signedTransaction);
   const transaction = normalizedTransaction(decoded);
   return applyVerifiedTransaction(env, installationID, transaction);
@@ -38,7 +36,7 @@ export async function verifyStoreKitTransaction(
 export async function processAppStoreNotification(env: Env, body: unknown): Promise<void> {
   const signedPayload = value(body, "signedPayload");
   if (!signedPayload) throw new StoreKitVerificationError("Missing signed notification.");
-  const verifier = verifierFor(env, decodedEnvironment(signedPayload));
+  const verifier = await verifierFor(env, decodedEnvironment(signedPayload));
   const notification = await verifier.verifyAndDecodeNotification(signedPayload);
   if (notification.notificationType === "TEST") return;
   const signedTransaction = notification.data?.signedTransactionInfo;
@@ -93,12 +91,18 @@ function notificationStatus(
   notificationType?: string,
   status?: number,
 ): EntitlementStatus | undefined {
-  if (notificationType === NotificationTypeV2.REVOKE) return "revoked";
-  if (notificationType === NotificationTypeV2.REFUND) return "refunded";
+  if (notificationType === "REVOKE") return "revoked";
+  if (notificationType === "REFUND") return "refunded";
   return entitlementStatus(status);
 }
 
-function verifierFor(env: Env, environment: Environment): SignedDataVerifier {
+async function verifierFor(
+  env: Env,
+  environment: AppleEnvironment,
+): Promise<SignedDataVerifier> {
+  // Apple's package initializes its crypto dependency during import. Loading it
+  // inside the request keeps that work out of Cloudflare's global scope.
+  const { Environment, SignedDataVerifier } = await import("@apple/app-store-server-library");
   const roots = [
     Buffer.from(APPLE_ROOT_CA_G2, "base64"),
     Buffer.from(APPLE_ROOT_CA_G3, "base64"),
@@ -128,7 +132,7 @@ function verifierFor(env: Env, environment: Environment): SignedDataVerifier {
   throw new StoreKitVerificationError("Only Apple sandbox and production transactions are accepted.");
 }
 
-function decodedEnvironment(jws: string): Environment {
+function decodedEnvironment(jws: string): AppleEnvironment {
   const parts = jws.split(".");
   if (parts.length !== 3) throw new StoreKitVerificationError("Malformed JWS.");
   try {
@@ -137,8 +141,8 @@ function decodedEnvironment(jws: string): Environment {
       data?: { environment?: string };
     };
     const raw = payload.environment ?? payload.data?.environment;
-    if (raw === Environment.PRODUCTION) return Environment.PRODUCTION;
-    if (raw === Environment.SANDBOX) return Environment.SANDBOX;
+    if (raw === "Production") return "Production";
+    if (raw === "Sandbox") return "Sandbox";
   } catch {
     // The selected verifier still performs the authoritative validation.
   }
@@ -147,15 +151,15 @@ function decodedEnvironment(jws: string): Environment {
 
 function entitlementStatus(status?: number): EntitlementStatus | undefined {
   switch (status) {
-    case Status.ACTIVE:
+    case 1:
       return "active";
-    case Status.EXPIRED:
+    case 2:
       return "expired";
-    case Status.BILLING_RETRY:
+    case 3:
       return "billingRetry";
-    case Status.BILLING_GRACE_PERIOD:
+    case 4:
       return "gracePeriod";
-    case Status.REVOKED:
+    case 5:
       return "revoked";
     default:
       return undefined;

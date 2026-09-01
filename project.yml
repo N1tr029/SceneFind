@@ -29,13 +29,13 @@ settings:
     # a build that silently fails every identification.
     Release:
       APP_ATTEST_ENVIRONMENT: production
-      SCENEFIND_BACKEND_URL: ""
+      SCENEFIND_BACKEND_URL: https://scenefind-backend.hahmed0629.workers.dev
       SCENEFIND_PRIVACY_URL: https://n1tr029.github.io/SceneFind/privacy.html
       SCENEFIND_TERMS_URL: https://n1tr029.github.io/SceneFind/terms.html
       SCENEFIND_SUPPORT_URL: https://n1tr029.github.io/SceneFind/support.html
     TestFlight:
       APP_ATTEST_ENVIRONMENT: production
-      SCENEFIND_BACKEND_URL: ""
+      SCENEFIND_BACKEND_URL: https://scenefind-backend.hahmed0629.workers.dev
       SCENEFIND_PRIVACY_URL: https://n1tr029.github.io/SceneFind/privacy.html
       SCENEFIND_TERMS_URL: https://n1tr029.github.io/SceneFind/terms.html
       SCENEFIND_SUPPORT_URL: https://n1tr029.github.io/SceneFind/support.html

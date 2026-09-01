@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   evidenceParts,
   hasRemoteYouTubeVideo,
   parseTimedCaptions,
   parseWebVTT,
+  retrieveEvidence,
   tiktokDurationSeconds,
 } from "../src/sourceRetrieval";
 import type { AnalysisRequest } from "../src/types";
@@ -12,6 +13,40 @@ const request: AnalysisRequest = {
   sourceURL: "https://youtu.be/example",
   idempotencyKey: "youtube-regression",
 };
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("retrieveEvidence", () => {
+  it("falls back to public TikTok oEmbed evidence when the page is blocked", async () => {
+    const thumbnail = new Uint8Array([1, 2, 3]);
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.startsWith("https://www.tiktok.com/oembed")) {
+        return Response.json({
+          title: "Public clip title",
+          author_name: "Public creator",
+          thumbnail_url: "https://p16-sign.tiktokcdn-us.com/preview.jpeg",
+        });
+      }
+      if (url === "https://p16-sign.tiktokcdn-us.com/preview.jpeg") {
+        return new Response(thumbnail, { headers: { "content-type": "image/jpeg" } });
+      }
+      return new Response("blocked", { status: 403 });
+    }));
+
+    const evidence = await retrieveEvidence({
+      sourceURL: "https://www.tiktok.com/t/example/",
+      idempotencyKey: "blocked-tiktok-page",
+    });
+
+    expect(evidence.title).toBe("Public clip title");
+    expect(evidence.author).toBe("Public creator");
+    expect(evidence.thumbnailMimeType).toBe("image/jpeg");
+    expect(evidence.thumbnailDataBase64).toBe("AQID");
+  });
+});
 
 describe("evidenceParts", () => {
   it("passes a resolved public YouTube URL as video evidence", () => {

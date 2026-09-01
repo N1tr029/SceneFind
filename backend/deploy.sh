@@ -98,7 +98,7 @@ URL=$(printf '%s' "$deploy_out" | grep -oE 'https://[a-z0-9.-]+\.workers\.dev' |
 say "Worker live at $URL"
 
 printf '  smoke test GET /healthz ... '
-code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$URL/healthz" || echo 000)
+code=$(curl -sS --tlsv1.2 --http1.1 -o /dev/null -w '%{http_code}' --max-time 20 "$URL/healthz" || echo 000)
 [ "$code" = "200" ] || die "health check returned HTTP $code; the Worker deployed but is not serving"
 echo "200 OK"
 
