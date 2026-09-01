@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isExactEpisodeRoute, verifyCandidates, type WatchLinkQuery } from "../src/watchLinks";
+import { isExactEpisodeRoute, knowledgeLinks, verifyCandidates, type WatchLinkQuery } from "../src/watchLinks";
 
 const query: WatchLinkQuery = {
   title: "All American",
@@ -54,5 +54,39 @@ describe("Netflix exact episode resolution", () => {
       .toBe(false);
     expect(isExactEpisodeRoute(new URL("https://www.netflix.com/watch/81012998"), "netflix"))
       .toBe(true);
+  });
+});
+
+describe("Google knowledge-panel watch links", () => {
+  // Netflix answers an unauthenticated fetch of /watch/<id> with a page whose
+  // only title is "Netflix" — the show name is absent — so pageConfirms can
+  // never confirm one. Hulu hides episodes behind an opaque uuid the same way.
+  // Google's "Watch episode" panel already carries those exact ids, so panel
+  // links are taken on trust rather than verified.
+  it("accepts opaque Netflix and Hulu episode ids without page verification", () => {
+    const links = knowledgeLinks(
+      [
+        { url: "https://www.netflix.com/watch/81647019?source=35", label: "Netflix" },
+        { url: "https://www.hulu.com/watch/56a33b2c-a28b-4f4b-8daf-2892e627ca6c", label: "Hulu" },
+      ],
+      query,
+    );
+    expect(links.map((link) => link.service)).toEqual(["netflix", "hulu"]);
+    expect(links[0].url).toContain("/watch/81647019");
+  });
+
+  it("drops a show-level page, another country's storefront, and duplicates", () => {
+    const links = knowledgeLinks(
+      [
+        { url: "https://www.netflix.com/title/80057281", label: "Netflix" },
+        { url: "https://www.netflix.com/gb/watch/81647019", label: "Netflix" },
+        { url: "https://www.netflix.com/watch/81647019", label: "Netflix" },
+        { url: "https://www.netflix.com/watch/99999999", label: "Netflix" },
+        { url: "https://example.com/watch/1", label: "Not a provider" },
+      ],
+      query,
+    );
+    expect(links).toHaveLength(1);
+    expect(links[0].url).toBe("https://www.netflix.com/watch/81647019");
   });
 });

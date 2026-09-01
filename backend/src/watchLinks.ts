@@ -12,7 +12,7 @@
 // is served from KV — so spend scales with distinct episodes, not with users.
 
 import type { Env, PublicError, PublicErrorCode, WatchLink, WatchLinksResponse } from "./types";
-import { searchWeb, type WebSearchResult } from "./webSearch";
+import { searchWebDetailed, type KnowledgeWatchLink, type WebSearchResult } from "./webSearch";
 
 /** Hosts we are willing to hand a viewer, and the service each one is. */
 const PROVIDER_HOSTS: ReadonlyArray<readonly [string, WatchLink["service"], string]> = [
@@ -58,15 +58,25 @@ export async function handleWatchLinks(req: Request, env: Env): Promise<Response
     return json({ ...cached, source: "cache" } satisfies WatchLinksResponse);
   }
 
-  const results = await search(query, env);
-  const links = await verifyCandidates(results, query);
+  const { results, knowledge, ok } = await search(query, env);
+  const trusted = knowledgeLinks(knowledge, query);
+  const verified = await verifyCandidates(results, query);
+  // Google's panel wins per service: it carries the exact playback id, where a
+  // verified organic result is at best the right episode page.
+  const links = [
+    ...trusted,
+    ...verified.filter((link) => !trusted.some((entry) => entry.service === link.service)),
+  ].slice(0, MAX_SERVICES);
   const body: WatchLinksResponse = { links, source: "resolved" };
 
   // Cache misses too: without that, a title with no findable link would spend a
-  // search on every request forever.
-  await env.WATCH_LINKS.put(key, JSON.stringify({ links, source: "cache" }), {
-    expirationTtl: links.length > 0 ? HIT_TTL_SECONDS : MISS_TTL_SECONDS,
-  });
+  // search on every request forever. But only when the search actually ran —
+  // caching a transport failure would blank the episode for the miss TTL.
+  if (ok || links.length > 0) {
+    await env.WATCH_LINKS.put(key, JSON.stringify({ links, source: "cache" }), {
+      expirationTtl: links.length > 0 ? HIT_TTL_SECONDS : MISS_TTL_SECONDS,
+    });
+  }
 
   return json(body);
 }
@@ -122,7 +132,10 @@ export function searchQuery(query: WatchLinkQuery): string {
 
 /** Accepts a SerpApi key (64 hex chars) or a Brave key (`BSA…`), told apart by
  *  shape so the deployment only has to set one secret. */
-async function search(query: WatchLinkQuery, env: Env): Promise<WebSearchResult[]> {
+async function search(
+  query: WatchLinkQuery,
+  env: Env,
+): Promise<{ results: WebSearchResult[]; knowledge: KnowledgeWatchLink[]; ok: boolean }> {
   const queries = [searchQuery(query)];
   if (query.mediaType === "tv" && query.seasonNumber && query.episodeNumber) {
     // Netflix's generic title page routinely outranks the episode /watch page.
@@ -134,15 +147,50 @@ async function search(query: WatchLinkQuery, env: Env): Promise<WebSearchResult[
         ? `"${query.episodeTitle.replaceAll('"', "")}"`
         : `"season ${query.seasonNumber} episode ${query.episodeNumber}"`,
     ].join(" "));
+    // Plain-language episode phrasing is what triggers Google's "Watch episode"
+    // panel, which already contains each provider's opaque playback id. Netflix
+    // and Hulu both hide the episode behind one of those, and neither page can
+    // be verified by fetching it, so the panel is the only reliable source.
+    queries.push(`${query.title} s${query.seasonNumber} episode ${query.episodeNumber}`);
   }
-  const batches = await Promise.all(queries.map((value) => searchWeb({
+  const batches = await Promise.all(queries.map((value) => searchWebDetailed({
     apiKey: env.SEARCH_API_KEY,
     query: value,
     region: query.region,
   })));
   const unique = new Map<string, WebSearchResult>();
-  for (const result of batches.flat()) unique.set(result.url, result);
-  return [...unique.values()];
+  for (const result of batches.flatMap((batch) => batch.results)) unique.set(result.url, result);
+  return {
+    results: [...unique.values()],
+    knowledge: batches.flatMap((batch) => batch.knowledge),
+    // If every query failed we know nothing; caching that as "no links" would
+    // blank this episode for a week.
+    ok: batches.some((batch) => batch.ok),
+  };
+}
+
+/** Provider links Google published for this episode. Google resolved the exact
+ *  playback id, so these need no page verification — which is what makes them
+ *  the only workable path for Netflix and Hulu. */
+export function knowledgeLinks(entries: KnowledgeWatchLink[], query: WatchLinkQuery): WatchLink[] {
+  const bySerice = new Map<WatchLink["service"], WatchLink>();
+  for (const entry of entries) {
+    let url: URL;
+    try {
+      url = new URL(entry.url);
+    } catch {
+      continue;
+    }
+    const match = PROVIDER_HOSTS.find(
+      ([host]) => url.hostname === host || url.hostname.endsWith(`.${host}`),
+    );
+    if (!match) continue;
+    if (isForeignStorefront(url, query.region)) continue;
+    if (query.mediaType === "tv" && !isExactEpisodeRoute(url, match[1])) continue;
+    if (bySerice.has(match[1])) continue;
+    bySerice.set(match[1], { url: url.toString(), service: match[1], serviceName: match[2] });
+  }
+  return [...bySerice.values()];
 }
 
 // --- verification ----------------------------------------------------------

@@ -446,6 +446,7 @@ private struct ProviderRow: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(Color(hex: provider.brandColorHex))
+            .foregroundStyle(Color.legibleOn(hex: provider.brandColorHex))
             .accessibilityLabel("\((provider.destinationLevel ?? .exactEpisode).actionLabel) on \(provider.name)")
         }
         .padding(.vertical, 12)
@@ -668,5 +669,21 @@ private extension Color {
             green: Double((value >> 8) & 0xFF) / 255,
             blue: Double(value & 0xFF) / 255
         )
+    }
+
+    /// Label colour that stays legible on a brand-tinted prominent button.
+    /// Apple TV's brand colour is pure white, and a bordered-prominent button
+    /// draws its label white by default — which rendered the control as a
+    /// blank white pill.
+    static func legibleOn(hex: String) -> Color {
+        let value = UInt64(hex, radix: 16) ?? 0xFFFFFF
+        let r = Double((value >> 16) & 0xFF) / 255
+        let g = Double((value >> 8) & 0xFF) / 255
+        let b = Double(value & 0xFF) / 255
+        func linear(_ c: Double) -> Double {
+            c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        let luminance = 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+        return luminance > 0.45 ? .black : .white
     }
 }
