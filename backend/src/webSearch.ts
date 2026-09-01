@@ -60,6 +60,8 @@ export async function searchWebDetailed(options: {
       inline_videos?: Array<{ link?: string; title?: string; snippet?: string }>;
       knowledge_graph?: unknown;
       available_on?: unknown;
+      watch_now?: unknown;
+      episodes?: unknown;
     };
     try {
       const response = await fetcher(url, { headers: { accept: "application/json" } });
@@ -73,9 +75,13 @@ export async function searchWebDetailed(options: {
         ? [{ url: normalizedResultURL(result.link), title: result.title ?? "", snippet: result.snippet ?? "" }]
         : []);
     // Only the knowledge panel is trusted here; organic results are guesses.
+    // watch_now is documented inside knowledge_graph, but SerpApi hoists some
+    // panels to the top level depending on how Google rendered the query.
     const knowledge = [
       ...collectKnowledgeLinks(body.knowledge_graph),
       ...collectKnowledgeLinks(body.available_on),
+      ...collectKnowledgeLinks(body.watch_now),
+      ...collectKnowledgeLinks(body.episodes),
     ];
     return { results, ok: true, knowledge };
   }
