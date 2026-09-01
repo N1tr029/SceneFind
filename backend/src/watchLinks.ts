@@ -136,28 +136,44 @@ async function search(
   query: WatchLinkQuery,
   env: Env,
 ): Promise<{ results: WebSearchResult[]; knowledge: KnowledgeWatchLink[]; ok: boolean }> {
-  const queries = [searchQuery(query)];
-  if (query.mediaType === "tv" && query.seasonNumber && query.episodeNumber) {
-    // Netflix's generic title page routinely outranks the episode /watch page.
-    // Ask for the route shape explicitly so the opaque playback id is present.
-    queries.push([
-      "site:netflix.com/watch",
-      `"${query.title.replaceAll('"', "")}"`,
-      query.episodeTitle
-        ? `"${query.episodeTitle.replaceAll('"', "")}"`
-        : `"season ${query.seasonNumber} episode ${query.episodeNumber}"`,
-    ].join(" "));
-    // Plain-language episode phrasing is what triggers Google's "Watch episode"
-    // panel, which already contains each provider's opaque playback id. Netflix
-    // and Hulu both hide the episode behind one of those, and neither page can
-    // be verified by fetching it, so the panel is the only reliable source.
-    queries.push(`${query.title} s${query.seasonNumber} episode ${query.episodeNumber}`);
-  }
-  const batches = await Promise.all(queries.map((value) => searchWebDetailed({
+  const ask = (value: string) => searchWebDetailed({
     apiKey: env.SEARCH_API_KEY,
     query: value,
     region: query.region,
-  })));
+  });
+
+  // Ask the way a person would first. Plain-language episode phrasing is what
+  // triggers Google's "Watch episode" panel, and the panel carries each
+  // provider's exact playback id — the thing Netflix and Hulu cannot be
+  // verified into. When it answers we are done, which makes the common episode
+  // cost one search rather than three. SerpApi's free tier is 250 a month, so
+  // that difference is the difference between ~80 episodes and ~250.
+  if (query.mediaType === "tv" && query.seasonNumber && query.episodeNumber) {
+    const panel = await ask(`${query.title} s${query.seasonNumber} episode ${query.episodeNumber}`);
+    if (knowledgeLinks(panel.knowledge, query).length > 0) {
+      return { results: panel.results, knowledge: panel.knowledge, ok: true };
+    }
+    const fallbacks = await Promise.all([
+      ask(searchQuery(query)),
+      // Netflix's generic title page routinely outranks the episode /watch
+      // page. Ask for the route shape explicitly so the opaque id is present.
+      ask([
+        "site:netflix.com/watch",
+        `"${query.title.replaceAll('"', "")}"`,
+        query.episodeTitle
+          ? `"${query.episodeTitle.replaceAll('"', "")}"`
+          : `"season ${query.seasonNumber} episode ${query.episodeNumber}"`,
+      ].join(" ")),
+    ]);
+    return merge([panel, ...fallbacks]);
+  }
+
+  return merge([await ask(searchQuery(query))]);
+}
+
+function merge(
+  batches: Array<{ results: WebSearchResult[]; knowledge: KnowledgeWatchLink[]; ok: boolean }>,
+): { results: WebSearchResult[]; knowledge: KnowledgeWatchLink[]; ok: boolean } {
   const unique = new Map<string, WebSearchResult>();
   for (const result of batches.flatMap((batch) => batch.results)) unique.set(result.url, result);
   return {
