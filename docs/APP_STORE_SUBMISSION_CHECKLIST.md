@@ -88,6 +88,25 @@ not the bundle ID, is the `APPLE_APP_ID` Worker secret.
 
 ## Group 3 — Signing and the first real build
 
+Xcode Cloud builds 41, 43, 45 and 47 all failed with "Exporting for App Store
+Distribution failed" and the TestFlight post-action never ran, which is why the
+newest TestFlight build sat at 37 from 2026-07-25. The cause was the App Attest
+entitlement `com.apple.developer.devicecheck.appattest-environment`, added in
+2ff2212 on 2026-08-24 — the first failing build is the first one after it, with
+four failures since and none before.
+
+- [x] Enable the **App Attest** capability on App ID `com.kavigandham.scenefind`
+      in the Developer portal for team T4VT6R837D (reported done 2026-09-01).
+      Note this cannot be seen or done from the Shafiq and Company LLC account:
+      developer.apple.com lists only 8Q5ZM85YCZ and ignores `?teamId=`.
+- [ ] Confirm the next build's Archive action succeeds and the TestFlight
+      post-action actually runs. A green Archive is not enough — check the
+      post-action, because it can fail while the build reads as successful.
+- [ ] Relink GitHub in Xcode Cloud ("Authorize" on the Builds banner). While it
+      is unlinked, **Start Build and Rebuild are disabled**, so the only way to
+      trigger a build is to push a commit.
+
+
 - [ ] Add an Apple Developer account for team `T4VT6R837D` in Xcode and create
       distribution provisioning profiles for `com.kavigandham.scenefind` and
       `com.kavigandham.scenefind.ShareExtension`. Automatic signing has never
