@@ -506,6 +506,21 @@ async function fetchArtwork(title: string): Promise<string | null> {
   return match?.show?.image?.original ?? match?.show?.image?.medium ?? null;
 }
 
+/** Brand symbol and colour per service, mirroring the local Debug path so a
+ *  backend-resolved provider looks identical to a locally-resolved one. The
+ *  backend previously returned play.tv.fill and FFFFFF for everything, which
+ *  made every provider row render as a white pill. */
+const PROVIDER_STYLE: Record<string, { symbol: string; color: string }> = {
+  netflix: { symbol: "play.tv.fill", color: "E50914" },
+  appleTV: { symbol: "appletv.fill", color: "FFFFFF" },
+  disneyPlus: { symbol: "sparkles", color: "4D8CFF" },
+  hulu: { symbol: "play.tv.fill", color: "1CE783" },
+  primeVideo: { symbol: "play.circle.fill", color: "00A8E1" },
+  max: { symbol: "play.tv.fill", color: "6C5CE7" },
+  peacock: { symbol: "sparkles.tv.fill", color: "FFD500" },
+  paramountPlus: { symbol: "play.tv.fill", color: "0064FF" },
+};
+
 async function fetchWatchProviders(
   env: Env,
   candidate: SceneCandidate,
@@ -524,19 +539,22 @@ async function fetchWatchProviders(
   const body = await response.json() as {
     links?: Array<{ url: string; service: string; serviceName: string }>;
   };
-  return (body.links ?? []).map((link) => ({
+  return (body.links ?? []).map((link) => {
+    const style = PROVIDER_STYLE[link.service] ?? { symbol: "play.circle.fill", color: "8AB4F8" };
+    return {
     id: link.service,
     name: link.serviceName,
     offer: candidate.seasonNumber ? "Verified episode" : "Verified title",
     episodeURL: link.url,
     sceneURL: null,
-    symbolName: "play.tv.fill",
-    brandColorHex: "FFFFFF",
+    symbolName: style.symbol,
+    brandColorHex: style.color,
     destinationLevel: candidate.seasonNumber ? "exactEpisode" : "show",
     destinationDiagnostic: candidate.seasonNumber
       ? "Backend-verified exact provider page for this episode."
       : "The provider page confirmed this title.",
-  }));
+    };
+  });
 }
 
 function normalize(value: string): string {

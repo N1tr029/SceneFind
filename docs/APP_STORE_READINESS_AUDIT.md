@@ -1,6 +1,6 @@
 # SceneFind App Store Readiness Audit
 
-Audit date: 2026-09-01 (previous: 2026-08-29, 2026-08-19). “Implemented” means present in the repository and
+Audit date: 2026-09-01, second pass (previous: 2026-08-29, 2026-08-19). “Implemented” means present in the repository and
 covered by the stated local evidence. It does not mean an external App Store,
 Cloudflare, physical-device, or social-platform gate was completed.
 
@@ -49,6 +49,45 @@ Cloudflare, physical-device, or social-platform gate was completed.
   passed, production bundle dry-run succeeded with Wrangler 4.124.0 on
   Node 24 (1,927.83 KiB upload / 319.52 KiB gzip), and the complete dependency
   audit reported 0 vulnerabilities.
+
+## Watch-link resolution, traced end to end 2026-09-01
+
+Netflix links never opened the episode, and the cause was three faults in
+series. Each was verified against live services rather than reasoned about.
+
+1. Netflix cannot be page-verified. An unauthenticated fetch of
+   `/watch/<id>` returns a document whose entire title is `Netflix` — no show,
+   no episode — so the confirmation check could never match and every Netflix
+   candidate was discarded. Hulu hides episodes behind an opaque uuid the same
+   way.
+2. Google's "Watch episode" panel was never read. `searchWeb` parsed only
+   `organic_results` and `inline_videos`.
+3. The panel's link is not the provider's. SerpApi returns
+   `available_on: [{ link: "google.com/goto?url=…", name: "Netflix" }]`, so the
+   host filter discarded it. The provider URL exists only in the first
+   `Location` header, and **only** the first: following the chain to
+   completion lands on `/title/<showId>`, because Netflix collapses an
+   unauthenticated `/watch/`. Following redirects would have destroyed the
+   episode and still appeared to work.
+
+Route matching was also wrong for three providers, found by reading eight live
+panels: Disney+ uses `/play/<uuid>`, Max uses `/show/<id>/s1/e1-<slug>/`, and
+Prime Video uses a bare `/detail/<asin>`. Max also serves `max.com` now.
+
+Confirmed working: the resolved Netflix URL is byte-identical to the one
+Google gives a browser, and five provider links taken from live panels were
+opened by hand and landed on the correct episodes.
+
+Known gap: SerpApi returns fewer providers than a signed-in browser. For the
+same query the browser showed Netflix and Apple TV; `available_on` carried
+Netflix only. Google personalises that panel by subscription, and SerpApi is
+logged out. One correct deep link per episode still arrives, but "My services"
+filtering has less to work with than the UI implies.
+
+Quota: SerpApi Free is 250 searches a month and 177 were already spent. The
+panel query now runs first and short-circuits, so a new episode costs one
+search rather than three, and results cache per episode for 90 days — the
+ceiling is breadth of catalogue, not traffic.
 
 ## Release blockers
 
