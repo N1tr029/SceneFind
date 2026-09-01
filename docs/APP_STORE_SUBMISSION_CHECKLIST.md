@@ -34,27 +34,57 @@ backend cannot identify anything, and the build gate refuses to produce one.
 
 ## Group 2 — App Store Connect setup
 
-- [ ] Create the three products with these exact IDs, or entitlement lookups
-      will not match:
-      | Product | ID | Price |
-      | --- | --- | ---: |
-      | Starter | `com.kavigandham.scenefind.starter.monthly` | $0.99/mo |
-      | Pro | `com.kavigandham.scenefind.pro.monthly` | $9.99/mo |
-      | Lifetime | `com.kavigandham.scenefind.lifetime` | $19.99 once |
-- [ ] Add subscription group metadata, localized display names, and review
-      screenshots for each product.
-- [ ] Fill in App Information: category, age rating, support URL
-      (`https://n1tr029.github.io/SceneFind/support.html`), privacy policy URL
-      (`https://n1tr029.github.io/SceneFind/privacy.html`), and a support
-      contact email.
-- [ ] Complete the App Privacy questionnaire. It must agree with
-      `SceneFindApp/Resources/PrivacyInfo.xcprivacy`, which declares other user
-      content, device ID, purchase history, and performance data — all as app
-      functionality, none linked to identity, none used for tracking.
+Mostly done as of 2026-08-29. App Apple ID is **6792423118** — that numeric ID,
+not the bundle ID, is the `APPLE_APP_ID` Worker secret.
+
+- [x] All three products exist with the exact IDs entitlement lookup requires:
+      | Product | ID | Apple ID | Price |
+      | --- | --- | --- | ---: |
+      | Starter | `com.kavigandham.scenefind.starter.monthly` | 6807253941 | $0.99/mo |
+      | Pro | `com.kavigandham.scenefind.pro.monthly` | 6807254844 | $9.99/mo |
+      | Lifetime | `com.kavigandham.scenefind.lifetime` | 6807253318 | $19.99 once |
+      Subscription group "SceneFind Plans" is 22350290.
+- [x] Localized display names and descriptions on all three.
+- [x] Subscription levels ordered by service: Pro is level 1, Starter level 2, so
+      Starter → Pro is an immediate upgrade rather than a deferred downgrade.
+      The level UI is a react-beautiful-dnd widget that ignores synthetic drag
+      and keyboard entirely; this was set through the ASC API instead.
+- [x] Review notes on all three products explaining that the charge is for
+      identification work, that allowance is server-side and consumed only on
+      success, and where the paywall lives.
+- [ ] **Review screenshot for each of the three products.** This is the only
+      reason all three still read `MISSING_METADATA`, and it blocks submission.
+      It cannot be captured headlessly: a `.storekit` configuration is applied
+      only when Xcode launches via the scheme, so a `simctl`-launched build
+      shows "Plans unavailable" and a `-StoreKitConfigurationFilePath` launch
+      argument has no effect. Capture it by running the SceneFind scheme from
+      Xcode (which does apply the configuration), or from sandbox once the
+      Worker is deployed.
+- [x] App Information: category Entertainment + Photo & Video, subtitle,
+      Content Rights answered, age rating questionnaire completed → **4+**.
+- [x] App Privacy published — Device ID, Other User Content, Purchase History
+      and Performance Data, all App Functionality, none linked to identity,
+      none used for tracking. Matches `PrivacyInfo.xcprivacy`; keep the two in
+      step or review will flag the contradiction.
+- [x] Version 1.0 metadata: description with the full auto-renewable
+      disclosure, keywords, promotional text, support and marketing URLs,
+      copyright, and App Review notes covering guidelines 5.2.2 and 5.2.3.
+- [x] Release set to **manual**, so an approved v1 does not go live before the
+      backend has taken real traffic.
+- [x] "Sign-in required" unchecked — the app has no login, and leaving it
+      ticked makes review wait for credentials that do not exist.
+- [ ] **App Review contact information** — first name, last name, phone, email.
+      Left blank deliberately; it is personal contact data.
+- [ ] Set `[JURISDICTION]` in `site/terms.html`. The legal entity is filled in
+      as "Kavi Gandham" to match the Apple seller name and the copyright line;
+      governing law is a legal choice and is still a visible placeholder on the
+      live page.
+- [ ] Digital Services Act trader status — needs an Admin or Account Holder.
+      Without it the app is removed from sale in the EU.
 - [ ] Resolve the standing "cannot identify your GitHub account — relink"
       warning on the Builds page.
-- [ ] Replace `[LEGAL ENTITY]` and `[JURISDICTION]` in `site/terms.html`, then
-      push. Both render as highlighted placeholders until you do.
+- [ ] Point App Store Server Notifications V2 at `<worker-url>/v1/app-store/notifications`
+      once the Worker is deployed.
 
 ## Group 3 — Signing and the first real build
 

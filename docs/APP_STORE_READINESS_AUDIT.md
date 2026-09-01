@@ -1,6 +1,6 @@
 # SceneFind App Store Readiness Audit
 
-Audit date: 2026-08-29 (previous: 2026-08-19). “Implemented” means present in the repository and
+Audit date: 2026-09-01 (previous: 2026-08-29, 2026-08-19). “Implemented” means present in the repository and
 covered by the stated local evidence. It does not mean an external App Store,
 Cloudflare, physical-device, or social-platform gate was completed.
 
@@ -63,9 +63,19 @@ Cloudflare, physical-device, or social-platform gate was completed.
   `SCENEFIND_BACKEND_URL`, and regenerates the project. Configure App Store
   Server Notifications V2 to point at the deployed Worker afterwards.
   The privacy, terms, and support URLs are configured and no longer block.
-- Create/approve all three exact products and subscription metadata in App
-  Store Connect. StoreKit configuration is local metadata, not proof of App
-  Store Connect state.
+- Attach a review screenshot to each of the three products. Everything else in
+  App Store Connect is configured (2026-09-01): products exist with the exact
+  IDs and prices, localizations, review notes, correct level ordering, category,
+  age rating 4+, published App Privacy matching the manifest, and full version
+  metadata. All three products still read `MISSING_METADATA` solely because the
+  review screenshot is absent. It cannot be captured headlessly — a `.storekit`
+  configuration applies only when Xcode launches via the scheme, so a
+  `simctl`-launched build renders "Plans unavailable" and a
+  `-StoreKitConfigurationFilePath` launch argument is ignored. Capture from
+  Xcode, or from sandbox after the Worker is deployed.
+- Provide App Review contact information and the EU Digital Services Act trader
+  status. The latter needs an Admin or Account Holder and, if unset, removes the
+  app from sale in the EU.
 - Validate production App Attest through the deployed backend on a physical
   iPhone. Both detected iPhones were unavailable during this audit.
 - Validate sandbox purchase, renewal, upgrade/downgrade, grace, billing retry,
@@ -88,11 +98,13 @@ Cloudflare, physical-device, or social-platform gate was completed.
 - Track the deprecated `jsrsasign@11.1.5` transitive dependency currently used
   by Apple's App Store Server Library. It has no reported audit vulnerability
   in this lockfile, but remains a maintenance/supply-chain risk.
-- Supply App Store screenshots, privacy labels, age rating, review notes,
-  localizations, and a support contact email in App Store Connect. The icon,
-  privacy page, terms page, and support page are done; export compliance is
-  answered in `Info.plist`. Before submission, replace the `[LEGAL ENTITY]` and
-  `[JURISDICTION]` placeholders in `site/terms.html`.
+- Supply App Store product-page screenshots. These need a working backend:
+  every screen currently renders "Allowance unavailable offline", because the
+  app correctly fails closed with no Worker. Privacy labels, age rating, review
+  notes, localizations, the icon and the legal pages are all done, and export
+  compliance is answered in `Info.plist`. `site/terms.html` still carries a
+  visible `[JURISDICTION]` placeholder; the legal entity is set to the Apple
+  seller name.
 - Produce and validate a signed archive only after the preceding configuration
   exists; then upload build 11 to TestFlight and run the physical share,
   playback, background/foreground, poor-network, and offline matrix.
