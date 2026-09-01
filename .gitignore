@@ -10,5 +10,6 @@ xcuserdata/
 Secrets.xcconfig
 /SceneFindApp/Resources/PrototypeSecrets.plist
 
-# Accidental duplicate of the generated Xcode project.
-/SceneFind 2.xcodeproj/
+# Accidental duplicates of the generated Xcode project. macOS appends
+# " 2", " 3" ... when something re-creates the bundle during a sync.
+/SceneFind [0-9].xcodeproj/
