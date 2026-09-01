@@ -22,6 +22,7 @@ const PROVIDER_HOSTS: ReadonlyArray<readonly [string, WatchLink["service"], stri
   ["hulu.com", "hulu", "Hulu"],
   ["primevideo.com", "primeVideo", "Prime Video"],
   ["hbomax.com", "max", "Max"],
+  ["max.com", "max", "Max"],
   ["peacocktv.com", "peacock", "Peacock"],
   ["paramountplus.com", "paramountPlus", "Paramount+"],
 ];
@@ -188,6 +189,36 @@ function merge(
 /** Provider links Google published for this episode. Google resolved the exact
  *  playback id, so these need no page verification — which is what makes them
  *  the only workable path for Netflix and Hulu. */
+/** Route shapes providers actually use for a single episode, taken from live
+ *  Google "Watch episode" panels rather than guessed:
+ *
+ *    Netflix      /watch/81647019
+ *    Apple TV     /us/episode/the-swell/umc.cmc…
+ *    Hulu         /watch/<uuid>
+ *    Disney+      /play/<uuid>                    (not /video/)
+ *    Max          /show/<id>/s1/e1-celebration/…  (not /video/watch/)
+ *    Peacock      /watch-online/tv/…/episodes/…
+ *    Paramount+   /shows/video/<id>/
+ *    Prime Video  /detail/<asin>
+ *
+ *  These are only applied to panel links. A panel entry is episode-scoped by
+ *  provenance — Google emitted it for an episode query — which is what makes
+ *  Prime Video's `/detail/<asin>` usable here and not from an organic result,
+ *  where the same shape is just as likely to be the series page. */
+function isPanelEpisodeRoute(url: URL, service: WatchLink["service"]): boolean {
+  const path = url.pathname.toLowerCase();
+  switch (service) {
+    case "netflix": return /^\/watch\/[^/]+/.test(path);
+    case "appleTV": return path.includes("/episode/");
+    case "disneyPlus": return path.includes("/play/") || path.includes("/video/");
+    case "hulu": return path.includes("/watch/") || path.includes("/videos/");
+    case "primeVideo": return path.includes("/detail/");
+    case "max": return /\/s\d+\/e\d+/.test(path) || path.includes("/video/watch/") || path.includes("/episode/");
+    case "peacock": return path.includes("/episodes/") || path.includes("/watch/playback/");
+    case "paramountPlus": return path.includes("/video/") || url.hostname === "link.us.paramountplus.com";
+  }
+}
+
 export function knowledgeLinks(entries: KnowledgeWatchLink[], query: WatchLinkQuery): WatchLink[] {
   const bySerice = new Map<WatchLink["service"], WatchLink>();
   for (const entry of entries) {
@@ -202,7 +233,7 @@ export function knowledgeLinks(entries: KnowledgeWatchLink[], query: WatchLinkQu
     );
     if (!match) continue;
     if (isForeignStorefront(url, query.region)) continue;
-    if (query.mediaType === "tv" && !isExactEpisodeRoute(url, match[1])) continue;
+    if (query.mediaType === "tv" && !isPanelEpisodeRoute(url, match[1])) continue;
     if (bySerice.has(match[1])) continue;
     bySerice.set(match[1], { url: url.toString(), service: match[1], serviceName: match[2] });
   }

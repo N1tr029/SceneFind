@@ -90,3 +90,40 @@ describe("Google knowledge-panel watch links", () => {
     expect(links[0].url).toBe("https://www.netflix.com/watch/81647019");
   });
 });
+
+describe("real provider episode routes from live Google panels", () => {
+  // Every URL below was taken from an actual Google "Watch episode" panel.
+  // Three of them were rejected by the original matcher: Disney+ uses /play/
+  // not /video/, Max uses /show/<id>/s1/e1-<slug>/ not /video/watch/, and
+  // Prime Video uses a bare /detail/<asin>.
+  const cases: Array<[string, string]> = [
+    ["netflix", "https://www.netflix.com/watch/81647019?source=35"],
+    ["appleTV", "https://tv.apple.com/us/episode/the-swell/umc.cmc.44rnarngjcje0p7z2f9kllg9j"],
+    ["hulu", "https://www.hulu.com/watch/dc76449b-6e42-407a-86e3-7576e4e328c8"],
+    ["disneyPlus", "https://www.disneyplus.com/play/dc76449b-6e42-407a-86e3-7576e4e328c8"],
+    ["paramountPlus", "https://www.paramountplus.com/shows/video/2063731264/"],
+    ["peacock", "https://www.peacocktv.com/watch-online/tv/the-office/4902514835143843112/seasons/3/episodes/gay-witch-hunt-episode-1/6c15523f-edde-39b7-892a-d9db50dd020a"],
+    ["primeVideo", "https://www.primevideo.com/detail/0S1FYJ3LY9KTL9C7WFFAGA9F6F"],
+    ["max", "https://www.hbomax.com/show/a8484031-f244-4661-9fb7-0932bd1ba872/s1/e1-celebration/e457df99-f817-4646-b64c-8ce7afaeb405"],
+  ];
+
+  for (const [service, url] of cases) {
+    it(`keeps the ${service} episode link`, () => {
+      const links = knowledgeLinks([{ url, label: service }], query);
+      expect(links).toHaveLength(1);
+      expect(links[0].service).toBe(service);
+    });
+  }
+
+  it("still drops show-level pages and other storefronts", () => {
+    const links = knowledgeLinks(
+      [
+        { url: "https://www.netflix.com/title/80236318", label: "Netflix" },
+        { url: "https://tv.apple.com/us/show/ted-lasso/umc.cmc.vtoh0mn0xn7t3c643xqonfzy", label: "Apple TV" },
+        { url: "https://tv.apple.com/pl/episode/celebration/umc.cmc.4ytb59nu54zq28hytjfpqihr5", label: "Apple TV" },
+      ],
+      query,
+    );
+    expect(links).toHaveLength(0);
+  });
+});
