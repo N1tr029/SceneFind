@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isExactEpisodeRoute, knowledgeLinks, verifyCandidates, type WatchLinkQuery } from "../src/watchLinks";
+import { isExactEpisodeRoute, knowledgeLinks, resolveRedirect, verifyCandidates, type WatchLinkQuery } from "../src/watchLinks";
 
 const query: WatchLinkQuery = {
   title: "All American",
@@ -125,5 +125,46 @@ describe("real provider episode routes from live Google panels", () => {
       query,
     );
     expect(links).toHaveLength(0);
+  });
+});
+
+describe("Google redirector resolution", () => {
+  // SerpApi returns the panel's destination as available_on[].link, which is
+  // google.com/goto?url=<opaque>. The provider URL exists only in the first
+  // Location header. Verified live: that hop yields /watch/81647019, while
+  // following the chain to completion lands on /title/80236318 because Netflix
+  // collapses an unauthenticated /watch/ to the show page.
+  it("takes the first hop and does not follow the chain", async () => {
+    const hops: string[] = [];
+    const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      hops.push(String(input));
+      expect(init?.redirect).toBe("manual");
+      return new Response(null, {
+        status: 302,
+        headers: { location: "https://www.netflix.com/watch/81647019?source=35" },
+      });
+    }) as unknown as typeof fetch;
+
+    const resolved = await resolveRedirect(
+      "https://www.google.com/goto?url=CAESaAHrOzAV79uH4nF",
+      fetcher,
+    );
+    expect(resolved).toBe("https://www.netflix.com/watch/81647019?source=35");
+    expect(hops).toHaveLength(1);
+    expect(knowledgeLinks([{ url: resolved, label: "Netflix" }], query)[0].service).toBe("netflix");
+  });
+
+  it("leaves a direct provider link untouched and never fetches it", async () => {
+    const fetcher = (async () => {
+      throw new Error("should not be fetched");
+    }) as unknown as typeof fetch;
+    const direct = "https://www.hulu.com/watch/dc76449b-6e42-407a-86e3-7576e4e328c8";
+    expect(await resolveRedirect(direct, fetcher)).toBe(direct);
+  });
+
+  it("keeps the original link when the redirector gives no location", async () => {
+    const fetcher = (async () => new Response(null, { status: 200 })) as unknown as typeof fetch;
+    const raw = "https://www.google.com/goto?url=CAES";
+    expect(await resolveRedirect(raw, fetcher)).toBe(raw);
   });
 });

@@ -60,7 +60,14 @@ export async function handleWatchLinks(req: Request, env: Env): Promise<Response
   }
 
   const { results, knowledge, ok } = await search(query, env);
-  const trusted = knowledgeLinks(knowledge, query);
+  // Panel entries point at Google's redirector; the provider URL is one hop away.
+  const resolved = await Promise.all(
+    knowledge.slice(0, 8).map(async (entry) => ({
+      ...entry,
+      url: await resolveRedirect(entry.url),
+    })),
+  );
+  const trusted = knowledgeLinks(resolved, query);
   const verified = await verifyCandidates(results, query);
   // Google's panel wins per service: it carries the exact playback id, where a
   // verified organic result is at best the right episode page.
@@ -218,6 +225,37 @@ function isPanelEpisodeRoute(url: URL, service: WatchLink["service"]): boolean {
     case "paramountPlus": return path.includes("/video/") || url.hostname === "link.us.paramountplus.com";
   }
 }
+
+/** Google hands the panel's destination over as its own redirector —
+ *  `google.com/goto?url=<opaque>` — so the provider URL only exists in the
+ *  first Location header. Resolve exactly one hop and stop: Netflix answers an
+ *  unauthenticated /watch/<id> with a redirect to the show page, so following
+ *  the chain to completion throws away the episode we just found. */
+export async function resolveRedirect(
+  raw: string,
+  fetcher: typeof fetch = fetch,
+): Promise<string> {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return raw;
+  }
+  const isGoogleRedirect = /(^|\.)google\.[a-z.]+$/i.test(url.hostname)
+    && (url.pathname === "/goto" || url.pathname === "/url");
+  if (!isGoogleRedirect) return raw;
+  try {
+    const response = await fetcher(url, { redirect: "manual", headers: { "user-agent": PANEL_USER_AGENT } });
+    const location = response.headers.get("location");
+    return location ? new URL(location, url).toString() : raw;
+  } catch {
+    return raw;
+  }
+}
+
+const PANEL_USER_AGENT =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 " +
+  "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
 export function knowledgeLinks(entries: KnowledgeWatchLink[], query: WatchLinkQuery): WatchLink[] {
   const bySerice = new Map<WatchLink["service"], WatchLink>();
