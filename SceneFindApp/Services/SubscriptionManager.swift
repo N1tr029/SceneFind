@@ -26,6 +26,14 @@ enum SubscriptionAccessState: Equatable {
 
     var canAnalyze: Bool {
         if case .online(let entitlement) = self { return entitlement.canAnalyze }
+        #if DEBUG
+        // Debug builds carry local provider keys and no SCENEFIND_BACKEND_URL,
+        // so the entitlement call can never succeed and every analysis was
+        // blocked — which made the local adapters the README documents
+        // unreachable, and local development impossible. Release and TestFlight
+        // are keyless and must stay fail-closed, so this cannot affect them.
+        if case .offline = self { return true }
+        #endif
         return false
     }
 
