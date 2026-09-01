@@ -3,16 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var model: SceneFindModel
     @EnvironmentObject private var subscription: SubscriptionManager
-    @State private var apiKey = ""
-    @State private var modelName = GeminiConfiguration.defaultModel
     @State private var keyStatus: KeyStatus = .notConfigured
-    @State private var isAPIKeyVisible = false
-    @State private var groqAPIKey = ""
-    @State private var groqKeyStatus: KeyStatus = .notConfigured
-    @State private var isGroqAPIKeyVisible = false
-    @State private var searchAPIKey = ""
-    @State private var searchKeyStatus: KeyStatus = .notConfigured
-    @State private var isSearchAPIKeyVisible = false
 
     private enum KeyStatus: Equatable {
         case notConfigured
@@ -110,174 +101,6 @@ struct SettingsView: View {
                 }
             }
 
-            #if DEBUG
-            Section("Recognition") {
-                DisclosureGroup("API settings") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 8) {
-                            Group {
-                                if isAPIKeyVisible {
-                                    TextField("Gemini API key", text: $apiKey)
-                                } else {
-                                    SecureField("Gemini API key", text: $apiKey)
-                                }
-                            }
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .privacySensitive()
-
-                            Button {
-                                isAPIKeyVisible.toggle()
-                            } label: {
-                                Image(systemName: isAPIKeyVisible ? "eye.slash" : "eye")
-                                    .frame(width: 30, height: 30)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(isAPIKeyVisible ? "Hide API key" : "Show API key")
-                        }
-
-                        Text(keyStatus == .bundledDefault
-                             ? "This is the prototype default. Saving replaces it only on this iPhone."
-                             : "This iPhone is using your saved replacement key.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        TextField("Model", text: $modelName)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-
-                        Button {
-                            saveGeminiSettings()
-                        } label: {
-                            Label("Save API settings", systemImage: "key.fill")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                        if keyStatus == .keychain || keyStatus == .debugLocalStorage {
-                            Button("Restore bundled default", role: .destructive) {
-                                GeminiConfiguration.clearCustomAPIKey()
-                                apiKey = GeminiConfiguration.apiKey ?? ""
-                                keyStatus = GeminiConfiguration.storageLocation == .bundledDefault ? .bundledDefault : .notConfigured
-                            }
-                        }
-
-                        Divider()
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Label("Groq episode verification", systemImage: "checkmark.seal.fill")
-                                .font(.subheadline.weight(.semibold))
-                            Text("Uses Groq's free plan when available and falls back to Gemini automatically.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        HStack(spacing: 8) {
-                            Group {
-                                if isGroqAPIKeyVisible {
-                                    TextField("Groq API key", text: $groqAPIKey)
-                                } else {
-                                    SecureField("Groq API key", text: $groqAPIKey)
-                                }
-                            }
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .privacySensitive()
-
-                            Button {
-                                isGroqAPIKeyVisible.toggle()
-                            } label: {
-                                Image(systemName: isGroqAPIKeyVisible ? "eye.slash" : "eye")
-                                    .frame(width: 30, height: 30)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(isGroqAPIKeyVisible ? "Hide Groq API key" : "Show Groq API key")
-                        }
-
-                        Label(groqKeyStatus.label, systemImage: groqKeyStatus.symbol)
-                            .font(.caption)
-                            .foregroundStyle(groqKeyStatus.color)
-
-                        Button {
-                            saveGroqSettings()
-                        } label: {
-                            Label("Save Groq key", systemImage: "key.fill")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(groqAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                        if groqKeyStatus == .keychain || groqKeyStatus == .debugLocalStorage {
-                            Button("Restore bundled Groq default", role: .destructive) {
-                                GroqConfiguration.clearAPIKey()
-                                loadGroqSettings()
-                            }
-                        }
-
-                        Divider()
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Label("Watch-link search", systemImage: "magnifyingglass.circle.fill")
-                                .font(.subheadline.weight(.semibold))
-                            Text("""
-                                Streaming services hide episode pages behind ids that cannot be \
-                                guessed, so SceneFind finds them by search and then confirms each \
-                                page before offering it. Without a key it tries a keyless search \
-                                that works only intermittently, then falls back to opening the \
-                                service's own search page.
-                                """)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        HStack(spacing: 8) {
-                            Group {
-                                if isSearchAPIKeyVisible {
-                                    TextField("Brave Search API key", text: $searchAPIKey)
-                                } else {
-                                    SecureField("Brave Search API key", text: $searchAPIKey)
-                                }
-                            }
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .privacySensitive()
-
-                            Button {
-                                isSearchAPIKeyVisible.toggle()
-                            } label: {
-                                Image(systemName: isSearchAPIKeyVisible ? "eye.slash" : "eye")
-                                    .frame(width: 30, height: 30)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(isSearchAPIKeyVisible ? "Hide search API key" : "Show search API key")
-                        }
-
-                        Label(searchKeyStatus.label, systemImage: searchKeyStatus.symbol)
-                            .font(.caption)
-                            .foregroundStyle(searchKeyStatus.color)
-
-                        Button {
-                            WebSearchConfiguration.saveAPIKey(searchAPIKey)
-                            searchAPIKey = ""
-                            loadSearchSettings()
-                        } label: {
-                            Label("Save search key", systemImage: "key.fill")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(searchAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                        if searchKeyStatus == .keychain || searchKeyStatus == .debugLocalStorage {
-                            Button("Remove search key", role: .destructive) {
-                                WebSearchConfiguration.clearAPIKey()
-                                loadSearchSettings()
-                            }
-                        }
-                    }
-                }
-            }
-            #endif
 
             Section("Results") {
                 Toggle("Show match evidence", isOn: $model.showAnalysisDetails)
@@ -312,23 +135,12 @@ struct SettingsView: View {
         .task { await subscription.refresh() }
         .onAppear {
             #if DEBUG
-            loadSearchSettings()
-            modelName = GeminiConfiguration.model
             switch GeminiConfiguration.storageLocation {
-            case .keychain:
-                apiKey = GeminiConfiguration.apiKey ?? ""
-                keyStatus = .keychain
-            case .debugLocalStorage:
-                apiKey = GeminiConfiguration.apiKey ?? ""
-                keyStatus = .debugLocalStorage
-            case .bundledDefault:
-                apiKey = GeminiConfiguration.apiKey ?? ""
-                keyStatus = .bundledDefault
-            case .none:
-                apiKey = ""
-                keyStatus = .notConfigured
+            case .keychain: keyStatus = .keychain
+            case .debugLocalStorage: keyStatus = .debugLocalStorage
+            case .bundledDefault: keyStatus = .bundledDefault
+            case .none: keyStatus = .notConfigured
             }
-            loadGroqSettings()
             #endif
         }
     }
@@ -363,41 +175,9 @@ struct SettingsView: View {
         }
     }
 
-    private func saveGeminiSettings() {
-        let result = GeminiConfiguration.saveAPIKey(apiKey)
-        GeminiConfiguration.model = modelName
-        switch result {
-        case .keychain: keyStatus = .keychain
-        case .debugLocalStorage: keyStatus = .debugLocalStorage
-        case .failed(let status): keyStatus = .failed(status)
-        }
-    }
 
-    private func loadGroqSettings() {
-        groqAPIKey = GroqConfiguration.apiKey ?? ""
-        switch GroqConfiguration.storageLocation {
-        case .keychain: groqKeyStatus = .keychain
-        case .debugLocalStorage: groqKeyStatus = .debugLocalStorage
-        case .bundledDefault: groqKeyStatus = .bundledDefault
-        case .none: groqKeyStatus = .notConfigured
-        }
-    }
 
-    private func loadSearchSettings() {
-        // Never echo the stored key back into the field; the status line is
-        // enough to show one is set.
-        searchAPIKey = ""
-        searchKeyStatus = WebSearchConfiguration.isConfigured ? .keychain : .notConfigured
-    }
 
-    private func saveGroqSettings() {
-        let result = GroqConfiguration.saveAPIKey(groqAPIKey)
-        switch result {
-        case .keychain: groqKeyStatus = .keychain
-        case .debugLocalStorage: groqKeyStatus = .debugLocalStorage
-        case .failed(let status): groqKeyStatus = .failed(status)
-        }
-    }
 }
 
 struct MyServicesView: View {
