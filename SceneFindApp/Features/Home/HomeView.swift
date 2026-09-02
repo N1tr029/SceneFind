@@ -501,10 +501,14 @@ private struct LastMatchSection: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
-                        MetadataPill(
-                            text: result.topCandidate.episodeLine,
-                            symbol: "play.square.stack"
-                        )
+                        // The pill carries the S/E line; when there is no episode
+                        // title it would only repeat the subtitle above it.
+                        if result.topCandidate.episodeTitle != nil {
+                            MetadataPill(
+                                text: result.topCandidate.episodeLine,
+                                symbol: "play.square.stack"
+                            )
+                        }
                     }
                     Spacer(minLength: 4)
                     MatchScoreRing(score: result.topCandidate.confidence)
