@@ -60,8 +60,8 @@ struct RootView: View {
             .tag(AppTab.settings)
         }
         .tint(Color.sceneCyan)
-        .toolbarBackground(.ultraThinMaterial, for: .tabBar)
-        .toolbarBackground(.visible, for: .tabBar)
+        // No manual tab-bar background: on iOS 26 that override replaces the
+        // system's floating Liquid Glass bar with a flat material slab.
         .sensoryFeedback(.selection, trigger: router.selectedTab)
         .onAppear { routePendingShare() }
         .onChange(of: scenePhase) { _, phase in

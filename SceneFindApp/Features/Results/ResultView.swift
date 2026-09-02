@@ -33,9 +33,12 @@ struct ResultView: View {
                                     router.navigate(to: .alternatives(result.id))
                                 } label: {
                                     Label("View other matches", systemImage: "square.stack.3d.up")
+                                        .font(.subheadline.weight(.medium))
                                         .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 13)
                                 }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(.plain)
+                                .sceneGlassInteractive(in: Capsule())
                             }
                         }
                         .padding()
@@ -101,8 +104,8 @@ struct ResultView: View {
                     .padding(.vertical, 16)
                 } else {
                     if !yourProviders.isEmpty {
-                        Text("YOUR SERVICES")
-                            .font(.caption2.bold())
+                        Text("Your services")
+                            .font(.subheadline.weight(.medium))
                             .foregroundStyle(Color.sceneGreen)
                             .padding(.vertical, 8)
                         ForEach(Array(yourProviders.enumerated()), id: \.element.id) { index, provider in
@@ -115,8 +118,8 @@ struct ResultView: View {
 
                     if !otherProviders.isEmpty {
                         if !yourProviders.isEmpty { Divider().padding(.vertical, 6) }
-                        Text(yourProviders.isEmpty ? "AVAILABLE" : "MORE OPTIONS")
-                            .font(.caption2.bold())
+                        Text(yourProviders.isEmpty ? "Available" : "More options")
+                            .font(.subheadline.weight(.medium))
                             .foregroundStyle(.secondary)
                             .padding(.vertical, 8)
                         ForEach(Array(otherProviders.enumerated()), id: \.element.id) { index, provider in
@@ -160,50 +163,60 @@ struct ResultView: View {
     }
 
     private func actions(_ result: ClipAnalysisResult) -> some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                Button {
-                    if model.isSaved(result) {
-                        model.removeSaved(id: result.id)
-                    } else {
-                        model.save(result)
+        let saved = model.isSaved(result)
+        return VStack(spacing: 10) {
+            SceneGlassContainer(spacing: 10) {
+                HStack(spacing: 10) {
+                    Button {
+                        if saved {
+                            model.removeSaved(id: result.id)
+                        } else {
+                            model.save(result)
+                        }
+                    } label: {
+                        Label(saved ? "Saved" : "Save", systemImage: saved ? "bookmark.fill" : "bookmark")
+                            .font(.headline)
+                            .foregroundStyle(Color.sceneBackground)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
                     }
-                } label: {
-                    Label(
-                        model.isSaved(result) ? "Saved" : "Save",
-                        systemImage: model.isSaved(result) ? "bookmark.fill" : "bookmark"
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(model.isSaved(result) ? Color.sceneGreen : Color.sceneCyan)
+                    .buttonStyle(.plain)
+                    .sceneGlassInteractive(in: Capsule(), tint: saved ? .sceneGreen : .sceneCyan)
 
-                Button {
-                    UIPasteboard.general.string = copyText(result)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityLabel("Copy match")
+                    Button {
+                        UIPasteboard.general.string = copyText(result)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.headline)
+                            .frame(width: 50, height: 50)
+                    }
+                    .buttonStyle(.plain)
+                    .sceneGlassInteractive(in: Circle())
+                    .accessibilityLabel("Copy match")
 
-                Button {
-                    router.navigate(to: .analyze(result.requestID))
-                } label: {
-                    Image(systemName: "hand.thumbsdown")
-                        .frame(width: 28, height: 28)
+                    Button {
+                        router.navigate(to: .analyze(result.requestID))
+                    } label: {
+                        Image(systemName: "hand.thumbsdown")
+                            .font(.headline)
+                            .frame(width: 50, height: 50)
+                    }
+                    .buttonStyle(.plain)
+                    .sceneGlassInteractive(in: Circle())
+                    .accessibilityLabel("Report wrong match")
                 }
-                .buttonStyle(.bordered)
-                .accessibilityLabel("Report wrong match")
             }
 
             Button {
                 router.returnHome()
             } label: {
-                Label("Scan another clip", systemImage: "plus.magnifyingglass")
+                Label("Find another scene", systemImage: "plus.magnifyingglass")
+                    .font(.subheadline.weight(.medium))
                     .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
+            .sceneGlassInteractive(in: Capsule())
         }
     }
 
@@ -264,12 +277,8 @@ private struct HeroArtwork: View {
                 ShowCoverArtwork(candidate: candidate, contentMode: .fit)
                     .frame(width: 108, height: 162)
                     .background(.black.opacity(0.32))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(.white.opacity(0.16), lineWidth: 1)
-                    }
-                    .shadow(color: .black.opacity(0.5), radius: 12, y: 6)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .shadow(color: .black.opacity(0.55), radius: 18, y: 10)
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text(candidate.episodeTitle ?? candidate.mediaTitle)
@@ -326,14 +335,14 @@ private struct ClipTimelineCard: View {
                 }
 
                 HStack(alignment: .center, spacing: 12) {
-                    timeValue(label: "START", value: result.topCandidate.sceneTimestampSeconds)
+                    timeValue(label: "Start", value: result.topCandidate.sceneTimestampSeconds)
                     ZStack {
                         Capsule().fill(.white.opacity(0.08)).frame(height: 4)
                         Capsule().fill(accuracyTint).frame(height: 4)
                             .padding(.horizontal, 8)
                     }
                     timeValue(
-                        label: "END",
+                        label: "End",
                         value: result.topCandidate.clipEndTimestampSeconds ?? result.topCandidate.sceneTimestampSeconds
                     )
                 }
@@ -371,7 +380,7 @@ private struct ClipTimelineCard: View {
     private func timeValue(label: String, value: Double?) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(label)
-                .font(.caption2.bold())
+                .font(.caption)
                 .foregroundStyle(.secondary)
             Text(value?.timestampString ?? "--:--:--")
                 .font(.subheadline.bold().monospacedDigit())
@@ -418,12 +427,10 @@ private struct ProviderRow: View {
     let action: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: provider.symbolName)
-                .font(.title3)
-                .foregroundStyle(Color(hex: provider.brandColorHex))
-                .frame(width: 42, height: 42)
-                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+        let level = provider.destinationLevel ?? .exactEpisode
+        let brand = Color(hex: provider.brandColorHex)
+        HStack(spacing: 14) {
+            IconTile(symbol: provider.symbolName, tint: brand)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(provider.name)
@@ -437,17 +444,15 @@ private struct ProviderRow: View {
             Spacer(minLength: 8)
 
             Button(action: action) {
-                Label(
-                    (provider.destinationLevel ?? .exactEpisode).actionLabel,
-                    systemImage: (provider.destinationLevel ?? .exactEpisode) == .exactEpisode
-                        ? "play.fill" : "arrow.up.right"
-                )
-                .font(.subheadline.weight(.semibold))
+                Label(level.actionLabel, systemImage: level == .exactEpisode ? "play.fill" : "arrow.up.right")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.legibleOn(hex: provider.brandColorHex))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Color(hex: provider.brandColorHex))
-            .foregroundStyle(Color.legibleOn(hex: provider.brandColorHex))
-            .accessibilityLabel("\((provider.destinationLevel ?? .exactEpisode).actionLabel) on \(provider.name)")
+            .buttonStyle(.plain)
+            .sceneGlassInteractive(in: Capsule(), tint: brand)
+            .accessibilityLabel("\(level.actionLabel) on \(provider.name)")
         }
         .padding(.vertical, 12)
     }

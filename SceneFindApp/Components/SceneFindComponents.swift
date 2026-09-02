@@ -1,14 +1,94 @@
 import SwiftUI
 
+// MARK: - Palette
+
 extension Color {
-    static let sceneBackground = Color(red: 0.025, green: 0.027, blue: 0.032)
-    static let sceneSurface = Color(red: 0.075, green: 0.080, blue: 0.090)
-    static let sceneSurfaceRaised = Color(red: 0.105, green: 0.110, blue: 0.122)
+    static let sceneBackground = Color(red: 0.035, green: 0.037, blue: 0.045)
+    static let sceneSurface = Color(red: 0.085, green: 0.090, blue: 0.104)
+    static let sceneSurfaceRaised = Color(red: 0.120, green: 0.126, blue: 0.142)
     static let sceneCyan = Color(red: 0.12, green: 0.78, blue: 0.92)
     static let sceneGreen = Color(red: 0.26, green: 0.88, blue: 0.55)
     static let sceneCoral = Color(red: 1.0, green: 0.38, blue: 0.32)
     static let sceneGold = Color(red: 0.98, green: 0.75, blue: 0.25)
 }
+
+// MARK: - Shape language
+//
+// One radius for content, capsules for controls. Everything concentric; no
+// hairline strokes. Apple's Liquid Glass guidance is that glass belongs on the
+// control layer floating above content, not on the content itself, so cards
+// stay on a quiet solid surface and only inputs, buttons and bars go glass.
+
+enum SceneShape {
+    static let cardRadius: CGFloat = 22
+    static let insetRadius: CGFloat = 14
+    static let tileRadius: CGFloat = 10
+
+    static var card: RoundedRectangle { RoundedRectangle(cornerRadius: cardRadius, style: .continuous) }
+    static var inset: RoundedRectangle { RoundedRectangle(cornerRadius: insetRadius, style: .continuous) }
+    static var tile: RoundedRectangle { RoundedRectangle(cornerRadius: tileRadius, style: .continuous) }
+}
+
+// MARK: - Liquid Glass, gated for the iOS 17 deployment target
+
+extension View {
+    /// A glass control surface. Real `glassEffect` on iOS 26, a material below
+    /// it — and either way, a plain surface when the user has asked for reduced
+    /// transparency, which Apple treats as a hard requirement.
+    @ViewBuilder
+    func sceneGlass<S: Shape>(in shape: S, tint: Color? = nil) -> some View {
+        modifier(SceneGlassModifier(shape: shape, tint: tint, interactive: false))
+    }
+
+    /// Glass for tappable controls: picks up the press/scale response on 26.
+    @ViewBuilder
+    func sceneGlassInteractive<S: Shape>(in shape: S, tint: Color? = nil) -> some View {
+        modifier(SceneGlassModifier(shape: shape, tint: tint, interactive: true))
+    }
+}
+
+private struct SceneGlassModifier<S: Shape>: ViewModifier {
+    let shape: S
+    let tint: Color?
+    let interactive: Bool
+
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func body(content: Content) -> some View {
+        if reduceTransparency {
+            content.background((tint ?? Color.sceneSurfaceRaised), in: shape)
+        } else if #available(iOS 26, *) {
+            let base: Glass = tint.map { Glass.regular.tint($0) } ?? .regular
+            content.glassEffect(interactive ? base.interactive() : base, in: shape)
+        } else {
+            content
+                .background(.ultraThinMaterial, in: shape)
+                .overlay {
+                    if let tint {
+                        shape.fill(tint.opacity(0.18))
+                    }
+                }
+        }
+    }
+}
+
+/// Groups sibling glass controls so they share one lens and morph together,
+/// which is what makes a row of glass buttons read as one object rather than
+/// three separate blobs. No-op below iOS 26.
+struct SceneGlassContainer<Content: View>: View {
+    var spacing: CGFloat = 12
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        if #available(iOS 26, *) {
+            GlassEffectContainer(spacing: spacing) { content }
+        } else {
+            content
+        }
+    }
+}
+
+// MARK: - Artwork
 
 @MainActor
 private final class ShowCoverStore {
@@ -106,132 +186,48 @@ struct ShowCoverArtwork: View {
     }
 }
 
+// MARK: - Background
+
+/// A quiet dark field with one soft cool highlight. Glass needs something
+/// behind it to refract, and a flat black background makes every glass
+/// control look like a grey rectangle.
 struct CinematicBackground: View {
     var body: some View {
         ZStack {
             Color.sceneBackground
-            LinearGradient(
-                colors: [
-                    Color.sceneCyan.opacity(0.055),
-                    .clear,
-                    Color.sceneCoral.opacity(0.035)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+            RadialGradient(
+                colors: [Color.sceneCyan.opacity(0.14), .clear],
+                center: .init(x: 0.15, y: 0.0),
+                startRadius: 0,
+                endRadius: 520
+            )
+            RadialGradient(
+                colors: [Color.sceneCoral.opacity(0.07), .clear],
+                center: .init(x: 1.0, y: 0.95),
+                startRadius: 0,
+                endRadius: 420
             )
         }
         .ignoresSafeArea()
     }
 }
 
+// MARK: - Content card
+
+/// Content sits on a solid, slightly raised surface with a generous continuous
+/// radius and no outline. Depth comes from the surface, not from a stroke.
 struct SceneCard<Content: View>: View {
+    var padding: CGFloat = 18
     @ViewBuilder var content: Content
 
     var body: some View {
         content
-            .padding()
-            .background(Color.sceneSurface.opacity(0.94), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(.white.opacity(0.07), lineWidth: 1)
-            }
+            .padding(padding)
+            .background(Color.sceneSurface, in: SceneShape.card)
     }
 }
 
-struct SignalScanner: View {
-    var symbol = "sparkle.magnifyingglass"
-    var progress: Double = 0.5
-    var accent: Color = .sceneCyan
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: reduceMotion ? 1 : 1 / 30)) { timeline in
-            Canvas { context, size in
-                let time = timeline.date.timeIntervalSinceReferenceDate
-                let phase = reduceMotion ? 0.5 : time.truncatingRemainder(dividingBy: 4) / 4
-
-                drawGrid(context: &context, size: size)
-                drawWave(context: &context, size: size, time: reduceMotion ? 0 : time)
-                drawScan(context: &context, size: size, phase: phase)
-            }
-            .overlay {
-                VStack(spacing: 10) {
-                    Image(systemName: symbol)
-                        .font(.system(size: 34, weight: .semibold))
-                        .foregroundStyle(accent)
-                    SignalBars(accent: accent)
-                        .frame(width: 52, height: 16)
-                }
-                .padding(18)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(accent.opacity(0.32), lineWidth: 1)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 168)
-        .background(Color.sceneSurface)
-        .overlay(alignment: .bottomLeading) {
-            GeometryReader { proxy in
-                Rectangle()
-                    .fill(accent)
-                    .frame(width: proxy.size.width * min(max(progress, 0), 1), height: 3)
-                    .animation(.smooth(duration: 0.6), value: progress)
-            }
-            .frame(height: 3)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(accent.opacity(0.18), lineWidth: 1)
-        }
-        .accessibilityHidden(true)
-    }
-
-    private func drawGrid(context: inout GraphicsContext, size: CGSize) {
-        var grid = Path()
-        stride(from: 0.0, through: size.width, by: 24).forEach { x in
-            grid.move(to: CGPoint(x: x, y: 0))
-            grid.addLine(to: CGPoint(x: x, y: size.height))
-        }
-        stride(from: 0.0, through: size.height, by: 24).forEach { y in
-            grid.move(to: CGPoint(x: 0, y: y))
-            grid.addLine(to: CGPoint(x: size.width, y: y))
-        }
-        context.stroke(grid, with: .color(.white.opacity(0.035)), lineWidth: 0.5)
-    }
-
-    private func drawWave(context: inout GraphicsContext, size: CGSize, time: TimeInterval) {
-        var wave = Path()
-        for x in stride(from: 0.0, through: size.width, by: 3) {
-            let normalized = x / max(size.width, 1)
-            let envelope = sin(normalized * .pi)
-            let y = size.height / 2
-                + sin(normalized * 18 + time * 3.2) * 15 * envelope
-                + sin(normalized * 41 - time * 1.7) * 5
-            if x == 0 { wave.move(to: CGPoint(x: x, y: y)) }
-            else { wave.addLine(to: CGPoint(x: x, y: y)) }
-        }
-        context.stroke(wave, with: .color(accent.opacity(0.72)), lineWidth: 1.5)
-    }
-
-    private func drawScan(context: inout GraphicsContext, size: CGSize, phase: Double) {
-        let x = size.width * phase
-        let rect = CGRect(x: x - 14, y: 0, width: 28, height: size.height)
-        context.fill(
-            Path(rect),
-            with: .linearGradient(
-                Gradient(colors: [.clear, accent.opacity(0.18), .clear]),
-                startPoint: CGPoint(x: rect.minX, y: 0),
-                endPoint: CGPoint(x: rect.maxX, y: 0)
-            )
-        )
-        context.fill(Path(CGRect(x: x, y: 0, width: 1, height: size.height)), with: .color(accent.opacity(0.6)))
-    }
-}
+// MARK: - Small pieces
 
 struct SignalBars: View {
     var accent: Color = .sceneGreen
@@ -292,9 +288,9 @@ struct MetadataPill: View {
         Label(text, systemImage: symbol)
             .font(.caption.weight(.semibold))
             .foregroundStyle(tint)
-            .padding(.horizontal, 9)
+            .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(.white.opacity(0.06), in: Capsule())
+            .sceneGlass(in: Capsule())
     }
 }
 
@@ -317,5 +313,21 @@ struct ConfidenceBadge: View {
 
     private var color: Color {
         candidate.confidence >= 0.85 ? .green : candidate.confidence >= 0.60 ? .yellow : .orange
+    }
+}
+
+/// A leading icon in a soft tinted tile — the one decorative element that
+/// survives, because it carries meaning (which service, which source).
+struct IconTile: View {
+    let symbol: String
+    var tint: Color = .sceneCyan
+    var size: CGFloat = 40
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: size * 0.45, weight: .semibold))
+            .foregroundStyle(tint)
+            .frame(width: size, height: size)
+            .background(tint.opacity(0.14), in: SceneShape.tile)
     }
 }

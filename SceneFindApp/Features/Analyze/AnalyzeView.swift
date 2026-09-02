@@ -58,15 +58,18 @@ struct AnalyzeView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             // Leaving no longer kills the run, so this is "leave it running in
-            // the background", not "cancel".
+            // the background", not "cancel". A floating glass control rather
+            // than a full-width slab, so content stays visible beneath it.
             Button(role: .cancel, action: dismiss.callAsFunction) {
                 Label(isAnalyzing ? "Keep working in background" : "Close", systemImage: "xmark")
+                    .font(.subheadline.weight(.medium))
                     .frame(maxWidth: .infinity)
+                    .frame(height: 50)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .padding()
-            .background(.ultraThinMaterial)
+            .buttonStyle(.plain)
+            .sceneGlassInteractive(in: Capsule())
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
         }
         .navigationTitle("Analyzing clip")
         .navigationBarTitleDisplayMode(.inline)
@@ -129,12 +132,8 @@ private struct AnalysisVisual: View {
                 }
             }
         }
-        .padding(16)
-        .background(Color.sceneSurface, in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke((isAnalyzing ? Color.sceneCyan : Color.sceneGreen).opacity(0.2), lineWidth: 1)
-        }
+        .padding(18)
+        .background(Color.sceneSurface, in: SceneShape.card)
     }
 
     private func elapsedLabel(at date: Date) -> String {
@@ -156,7 +155,7 @@ private struct AnalysisEventTimeline: View {
                             .font(.caption.bold())
                             .foregroundStyle(index == events.count - 1 && isAnalyzing ? Color.sceneCyan : Color.sceneGreen)
                             .frame(width: 28, height: 28)
-                            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+                            .background(.white.opacity(0.06), in: Circle())
                         if index < events.count - 1 {
                             Rectangle()
                                 .fill(Color.sceneGreen.opacity(0.35))
@@ -181,12 +180,8 @@ private struct AnalysisEventTimeline: View {
                 .accessibilityElement(children: .combine)
             }
         }
-        .padding(14)
-        .background(Color.sceneSurface, in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(.white.opacity(0.06), lineWidth: 1)
-        }
+        .padding(18)
+        .background(Color.sceneSurface, in: SceneShape.card)
     }
 }
 
@@ -215,12 +210,8 @@ private struct AnalysisSourceSummary: View {
     let request: SharedClipRequest
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: request.sourceType == .video ? "video.fill" : "link")
-                .font(.title3)
-                .foregroundStyle(Color.sceneGold)
-                .frame(width: 42, height: 42)
-                .background(Color.sceneGold.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        HStack(spacing: 14) {
+            IconTile(symbol: request.sourceType == .video ? "video.fill" : "link", tint: .sceneGold)
             VStack(alignment: .leading, spacing: 3) {
                 Text(request.pageTitle ?? "Shared clip")
                     .font(.headline)
@@ -231,12 +222,8 @@ private struct AnalysisSourceSummary: View {
             }
             Spacer()
         }
-        .padding(12)
-        .background(Color.sceneSurface, in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(.white.opacity(0.06), lineWidth: 1)
-        }
+        .padding(16)
+        .background(Color.sceneSurface, in: SceneShape.card)
     }
 }
 

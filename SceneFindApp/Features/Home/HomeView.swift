@@ -14,11 +14,8 @@ struct HomeView: View {
         ZStack {
             CinematicBackground()
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 22) {
-                    HomeHeader()
-                    UsageAllowanceBanner(
-                        state: subscription.accessState
-                    ) {
+                LazyVStack(alignment: .leading, spacing: 20) {
+                    UsageAllowanceBanner(state: subscription.accessState) {
                         router.navigate(to: .paywall)
                     }
                     ClipInputPanel(
@@ -38,12 +35,14 @@ struct HomeView: View {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 12)
+                .padding(.top, 8)
                 .padding(.bottom, 28)
             }
             .scrollDismissesKeyboard(.interactively)
         }
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle("SceneFind")
+        .navigationBarTitleDisplayMode(.large)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .task(id: selectedVideo) { await importSelectedVideo() }
         .alert("SceneFind", isPresented: Binding(
             get: { errorMessage != nil },
@@ -110,6 +109,8 @@ struct HomeView: View {
     }
 }
 
+// MARK: - Allowance
+
 private struct UsageAllowanceBanner: View {
     let state: SubscriptionAccessState
     let action: () -> Void
@@ -122,7 +123,7 @@ private struct UsageAllowanceBanner: View {
     private var label: String {
         switch state {
         case .loading:
-            "Checking identification allowance…"
+            "Checking your allowance…"
         case .online(let entitlement):
             "\(entitlement.plan.name) · \(entitlement.remaining) of \(entitlement.allowance) remaining"
         case .offline:
@@ -136,44 +137,23 @@ private struct UsageAllowanceBanner: View {
                 Image(systemName: isAvailable ? "checkmark.seal.fill" : "wifi.slash")
                     .foregroundStyle(isAvailable ? Color.sceneGreen : Color.sceneGold)
                 Text(label)
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 8)
                 Image(systemName: "chevron.right")
-                    .font(.caption.bold())
-                    .foregroundStyle(.secondary)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
             }
-            .padding(12)
-            .background(Color.sceneSurface, in: RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
+            .sceneGlassInteractive(in: Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityHint("Opens SceneFind plans and allowance details")
     }
 }
 
-private struct HomeHeader: View {
-    var body: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("SceneFind")
-                    .font(.system(size: 34, weight: .bold))
-                Text("CLIP TO SCENE")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(Color.sceneCyan)
-            }
-            Spacer()
-            HStack(spacing: 8) {
-                SignalBars()
-                    .frame(width: 44, height: 18)
-                Text("READY")
-                    .font(.caption2.bold())
-                    .foregroundStyle(Color.sceneGreen)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(Color.sceneGreen.opacity(0.10), in: Capsule())
-        }
-    }
-}
+// MARK: - Input
 
 private struct ClipInputPanel: View {
     @Binding var pastedURL: String
@@ -189,81 +169,75 @@ private struct ClipInputPanel: View {
 
     var body: some View {
         SceneCard {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 18) {
                 ClipTutorialDeck(page: $tutorialPage) {
                     isURLFieldFocused = true
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Find the original moment")
-                        .font(.title3.bold())
+                        .font(.title3.weight(.semibold))
                     Text("Paste a clip link or import a video.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
 
-                HStack(spacing: 8) {
-                    Image(systemName: "link")
-                        .foregroundStyle(canAnalyze ? Color.sceneGreen : .secondary)
-                    TextField("TikTok, YouTube, or web link", text: $pastedURL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                        .focused($isURLFieldFocused)
-                        .submitLabel(.go)
-                        .onSubmit(analyze)
-                    if !pastedURL.isEmpty {
-                        Button {
-                            pastedURL = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
+                SceneGlassContainer(spacing: 10) {
+                    HStack(spacing: 10) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "link")
+                                .foregroundStyle(canAnalyze ? Color.sceneCyan : .secondary)
+                                .contentTransition(.symbolEffect(.replace))
+                            TextField("TikTok, YouTube, or web link", text: $pastedURL)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .keyboardType(.URL)
+                                .focused($isURLFieldFocused)
+                                .submitLabel(.go)
+                                .onSubmit(analyze)
+                            if !pastedURL.isEmpty {
+                                Button {
+                                    pastedURL = ""
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Clear link")
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .frame(height: 50)
+                        .sceneGlass(in: Capsule())
+
+                        Button(action: analyze) {
+                            Image(systemName: "arrow.right")
+                                .font(.headline)
+                                .foregroundStyle(canAnalyze ? Color.sceneBackground : .secondary)
+                                .frame(width: 50, height: 50)
                         }
                         .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .accessibilityLabel("Clear link")
+                        .sceneGlassInteractive(in: Circle(), tint: canAnalyze ? .sceneCyan : nil)
+                        .disabled(!canAnalyze)
+                        .accessibilityLabel("Find scene")
                     }
-                    Button(action: analyze) {
-                        Image(systemName: "arrow.right")
-                            .font(.headline)
-                            .frame(width: 40, height: 40)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color.sceneCyan)
-                    .disabled(!canAnalyze)
-                    .accessibilityLabel("Find scene")
-                }
-                .padding(.leading, 12)
-                .padding(.trailing, 4)
-                .frame(minHeight: 48)
-                .background(Color.sceneSurfaceRaised, in: RoundedRectangle(cornerRadius: 8))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(canAnalyze ? Color.sceneGreen.opacity(0.35) : .white.opacity(0.06), lineWidth: 1)
                 }
 
-                HStack {
-                    PhotosPicker(selection: $selectedVideo, matching: .videos) {
-                        Label("Import video", systemImage: "video.badge.plus")
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.white)
-
-                    Spacer()
-
-                    HStack(spacing: 12) {
-                        Image(systemName: "music.note")
-                        Image(systemName: "play.rectangle.fill")
-                        Image(systemName: "safari.fill")
-                    }
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
+                PhotosPicker(selection: $selectedVideo, matching: .videos) {
+                    Label("Import a video", systemImage: "video.badge.plus")
+                        .font(.subheadline.weight(.medium))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
                 }
+                .buttonStyle(.plain)
+                .sceneGlassInteractive(in: Capsule())
             }
         }
-        .animation(.smooth(duration: 0.35), value: canAnalyze)
+        .animation(.smooth(duration: 0.3), value: canAnalyze)
     }
 }
+
+// MARK: - Tutorial
 
 private struct ClipTutorialDeck: View {
     @Binding var page: Int
@@ -277,37 +251,24 @@ private struct ClipTutorialDeck: View {
                 ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
                     TutorialSlide(step: step)
                         .tag(index)
-                        .padding(.horizontal, 14)
+                        .padding(.horizontal, 16)
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
-            .frame(height: 168)
+            .frame(height: 150)
 
             HStack {
-                Button {
-                    move(to: page - 1)
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .frame(width: 34, height: 34)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(page == 0 ? Color.secondary.opacity(0.3) : .white)
-                .disabled(page == 0)
-                .accessibilityLabel("Previous tutorial step")
-
-                Spacer()
-
-                HStack(spacing: 7) {
+                HStack(spacing: 6) {
                     ForEach(steps.indices, id: \.self) { index in
                         Button {
                             move(to: index)
                         } label: {
                             Capsule()
-                                .fill(index == page ? steps[page].accent : Color.white.opacity(0.18))
-                                .frame(width: index == page ? 22 : 7, height: 7)
+                                .fill(index == page ? steps[page].accent : Color.white.opacity(0.16))
+                                .frame(width: index == page ? 20 : 6, height: 6)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Tutorial step \(index + 1)")
+                        .accessibilityLabel("Step \(index + 1)")
                     }
                 }
                 .animation(.snappy(duration: 0.25), value: page)
@@ -322,22 +283,18 @@ private struct ClipTutorialDeck: View {
                     }
                 } label: {
                     Image(systemName: page == steps.count - 1 ? "arrow.down" : "chevron.right")
-                        .font(.subheadline.bold())
-                        .frame(width: 34, height: 34)
-                        .background(steps[page].accent, in: Circle())
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Color.sceneBackground)
+                        .frame(width: 34, height: 34)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(page == steps.count - 1 ? "Enter a clip link" : "Next tutorial step")
+                .sceneGlassInteractive(in: Circle(), tint: steps[page].accent)
+                .accessibilityLabel(page == steps.count - 1 ? "Enter a clip link" : "Next step")
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 10)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 14)
         }
-        .background(Color.sceneSurfaceRaised, in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(steps[page].accent.opacity(0.22), lineWidth: 1)
-        }
+        .background(Color.sceneSurfaceRaised, in: SceneShape.inset)
         .animation(.smooth(duration: 0.3), value: page)
         .sensoryFeedback(.selection, trigger: page)
     }
@@ -356,14 +313,14 @@ private struct TutorialSlide: View {
     var body: some View {
         HStack(spacing: 16) {
             TutorialIllustration(kind: step.kind, accent: step.accent)
-                .frame(width: 112, height: 112)
+                .frame(width: 96, height: 96)
 
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: 5) {
                 Text(step.eyebrow)
-                    .font(.caption2.bold())
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(step.accent)
                 Text(step.title)
-                    .font(.title3.bold())
+                    .font(.headline)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(step.detail)
                     .font(.subheadline)
@@ -382,50 +339,41 @@ private struct TutorialIllustration: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(accent.opacity(0.09))
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(accent.opacity(0.18), lineWidth: 1)
+            SceneShape.inset.fill(accent.opacity(0.10))
 
             switch kind {
             case .share:
                 HStack(spacing: 8) {
-                    VStack(spacing: 7) {
+                    VStack(spacing: 6) {
                         SourceTile(symbol: "music.note", color: .white)
                         SourceTile(symbol: "play.rectangle.fill", color: .sceneCoral)
                     }
                     Image(systemName: "arrow.right")
-                        .font(.caption.bold())
+                        .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    Image(systemName: "square.and.arrow.up.fill")
-                        .font(.system(size: 29, weight: .semibold))
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 26, weight: .medium))
                         .foregroundStyle(accent)
                 }
             case .add:
-                VStack(spacing: 9) {
+                VStack(spacing: 8) {
                     Image(systemName: "link")
-                        .font(.system(size: 28, weight: .semibold))
+                        .font(.system(size: 26, weight: .medium))
                         .foregroundStyle(accent)
                     HStack(spacing: 4) {
                         ForEach(0..<3, id: \.self) { _ in
                             Capsule()
-                                .fill(Color.white.opacity(0.22))
-                                .frame(width: 19, height: 4)
+                                .fill(Color.white.opacity(0.2))
+                                .frame(width: 16, height: 4)
                         }
                     }
-                    Image(systemName: "arrow.down")
-                        .font(.caption.bold())
-                        .foregroundStyle(.secondary)
                 }
             case .watch:
-                HStack(spacing: 7) {
-                    Image(systemName: "rectangle.portrait.fill")
-                        .font(.system(size: 42))
-                        .foregroundStyle(.white.opacity(0.22))
+                HStack(spacing: 8) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(Color.sceneGreen)
                     Image(systemName: "play.circle.fill")
-                        .font(.system(size: 31))
+                        .font(.system(size: 30))
                         .foregroundStyle(accent)
                 }
             }
@@ -439,10 +387,10 @@ private struct SourceTile: View {
 
     var body: some View {
         Image(systemName: symbol)
-            .font(.caption.bold())
+            .font(.caption.weight(.semibold))
             .foregroundStyle(color)
-            .frame(width: 30, height: 30)
-            .background(Color.sceneBackground.opacity(0.8), in: RoundedRectangle(cornerRadius: 6))
+            .frame(width: 28, height: 28)
+            .background(Color.sceneBackground.opacity(0.7), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 }
 
@@ -463,7 +411,7 @@ private struct TutorialStep: Identifiable {
     static let all = [
         TutorialStep(
             id: 0,
-            eyebrow: "STEP 1",
+            eyebrow: "Step 1",
             title: "Find a clip",
             detail: "Tap Share in TikTok, YouTube, or Instagram.",
             accent: .sceneCyan,
@@ -471,7 +419,7 @@ private struct TutorialStep: Identifiable {
         ),
         TutorialStep(
             id: 1,
-            eyebrow: "STEP 2",
+            eyebrow: "Step 2",
             title: "Send it here",
             detail: "Choose SceneFind, paste its link, or import the video.",
             accent: .sceneGold,
@@ -479,7 +427,7 @@ private struct TutorialStep: Identifiable {
         ),
         TutorialStep(
             id: 2,
-            eyebrow: "STEP 3",
+            eyebrow: "Step 3",
             title: "Watch the scene",
             detail: "Confirm the match and open the episode on your service.",
             accent: .sceneGreen,
@@ -488,36 +436,30 @@ private struct TutorialStep: Identifiable {
     ]
 }
 
+// MARK: - Services
+
 private struct ServiceAccessButton: View {
     let count: Int
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: "play.tv.fill")
-                    .font(.title3)
-                    .foregroundStyle(Color.sceneCoral)
-                    .frame(width: 38, height: 38)
-                    .background(Color.sceneCoral.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            HStack(spacing: 14) {
+                IconTile(symbol: "play.tv.fill", tint: .sceneCoral)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("My services")
                         .font(.headline)
                     Text(summary)
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
-                    .font(.caption.bold())
+                    .font(.footnote.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
-            .padding(12)
-            .background(Color.sceneSurface, in: RoundedRectangle(cornerRadius: 8))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(.white.opacity(0.06), lineWidth: 1)
-            }
+            .padding(16)
+            .background(Color.sceneSurface, in: SceneShape.card)
         }
         .buttonStyle(.plain)
     }
@@ -527,13 +469,15 @@ private struct ServiceAccessButton: View {
     }
 }
 
+// MARK: - Last match
+
 private struct LastMatchSection: View {
     let result: ClipAnalysisResult
     let action: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 Text("Last match")
                     .font(.headline)
                 Spacer()
@@ -541,37 +485,32 @@ private struct LastMatchSection: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 4)
 
             Button(action: action) {
                 HStack(spacing: 14) {
                     ShowCoverArtwork(candidate: result.topCandidate)
-                        .frame(width: 78, height: 110)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .frame(width: 72, height: 104)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 6) {
                         Text(result.topCandidate.mediaTitle)
-                            .font(.title3.bold())
+                            .font(.headline)
                             .lineLimit(2)
                         Text(result.topCandidate.episodeTitle ?? result.topCandidate.episodeLine)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
-                        HStack(spacing: 6) {
-                            MetadataPill(
-                                text: result.topCandidate.episodeLine,
-                                symbol: "play.square.stack"
-                            )
-                        }
+                        MetadataPill(
+                            text: result.topCandidate.episodeLine,
+                            symbol: "play.square.stack"
+                        )
                     }
                     Spacer(minLength: 4)
                     MatchScoreRing(score: result.topCandidate.confidence)
                 }
-                .padding(12)
-                .background(Color.sceneSurface, in: RoundedRectangle(cornerRadius: 8))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(.white.opacity(0.07), lineWidth: 1)
-                }
+                .padding(14)
+                .background(Color.sceneSurface, in: SceneShape.card)
             }
             .buttonStyle(.plain)
         }

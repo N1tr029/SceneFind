@@ -52,14 +52,22 @@ not the bundle ID, is the `APPLE_APP_ID` Worker secret.
 - [x] Review notes on all three products explaining that the charge is for
       identification work, that allowance is server-side and consumed only on
       success, and where the paywall lives.
-- [ ] **Review screenshot for each of the three products.** This is the only
-      reason all three still read `MISSING_METADATA`, and it blocks submission.
-      It cannot be captured headlessly: a `.storekit` configuration is applied
-      only when Xcode launches via the scheme, so a `simctl`-launched build
-      shows "Plans unavailable" and a `-StoreKitConfigurationFilePath` launch
-      argument has no effect. Capture it by running the SceneFind scheme from
-      Xcode (which does apply the configuration), or from sandbox once the
-      Worker is deployed.
+- [x] Review screenshot attached to all three products (2026-09-02). Pro and
+      the group read "Ready for Review". The `state` field the iris API returns
+      stays `MISSING_METADATA` even after the UI flips, so judge readiness from
+      the page status, not the API.
+- [x] **App price and availability.** This was the real blocker behind
+      `MISSING_METADATA`, not the screenshots: the app had no price tier and no
+      territories, and StoreKit refuses to serve products for an app with
+      neither. Now Free across all 175 regions. The paywall loads all three
+      products with live prices on device and in the simulator.
+- [x] Draft review submission assembled with all four items — Pro, Starter,
+      the SceneFind Plans group, and Lifetime. Build 69 is attached to version
+      1.0. The only thing left is adding the app version to the draft and
+      pressing Submit, which is deliberately left to Hassan: the version-add
+      dialog is worded "submit this build for review", and build 69 is no
+      longer the newest — swap to the latest build first and that warning
+      disappears.
 - [x] App Information: category Entertainment + Photo & Video, subtitle,
       Content Rights answered, age rating questionnaire completed → **4+**.
 - [x] App Privacy published — Device ID, Other User Content, Purchase History
@@ -73,18 +81,17 @@ not the bundle ID, is the `APPLE_APP_ID` Worker secret.
       backend has taken real traffic.
 - [x] "Sign-in required" unchecked — the app has no login, and leaving it
       ticked makes review wait for credentials that do not exist.
-- [ ] **App Review contact information** — first name, last name, phone, email.
-      Left blank deliberately; it is personal contact data.
+- [x] App Review contact information.
 - [ ] Set `[JURISDICTION]` in `site/terms.html`. The legal entity is filled in
       as "Kavi Gandham" to match the Apple seller name and the copyright line;
       governing law is a legal choice and is still a visible placeholder on the
       live page.
-- [ ] Digital Services Act trader status — needs an Admin or Account Holder.
-      Without it the app is removed from sale in the EU.
+- [x] Digital Services Act trader status — Active for 27 countries. Paid Apps
+      Agreement, bank account and W-9 were already active too.
 - [ ] Resolve the standing "cannot identify your GitHub account — relink"
       warning on the Builds page.
-- [ ] Point App Store Server Notifications V2 at `<worker-url>/v1/app-store/notifications`
-      once the Worker is deployed.
+- [x] App Store Server Notifications V2 point at the Worker for both production
+      and sandbox.
 
 ## Group 3 — Signing and the first real build
 

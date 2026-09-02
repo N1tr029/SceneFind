@@ -36,17 +36,6 @@ struct SavedView: View {
         ZStack {
             CinematicBackground()
             VStack(spacing: 0) {
-                HStack {
-                    Label("\(model.savedResults.count) saved", systemImage: "bookmark.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.sceneCoral)
-                    Spacer()
-                    SignalBars(accent: .sceneCoral)
-                        .frame(width: 46, height: 18)
-                }
-                .padding(.horizontal)
-                .padding(.top, 4)
-
                 Picker("Saved category", selection: $filter) {
                     ForEach(SavedFilter.allCases) { category in
                         Text(category.label).tag(category)
@@ -68,7 +57,7 @@ struct SavedView: View {
                 }
             }
         }
-        .navigationTitle("Saved for later")
+        .navigationTitle("Saved")
         .searchable(text: $searchText, prompt: "Search titles or episodes")
         .animation(.smooth(duration: 0.3), value: filter)
         .sensoryFeedback(.selection, trigger: filter)
