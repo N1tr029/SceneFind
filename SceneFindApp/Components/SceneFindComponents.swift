@@ -196,14 +196,20 @@ struct CinematicBackground: View {
         ZStack {
             Color.sceneBackground
             RadialGradient(
-                colors: [Color.sceneCyan.opacity(0.14), .clear],
-                center: .init(x: 0.15, y: 0.0),
+                colors: [Color.sceneCyan.opacity(0.28), .clear],
+                center: .init(x: 0.2, y: -0.05),
                 startRadius: 0,
-                endRadius: 520
+                endRadius: 560
             )
             RadialGradient(
-                colors: [Color.sceneCoral.opacity(0.07), .clear],
-                center: .init(x: 1.0, y: 0.95),
+                colors: [Color(red: 0.42, green: 0.24, blue: 0.86).opacity(0.22), .clear],
+                center: .init(x: 0.95, y: 0.25),
+                startRadius: 0,
+                endRadius: 480
+            )
+            RadialGradient(
+                colors: [Color.sceneCoral.opacity(0.10), .clear],
+                center: .init(x: 0.9, y: 1.0),
                 startRadius: 0,
                 endRadius: 420
             )
