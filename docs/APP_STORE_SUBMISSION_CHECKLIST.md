@@ -159,7 +159,10 @@ four failures since and none before.
       reject scene-identification apps that look like piracy tools, so state
       this plainly and give a demo clip that reproduces a successful result.
 - [ ] Demo account: not required — the app has no login.
-- [ ] Submit for review.
+- [x] Submitted 2026-09-02: version 1.0 with build 71 plus Pro, Starter, the
+      subscription group and Lifetime as a single review submission. Waiting
+      for Review; Apple quotes up to 48 hours. Manual release is set, so
+      approval does not publish it.
 
 ---
 
