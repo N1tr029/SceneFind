@@ -60,6 +60,37 @@ export function verificationRequestBody(model: string, args: unknown): Record<st
   };
 }
 
+/** The fallback: JSON mode, which every Groq model supports, without the
+ *  reasoning or schema parameters. */
+export function plainVerificationRequestBody(model: string, args: unknown): Record<string, unknown> {
+  return {
+    model,
+    temperature: 0.1,
+    max_completion_tokens: 1_024,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: VERIFY_SYSTEM_PROMPT },
+      { role: "user", content: JSON.stringify(args) },
+    ],
+  };
+}
+
+async function postVerification(env: Env, body: Record<string, unknown>): Promise<Response> {
+  try {
+    return await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${env.GROQ_API_KEY}`,
+      },
+      signal: AbortSignal.timeout(6_000),
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new ProviderError("provider_unavailable", "Episode verifier timed out.", true);
+  }
+}
+
 export async function verifyEpisode(
   env: Env,
   args: {
@@ -86,22 +117,17 @@ export async function verifyEpisode(
     }>;
   },
 ): Promise<EpisodeVerification> {
-  let res: Response;
-  try {
-    res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${env.GROQ_API_KEY}`,
-      },
-      signal: AbortSignal.timeout(6_000),
-      body: JSON.stringify(verificationRequestBody(env.GROQ_MODEL, args)),
-    });
-  } catch {
-    throw new ProviderError("provider_unavailable", "Episode verifier timed out.", true);
+  let res = await postVerification(env, verificationRequestBody(env.GROQ_MODEL, args));
+  if (res.status === 400) {
+    // Structured outputs and reasoning parameters are the newest part of this
+    // request. If Groq rejects them, one plain JSON-mode retry keeps the
+    // verifier working while the log says what to fix.
+    console.warn("groq verifier rejected structured request", (await res.text()).slice(0, 300));
+    res = await postVerification(env, plainVerificationRequestBody(env.GROQ_MODEL, args));
   }
 
   if (!res.ok) {
+    console.warn("groq verifier failed", res.status, (await res.text()).slice(0, 300));
     throw new ProviderError(
       "provider_unavailable",
       `Episode verifier returned ${res.status}.`,

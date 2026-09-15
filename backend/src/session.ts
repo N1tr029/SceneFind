@@ -387,6 +387,8 @@ export class AnalysisSession implements DurableObject {
   private async fail(error: unknown): Promise<void> {
     const session = this.session;
     if (!session || session.status !== "running") return;
+    // No clip content: the error class and message name the failing step.
+    console.error("analysis failed", error instanceof Error ? `${error.name}: ${error.message}` : String(error));
     session.status = "failed";
     session.errorCode = error instanceof PublicPipelineError ? error.code : "provider_unavailable";
     await this.finishAllowance(false);

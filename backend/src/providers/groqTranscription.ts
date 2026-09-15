@@ -33,7 +33,12 @@ export async function transcribeMedia(
   } catch {
     return [];
   }
-  if (!response.ok) return [];
+  if (!response.ok) {
+    // Logged without media or transcript content: status and Groq's own
+    // message are enough to tell an expired key from a rejected file.
+    console.warn("groq transcription failed", response.status, (await response.text()).slice(0, 300));
+    return [];
+  }
   let body: { segments?: GroqSegment[] };
   try {
     body = await response.json() as { segments?: GroqSegment[] };
@@ -61,37 +66,46 @@ export function parseGroqSegments(segments?: GroqSegment[]): TranscriptCue[] {
   });
 }
 
-function transcriptionRequest(
+/** Groq's transcription endpoint takes multipart form data only, and infers
+ *  the format from the file name, so an upload named "clip" with no extension
+ *  and a JSON body carrying a URL were both rejected. */
+export function transcriptionRequest(
   env: Env,
   evidence: {
     mediaURL?: string;
     mediaDataBase64?: string;
     mediaMimeType?: string;
   },
-): { body: BodyInit; headers: Record<string, string> } | null {
-  const common = {
-    model: env.GROQ_TRANSCRIPTION_MODEL || "whisper-large-v3-turbo",
-    language: "en",
-    response_format: "verbose_json",
-    timestamp_granularities: ["segment"],
-    temperature: 0,
-  };
-  if (evidence.mediaURL && isHTTPSURL(evidence.mediaURL)) {
-    return {
-      body: JSON.stringify({ ...common, url: evidence.mediaURL }),
-      headers: { "content-type": "application/json" },
-    };
-  }
-  if (!evidence.mediaDataBase64 || !evidence.mediaMimeType) return null;
-  const bytes = Uint8Array.from(atob(evidence.mediaDataBase64), (character) => character.charCodeAt(0));
+): { body: FormData; headers: Record<string, string> } | null {
   const form = new FormData();
-  form.append("file", new Blob([bytes], { type: evidence.mediaMimeType }), "clip");
-  form.append("model", common.model);
-  form.append("language", common.language);
-  form.append("response_format", common.response_format);
+  if (evidence.mediaURL && isHTTPSURL(evidence.mediaURL)) {
+    form.append("url", evidence.mediaURL);
+  } else if (evidence.mediaDataBase64 && evidence.mediaMimeType) {
+    const bytes = Uint8Array.from(atob(evidence.mediaDataBase64), (character) => character.charCodeAt(0));
+    form.append(
+      "file",
+      new Blob([bytes], { type: evidence.mediaMimeType }),
+      `clip.${fileExtension(evidence.mediaMimeType)}`,
+    );
+  } else {
+    return null;
+  }
+  form.append("model", env.GROQ_TRANSCRIPTION_MODEL || "whisper-large-v3-turbo");
+  form.append("language", "en");
+  form.append("response_format", "verbose_json");
   form.append("timestamp_granularities[]", "segment");
   form.append("temperature", "0");
   return { body: form, headers: {} };
+}
+
+/** Extensions Groq accepts: flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav, webm. */
+function fileExtension(mimeType: string): string {
+  const subtype = mimeType.split(";")[0].split("/")[1]?.toLowerCase() ?? "";
+  const known: Record<string, string> = {
+    mp4: "mp4", "x-m4a": "m4a", m4a: "m4a", mpeg: "mp3", mp3: "mp3", webm: "webm",
+    ogg: "ogg", wav: "wav", "x-wav": "wav", flac: "flac", quicktime: "mp4",
+  };
+  return known[subtype] ?? "mp4";
 }
 
 function isHTTPSURL(value: string): boolean {

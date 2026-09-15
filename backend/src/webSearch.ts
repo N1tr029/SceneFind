@@ -65,7 +65,12 @@ export async function searchWebDetailed(options: {
     };
     try {
       const response = await fetcher(url, { headers: { accept: "application/json" } });
-      if (!response.ok) return { results: [], ok: false, knowledge: [] };
+      if (!response.ok) {
+        // An exhausted monthly plan shows up here first. Never log the URL: it
+        // carries the API key.
+        console.warn("serpapi search failed", response.status, (await response.text()).slice(0, 200));
+        return { results: [], ok: false, knowledge: [] };
+      }
       body = await response.json() as typeof body;
     } catch {
       return { results: [], ok: false, knowledge: [] };

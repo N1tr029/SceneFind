@@ -160,7 +160,15 @@ async function createAnalysis(req: Request, env: Env): Promise<Response> {
   }
   const reservation = await reserved.response.json<AllowanceReservation>();
 
-  const durableID = env.ANALYSIS.idFromName(`${reserved.owner}:${body.idempotencyKey}`);
+  // One run per reservation, not per request. A duplicate start while the
+  // first run is going, or after it finished, gets the same reservation back
+  // and reattaches to that run, so it is never charged twice. A retry after a
+  // failed or cancelled run gets a new reservation and a fresh run. Keyed by
+  // request alone, that retry reopened the dead run, failed at once, and held
+  // a credit until the reservation expired.
+  const durableID = env.ANALYSIS.idFromName(
+    `${reserved.owner}:${body.idempotencyKey}:${reservation.reservationID}`,
+  );
   const analysisID = durableID.toString();
   const requestID = body.idempotencyKey;
   const stub = env.ANALYSIS.get(durableID);

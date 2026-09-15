@@ -34,6 +34,38 @@ describe("episode verifier request", () => {
     expect(JSON.parse(body.messages[1].content)).toEqual(args);
   });
 
+  it("retries in plain JSON mode when Groq rejects the structured request", async () => {
+    const bodies: any[] = [];
+    vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      bodies.push(body);
+      if (body.response_format.type === "json_schema") {
+        return new Response(JSON.stringify({ error: { message: "unsupported parameter" } }), { status: 400 });
+      }
+      return Response.json({
+        choices: [{ message: { content: JSON.stringify({
+          verified: false,
+          seasonNumber: null,
+          episodeNumber: null,
+          episodeTitle: null,
+          evidence: "No transcript line matched.",
+          confidence: 0.2,
+        }) } }],
+      });
+    });
+
+    const result = await verifyEpisode(
+      { GROQ_API_KEY: "test", GROQ_MODEL: "openai/gpt-oss-120b" } as unknown as Env,
+      args,
+    );
+
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1].response_format).toEqual({ type: "json_object" });
+    expect(bodies[1]).not.toHaveProperty("include_reasoning");
+    expect(result.verified).toBe(false);
+    expect(result.evidence).toBe("No transcript line matched.");
+  });
+
   it("sends the configured model and reads the structured reply", async () => {
     let sent: any;
     vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {

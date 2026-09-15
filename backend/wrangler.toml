@@ -72,6 +72,12 @@ namespace_id = "72003"
   limit = 60
   period = 60
 
+# Persisted Worker logs (Workers Free includes 200,000 events a day). Without
+# this, provider failures such as an expired key were invisible: calls were
+# caught, degraded to "unverified", and left no trace.
+[observability]
+enabled = true
+
 [vars]
 # Non-secret config. Model names can be overridden per environment.
 # 3.5-flash answered the same prompt in ~9.3s where 3.6-flash took ~1.7s.
