@@ -80,22 +80,8 @@ struct HomeView: View {
     private func importSelectedVideo() async {
         guard let selectedVideo else { return }
         do {
-            guard let data = try await selectedVideo.loadTransferable(type: Data.self) else {
-                throw SceneFindError.sharedFileMissing
-            }
-            try model.store.prepare()
-            let fileName = "imported-\(UUID().uuidString).mov"
-            let destination = model.store.filesURL.appendingPathComponent(fileName)
-            try data.write(to: destination, options: [.atomic])
-            let thumbnail = try? model.store.generateThumbnail(for: destination)
-            let request = SharedClipRequest(
-                sourceType: .video,
-                sourcePlatform: .photos,
-                localFileName: fileName,
-                pageTitle: selectedVideo.itemIdentifier,
-                thumbnailFileName: thumbnail ?? nil
-            )
-            saveAndNavigate(request)
+            let request = try await VideoImport.pendingRequest(from: selectedVideo, store: model.store)
+            router.navigate(to: .analyze(request.id))
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -201,6 +187,13 @@ private struct ClipInput: View {
         !pastedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// Warn before the credit is spent, not after the result comes back.
+    private var isInstagramLink: Bool {
+        let trimmed = pastedURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed), url.scheme != nil else { return false }
+        return SharedPlatform.detect(url: url) == .instagram
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
@@ -259,6 +252,19 @@ private struct ClipInput: View {
             }
             .padding(.horizontal, HomeInset.leading)
 
+            if isInstagramLink {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(Color.sceneGold)
+                    Text("Instagram links find the show, not the episode. Save the reel and import it to get the exact scene.")
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, HomeInset.leading)
+                .transition(.opacity)
+            }
+
             PhotosPicker(selection: $selectedVideo, matching: .videos) {
                 Label("Import a video", systemImage: "video.badge.plus")
                     .font(.subheadline.weight(.medium))
@@ -270,6 +276,7 @@ private struct ClipInput: View {
             .padding(.horizontal, HomeInset.leading)
         }
         .animation(.smooth(duration: 0.3), value: canAnalyze)
+        .animation(.smooth(duration: 0.3), value: isInstagramLink)
     }
 }
 

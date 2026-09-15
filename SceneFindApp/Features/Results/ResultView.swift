@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 import UIKit
 
@@ -6,6 +7,8 @@ struct ResultView: View {
     @EnvironmentObject private var model: SceneFindModel
     @State private var selectedProvider: WatchProvider?
     @State private var enrichedResult: ClipAnalysisResult?
+    @State private var importedVideo: PhotosPickerItem?
+    @State private var importError: String?
 
     let resultID: UUID
 
@@ -21,6 +24,12 @@ struct ResultView: View {
                     LazyVStack(spacing: 0) {
                         HeroArtwork(candidate: result.topCandidate)
                         VStack(alignment: .leading, spacing: 22) {
+                            if isInstagramLinkWithoutVideo(result) {
+                                InstagramLimitCard(
+                                    mediaType: result.topCandidate.mediaType,
+                                    selection: $importedVideo
+                                )
+                            }
                             ClipTimelineCard(result: result)
                             whereToWatch(result.topCandidate)
                             if model.showAnalysisDetails {
@@ -61,12 +70,45 @@ struct ResultView: View {
             router.resultsByID[resultID] = updated
             enrichedResult = updated
         }
+        .task(id: importedVideo) { await importVideo() }
+        .alert("SceneFind", isPresented: Binding(
+            get: { importError != nil },
+            set: { if !$0 { importError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(importError ?? "")
+        }
         .sheet(item: $selectedProvider) { provider in
             if let candidate = result?.topCandidate {
                 WatchOptionsSheet(provider: provider, candidate: candidate)
                     .presentationDetents([.medium])
                     .presentationDragIndicator(.visible)
             }
+        }
+    }
+
+    /// An Instagram link never carries the video, so the episode and moment
+    /// were out of reach. Say why and offer the import that can reach them.
+    private func isInstagramLinkWithoutVideo(_ result: ClipAnalysisResult) -> Bool {
+        let details = result.analysisDetails
+        guard !MarketingPreview.isEnabled,
+              details.sourcePlatform == .instagram,
+              details.sourceType == .url,
+              details.directMediaAnalyzed != true else { return false }
+        let candidate = result.topCandidate
+        return candidate.sceneTimestampSeconds == nil
+            || (candidate.mediaType == .television && candidate.episodeNumber == nil)
+    }
+
+    private func importVideo() async {
+        guard let importedVideo else { return }
+        do {
+            let request = try await VideoImport.pendingRequest(from: importedVideo, store: model.store)
+            self.importedVideo = nil
+            router.navigate(to: .analyze(request.id))
+        } catch {
+            importError = error.localizedDescription
         }
     }
 
@@ -319,6 +361,44 @@ private struct HeroArtwork: View {
         case .television: "\(candidate.mediaTitle) · \(candidate.episodeLine)"
         case .movie: "Movie · \(candidate.releaseYear)"
         case .other: "Online media · \(candidate.releaseYear)"
+        }
+    }
+}
+
+private struct InstagramLimitCard: View {
+    let mediaType: MediaType
+    @Binding var selection: PhotosPickerItem?
+
+    var body: some View {
+        SceneCard {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 14) {
+                    IconTile(symbol: "speaker.slash.fill", tint: .sceneGold)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(mediaType == .television ? "Import the reel to find the episode" : "Import the reel to find the moment")
+                            .font(.headline)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(SharedPlatform.instagramLinkLimit)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                PhotosPicker(selection: $selection, matching: .videos) {
+                    Label("Import the reel", systemImage: "video.badge.plus")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                }
+                .buttonStyle(.plain)
+                .sceneGlassInteractive(in: Capsule())
+
+                Text("Save it to Photos from Instagram or screen-record it, then pick it here.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

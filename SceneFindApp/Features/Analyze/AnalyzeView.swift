@@ -210,17 +210,27 @@ private struct AnalysisSourceSummary: View {
     let request: SharedClipRequest
 
     var body: some View {
-        HStack(spacing: 14) {
-            IconTile(symbol: request.sourceType == .video ? "video.fill" : "link", tint: .sceneGold)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(request.pageTitle ?? "Shared clip")
-                    .font(.headline)
-                    .lineLimit(1)
-                Text("\(request.sourcePlatform.label) · \(request.sourceType.label)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 14) {
+                IconTile(symbol: request.sourceType == .video ? "video.fill" : "link", tint: .sceneGold)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(request.pageTitle ?? "Shared clip")
+                        .font(.headline)
+                        .lineLimit(1)
+                    Text("\(request.sourcePlatform.label) · \(request.sourceType.label)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
             }
-            Spacer()
+            // Most Instagram shares arrive here straight from the share sheet,
+            // so this is where the expectation has to be set.
+            if request.sourcePlatform == .instagram, request.sourceType == .url {
+                Text("Instagram links usually stop at the show. To find the episode, save the reel and import it instead.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(16)
         .background(Color.sceneSurface, in: SceneShape.card)
