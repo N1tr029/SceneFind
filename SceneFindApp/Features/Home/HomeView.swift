@@ -1,5 +1,6 @@
 import PhotosUI
 import SwiftUI
+import UIKit
 
 struct HomeView: View {
     @EnvironmentObject private var router: AppRouter
@@ -13,33 +14,34 @@ struct HomeView: View {
     private var recent: [ClipAnalysisResult] { Array(model.recentResults.prefix(8)) }
 
     var body: some View {
-        ZStack {
-            HomeBackdrop(candidate: recent.first?.topCandidate)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 36) {
+                ClipInput(
+                    pastedURL: $pastedURL,
+                    selectedVideo: $selectedVideo,
+                    isURLFieldFocused: $isURLFieldFocused,
+                    analyze: analyzePastedURL
+                )
+                .padding(.top, 10)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 36) {
-                    ClipInput(
-                        pastedURL: $pastedURL,
-                        selectedVideo: $selectedVideo,
-                        isURLFieldFocused: $isURLFieldFocused,
-                        analyze: analyzePastedURL
-                    )
-                    .padding(.top, 10)
-
-                    if !recent.isEmpty {
-                        RecentMatches(results: recent) { result in
-                            router.navigate(to: .result(result.id))
-                        }
-                    }
-
-                    ServicesRow(count: model.subscribedServiceCount) {
-                        router.navigate(to: .services)
+                if !recent.isEmpty {
+                    RecentMatches(results: recent) { result in
+                        router.navigate(to: .result(result.id))
                     }
                 }
-                .padding(.bottom, 32)
+
+                ServicesRow(count: model.subscribedServiceCount) {
+                    router.navigate(to: .services)
+                }
             }
-            .scrollDismissesKeyboard(.interactively)
+            .padding(.bottom, 32)
         }
+        .scrollDismissesKeyboard(.interactively)
+        // A background can't take part in layout. As a ZStack sibling, the
+        // backdrop's artwork widened the stack once a recent match existed,
+        // which pulled every row about 9pt toward the screen edges, so Home
+        // lined up differently with and without history.
+        .background { HomeBackdrop(candidate: recent.first?.topCandidate) }
         .navigationTitle("SceneFind")
         .navigationBarTitleDisplayMode(.large)
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -98,11 +100,17 @@ struct HomeView: View {
     }
 }
 
-/// Measured against the system large title on device: content at 20pt sat
-/// 5.7pt left of "SceneFind", which reads as a subtle misalignment on every
-/// row. 26 lines the two up.
+/// Lines content up with the system large title, which sits on UIKit's layout
+/// margin: 16pt on most iPhones, 20pt on the widest. The earlier value of 26
+/// was measured while the backdrop was still widening the layout by 9pt, so it
+/// only looked right once a recent match existed.
 private enum HomeInset {
-    static let leading: CGFloat = 26
+    static var leading: CGFloat {
+        let width = UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.screen.bounds.width }
+            .first ?? 402
+        return width >= 428 ? 20 : 16
+    }
 }
 
 // MARK: - Backdrop
