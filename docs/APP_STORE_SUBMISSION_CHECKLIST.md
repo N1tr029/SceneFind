@@ -1,5 +1,45 @@
 # SceneFind App Store Submission Runbook
 
+## Guideline 4.1(a) Metadata Remediation (Build 73)
+
+### Second rejection, 2026-09-10
+
+- [x] Confirmed Apple reviewed build 73 on iPad Air 11-inch (M3) and repeated
+      the same metadata-only 4.1(a) rejection.
+- [x] Identified remaining third-party references in all four screenshots,
+      including a full streaming-service list and social-platform labels.
+- [x] Replaced the screenshot catalog with explicitly named SceneFind demo
+      series, generated abstract artwork, generic source labels, and a
+      fictional demo provider.
+- [x] Reduced the screenshot set to three core screens; the services screen is
+      intentionally excluded because it contains third-party service names.
+- [x] Replaced the live screenshots and brand-specific store copy, replied to
+      App Review with the exact remediation, and resubmitted build 73 on
+      2026-09-10. The submission is Waiting for Review.
+
+- [x] Removed every App Store screenshot containing third-party film or TV
+      artwork, titles, episode names, characters, or stills.
+- [x] Replaced the listing assets with screenshots captured from the shipping
+      UI using SceneFind's original fictional preview catalog and generated
+      cover artwork.
+- [x] Confirmed the iPad metadata slot is empty; the iPhone-only app uses the
+      cleaned iPhone screenshots on compatible iPad devices.
+- [x] Removed external platform and streaming-service references from the
+      screenshots, public store copy, and private review notes.
+- [x] Saved the cleaned metadata, replied to App Review, replaced build 71 with
+      build 73, and resubmitted version 1.0 on 2026-09-10. All five submitted
+      items are Waiting for Review.
+
+Suggested review-note addition:
+
+> GUIDELINE 4.1(A) METADATA REMEDIATION: All App Store screenshots were replaced
+> after the rejection. They now use only original fictional titles, episode
+> names, dialogue, and cover artwork created for SceneFind. No third-party film
+> or TV stills, posters, characters, or promotional assets appear in the
+> metadata. SceneFind does not host, play, or distribute third-party media; it
+> returns factual identification text and links to authorized providers for a
+> clip supplied by the user.
+
 `APP_STORE_READINESS_AUDIT.md` records *what* is still open and the evidence
 behind each claim. This file records the *order* to clear it in, because most
 of the remaining gates cannot be started until the Worker is live.

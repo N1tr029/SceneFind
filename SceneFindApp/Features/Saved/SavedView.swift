@@ -226,7 +226,7 @@ struct SavedRow: View {
                 Text(primaryDetail)
                     .font(.subheadline)
                     .foregroundStyle(.primary)
-                Text("\(result.createdAt.formatted(date: .abbreviated, time: .omitted)) · \(Int(result.topCandidate.confidence * 100))% · \(result.analysisDetails.sourcePlatform.label)")
+                Text("\(result.createdAt.formatted(date: .abbreviated, time: .omitted)) · \(Int(result.topCandidate.confidence * 100))% · \(sourceLabel)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -239,6 +239,10 @@ struct SavedRow: View {
             return result.topCandidate.episodeTitle ?? result.topCandidate.episodeLine
         }
         return result.topCandidate.mediaTitle
+    }
+
+    private var sourceLabel: String {
+        MarketingPreview.isEnabled ? "Shared clip" : result.analysisDetails.sourcePlatform.label
     }
 
     private var primaryDetail: String {

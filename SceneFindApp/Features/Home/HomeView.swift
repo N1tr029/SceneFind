@@ -206,7 +206,9 @@ private struct ClipInput: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Which scene is this?")
                     .font(.title.weight(.bold))
-                Text("Paste a link, or share a clip from TikTok, YouTube, or Instagram.")
+                Text(MarketingPreview.isEnabled
+                    ? "Paste a public link, or share a clip from another app."
+                    : "Paste a link, or share a clip from TikTok, YouTube, or Instagram.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -218,7 +220,10 @@ private struct ClipInput: View {
                     HStack(spacing: 10) {
                         Image(systemName: "link")
                             .foregroundStyle(canAnalyze ? Color.sceneCyan : .secondary)
-                        TextField("TikTok, YouTube, or web link", text: $pastedURL)
+                        TextField(
+                            MarketingPreview.isEnabled ? "Paste a public clip link" : "TikTok, YouTube, or web link",
+                            text: $pastedURL
+                        )
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.URL)

@@ -100,6 +100,7 @@ private final class ShowCoverStore {
     private var requests: [String: Task<URL?, Never>] = [:]
 
     func coverURL(for candidate: SceneCandidate) async -> URL? {
+        if MarketingPreview.isEnabled { return nil }
         let key = "\(candidate.mediaType.rawValue):\(candidate.mediaTitle.lowercased())"
         if let cachedURL = cachedURLs[key] { return cachedURL }
         if missingKeys.contains(key) { return usableFallback(candidate.heroImageURL) }
@@ -169,12 +170,7 @@ struct ShowCoverArtwork: View {
     }
 
     private var fallback: some View {
-        ZStack {
-            Color(uiColor: .tertiarySystemBackground)
-            Image(systemName: fallbackSymbol)
-                .font(.title2)
-                .foregroundStyle(.secondary)
-        }
+        GeneratedCoverArtwork(title: candidate.mediaTitle, symbol: fallbackSymbol)
     }
 
     private var fallbackSymbol: String {
@@ -182,6 +178,47 @@ struct ShowCoverArtwork: View {
         case .movie: "film"
         case .television: "tv"
         case .other: "play.rectangle"
+        }
+    }
+}
+
+private struct GeneratedCoverArtwork: View {
+    let title: String
+    let symbol: String
+
+    private var palette: [Color] {
+        let palettes: [[Color]] = [
+            [.sceneCyan, Color(red: 0.07, green: 0.24, blue: 0.33), .sceneCoral],
+            [.sceneCoral, Color(red: 0.32, green: 0.08, blue: 0.18), .sceneGold],
+            [Color(red: 0.50, green: 0.34, blue: 0.98), Color(red: 0.08, green: 0.10, blue: 0.26), .sceneCyan],
+            [.sceneGreen, Color(red: 0.04, green: 0.22, blue: 0.18), .sceneGold]
+        ]
+        let index = title.utf8.reduce(0) { ($0 + Int($1)) % palettes.count }
+        return palettes[index]
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                LinearGradient(colors: palette, startPoint: .topLeading, endPoint: .bottomTrailing)
+                Circle()
+                    .fill(.white.opacity(0.12))
+                    .frame(width: proxy.size.width * 1.15)
+                    .offset(x: proxy.size.width * 0.34, y: -proxy.size.height * 0.26)
+                Image(systemName: symbol)
+                    .font(.system(size: min(proxy.size.width, proxy.size.height) * 0.24, weight: .light))
+                    .foregroundStyle(.white.opacity(0.82))
+                LinearGradient(colors: [.clear, .black.opacity(0.82)], startPoint: .center, endPoint: .bottom)
+                Text(title.uppercased())
+                    .font(.system(size: max(11, proxy.size.width * 0.095), weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(4)
+                    .minimumScaleFactor(0.6)
+                    .padding(max(10, proxy.size.width * 0.08))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            }
+            .clipped()
         }
     }
 }

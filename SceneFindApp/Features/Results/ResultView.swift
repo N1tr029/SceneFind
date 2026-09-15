@@ -151,7 +151,7 @@ struct ResultView: View {
                     if let verification = result.analysisDetails.episodeVerificationEvidence {
                         detailRow("Episode check", verification)
                     }
-                    detailRow("Source", "\(result.analysisDetails.sourcePlatform.label) · \(result.analysisDetails.sourceType.label)")
+                    detailRow("Source", "\(sourceLabel(result)) · \(result.analysisDetails.sourceType.label)")
                 }
                 .padding(.top, 14)
             } label: {
@@ -237,6 +237,7 @@ struct ResultView: View {
         } else {
             supplied = []
         }
+        if MarketingPreview.isEnabled { return supplied }
         return StreamingProviderCatalog.providers(for: candidate, supplied: supplied)
     }
 
@@ -249,6 +250,10 @@ struct ResultView: View {
                 .font(.body)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private func sourceLabel(_ result: ClipAnalysisResult) -> String {
+        MarketingPreview.isEnabled ? "Shared clip" : result.analysisDetails.sourcePlatform.label
     }
 
     private func copyText(_ result: ClipAnalysisResult) -> String {
@@ -329,7 +334,7 @@ private struct ClipTimelineCard: View {
                         .font(.headline)
                     Spacer()
                     MetadataPill(
-                        text: result.analysisDetails.sourcePlatform.label,
+                        text: MarketingPreview.isEnabled ? "Shared clip" : result.analysisDetails.sourcePlatform.label,
                         symbol: "arrowshape.turn.up.right"
                     )
                 }

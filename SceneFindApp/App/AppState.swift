@@ -180,6 +180,7 @@ final class SceneFindModel: ObservableObject {
     let store: SharedContainerStore
     let identificationService: ClipIdentificationService
     private let defaults: UserDefaults
+    private let marketingPreviewEnabled: Bool
     private var savedResultIDs: Set<UUID> = []
 
     private static let savedResultIDsKey = "savedResultIDs.v2"
@@ -196,25 +197,36 @@ final class SceneFindModel: ObservableObject {
         self.store = store
         self.identificationService = identificationService ?? ClipIdentificationServiceFactory.makeDefault()
         self.defaults = defaults
+        self.marketingPreviewEnabled = MarketingPreview.isEnabled
         if defaults.object(forKey: Self.showAnalysisDetailsKey) != nil {
             showAnalysisDetails = defaults.bool(forKey: Self.showAnalysisDetailsKey)
         }
         loadPreferences()
-        reload()
+        if marketingPreviewEnabled {
+            loadMarketingPreview()
+        } else {
+            reload()
+        }
     }
 
     func reload() {
+        if marketingPreviewEnabled {
+            loadMarketingPreview()
+            return
+        }
         allResults = (try? repository.fetchAll()) ?? []
         recentResults = Array(allResults.prefix(8))
         savedResults = allResults.filter { savedResultIDs.contains($0.id) }
     }
 
     func record(_ result: ClipAnalysisResult) {
+        guard !marketingPreviewEnabled else { return }
         try? repository.save(result)
         reload()
     }
 
     func save(_ result: ClipAnalysisResult) {
+        guard !marketingPreviewEnabled else { return }
         try? repository.save(result)
         savedResultIDs.insert(result.id)
         persistSavedResultIDs()
@@ -222,18 +234,21 @@ final class SceneFindModel: ObservableObject {
     }
 
     func removeSaved(id: UUID) {
+        guard !marketingPreviewEnabled else { return }
         savedResultIDs.remove(id)
         persistSavedResultIDs()
         reload()
     }
 
     func clearSaved() {
+        guard !marketingPreviewEnabled else { return }
         savedResultIDs.removeAll()
         persistSavedResultIDs()
         reload()
     }
 
     func clearHistory() {
+        guard !marketingPreviewEnabled else { return }
         try? repository.clear()
         savedResultIDs.removeAll()
         persistSavedResultIDs()
@@ -255,7 +270,7 @@ final class SceneFindModel: ObservableObject {
     }
 
     func isSaved(_ result: ClipAnalysisResult) -> Bool {
-        savedResultIDs.contains(result.id)
+        marketingPreviewEnabled || savedResultIDs.contains(result.id)
     }
 
     var subscribedServiceCount: Int {
@@ -292,8 +307,150 @@ final class SceneFindModel: ObservableObject {
     private func persistSavedResultIDs() {
         defaults.set(savedResultIDs.map(\.uuidString).sorted(), forKey: Self.savedResultIDsKey)
     }
+
+    private func loadMarketingPreview() {
+        allResults = MarketingPreview.results
+        recentResults = MarketingPreview.results
+        savedResults = MarketingPreview.results
+        streamingAccess = [:]
+    }
 }
 
 extension AppRoute {
     var id: String { String(describing: self) }
+}
+
+enum MarketingPreview {
+    enum Destination: String {
+        case home
+        case result
+        case saved
+        case services
+    }
+
+    private static let argumentPrefix = "-SceneFindMarketing="
+
+    static var destination: Destination {
+        let value = ProcessInfo.processInfo.arguments
+            .first(where: { $0.hasPrefix(argumentPrefix) })?
+            .dropFirst(argumentPrefix.count)
+        return value.flatMap { Destination(rawValue: String($0)) } ?? .home
+    }
+
+    static var isEnabled: Bool {
+        ProcessInfo.processInfo.arguments.contains { $0.hasPrefix(argumentPrefix) }
+    }
+
+    static let results: [ClipAnalysisResult] = [
+        result(
+            title: "SceneFind Demo Series A",
+            episode: "Sample Scene 1",
+            season: 1,
+            number: 3,
+            timestamp: 441,
+            dialogue: "This is fictional dialogue created for the SceneFind demo.",
+            confidence: 0.92,
+            service: "Demo Stream",
+            color: "23C6D9"
+        ),
+        result(
+            title: "SceneFind Demo Series B",
+            episode: "Sample Scene 2",
+            season: 1,
+            number: 2,
+            timestamp: 817,
+            dialogue: "This sample scene contains no third-party media.",
+            confidence: 0.89,
+            service: "Demo Stream",
+            color: "FF6154"
+        ),
+        result(
+            title: "SceneFind Demo Series C",
+            episode: "Sample Scene 3",
+            season: 1,
+            number: 1,
+            timestamp: 224,
+            dialogue: "SceneFind matched this fictional sample with high confidence.",
+            confidence: 0.87,
+            service: "Demo Stream",
+            color: "9A7BFF"
+        ),
+        result(
+            title: "SceneFind Demo Series D",
+            episode: "Sample Scene 4",
+            season: 1,
+            number: 4,
+            timestamp: 1092,
+            dialogue: "This example exists only to demonstrate the interface.",
+            confidence: 0.86,
+            service: "Demo Stream",
+            color: "39DF8C"
+        )
+    ]
+
+    private static func result(
+        title: String,
+        episode: String,
+        season: Int,
+        number: Int,
+        timestamp: Double,
+        dialogue: String,
+        confidence: Double,
+        service: String,
+        color: String
+    ) -> ClipAnalysisResult {
+        let requestID = MockMediaLibrary.stableID("marketing-request-\(title)")
+        let candidate = SceneCandidate(
+            id: MockMediaLibrary.stableID("marketing-candidate-\(title)"),
+            mediaTitle: title,
+            mediaType: .television,
+            releaseYear: 2026,
+            seasonNumber: season,
+            episodeNumber: number,
+            episodeTitle: episode,
+            sceneTimestampSeconds: timestamp,
+            clipEndTimestampSeconds: timestamp + 31,
+            matchedSubtitleText: dialogue,
+            confidence: confidence,
+            subtitleScore: min(confidence + 0.03, 1),
+            visualScore: confidence - 0.04,
+            metadataScore: confidence - 0.09,
+            streamingService: service,
+            streamingURL: nil,
+            heroImageURL: nil,
+            watchProviders: [
+                WatchProvider(
+                    id: service.lowercased(),
+                    name: service,
+                    offer: "Fictional demo provider",
+                    episodeURL: URL(string: "https://example.com/watch/\(number)")!,
+                    sceneURL: nil,
+                    symbolName: "play.tv.fill",
+                    brandColorHex: color,
+                    destinationLevel: .exactEpisode,
+                    destinationDiagnostic: "Fictional content used only for App Store screenshots."
+                )
+            ],
+            timestampAccuracy: .matchedDialogue,
+            timestampBasis: "Located by matching dialogue to verified subtitles."
+        )
+        return ClipAnalysisResult(
+            id: MockMediaLibrary.stableID("marketing-result-\(title)"),
+            requestID: requestID,
+            createdAt: Date(timeIntervalSince1970: 1_789_012_800 - Double(number * 300)),
+            detectedDialogue: dialogue,
+            topCandidate: candidate,
+            alternativeCandidates: [],
+            analysisDetails: AnalysisDetails(
+                sourcePlatform: .genericWeb,
+                sourceType: .url,
+                extractedFrameCount: 12,
+                subtitleCandidatesCompared: 18,
+                totalProcessingDuration: 8.4,
+                directMediaAnalyzed: true,
+                visualEvidence: ["Fictional sample frame", "Generated demo artwork"],
+                episodeVerificationEvidence: "Sample dialogue and generated demo evidence agree."
+            )
+        )
+    }
 }

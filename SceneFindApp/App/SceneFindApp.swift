@@ -35,6 +35,7 @@ struct RootView: View {
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var model: SceneFindModel
     @Environment(\.scenePhase) private var scenePhase
+    @State private var didRouteMarketingPreview = false
 
     var body: some View {
         TabView(selection: $router.selectedTab) {
@@ -63,7 +64,10 @@ struct RootView: View {
         // No manual tab-bar background: on iOS 26 that override replaces the
         // system's floating Liquid Glass bar with a flat material slab.
         .sensoryFeedback(.selection, trigger: router.selectedTab)
-        .onAppear { routePendingShare() }
+        .onAppear {
+            routeMarketingPreviewIfNeeded()
+            routePendingShare()
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 routePendingShare()
@@ -72,8 +76,28 @@ struct RootView: View {
     }
 
     private func routePendingShare() {
+        guard !MarketingPreview.isEnabled else { return }
         guard let requestID = model.store.consumePendingRequestID() else { return }
         router.navigate(to: .analyze(requestID))
+    }
+
+    private func routeMarketingPreviewIfNeeded() {
+        guard MarketingPreview.isEnabled, !didRouteMarketingPreview else { return }
+        didRouteMarketingPreview = true
+
+        switch MarketingPreview.destination {
+        case .home:
+            router.returnHome()
+        case .saved:
+            router.selectedTab = .saved
+            router.savedPath = []
+        case .services:
+            router.selectedTab = .settings
+            router.settingsPath = [.services]
+        case .result:
+            guard let result = model.recentResults.first else { return }
+            router.navigate(to: .result(result.id))
+        }
     }
 
     @ViewBuilder
