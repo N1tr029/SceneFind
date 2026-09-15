@@ -197,6 +197,82 @@ describe("resolveEpisodeEvidence", () => {
     expect(result.episodeNumber).toBe(2);
   });
 
+  it("stops searching once the two most quotable lines agree on one episode", async () => {
+    const lines = [
+      "Ron Hextall just scored the final goal for us tonight everyone",
+      "We left the hockey game early because of the traffic",
+      "Murray never forgave the Flyers for that",
+    ];
+    const queries: string[] = [];
+    const result = await resolveEpisodeEvidence(env, {
+      showTitle: "Example Show",
+      detectedDialogue: lines.join(". "),
+      visualEvidence: [],
+      captionEvidence: "",
+      candidateSeason: null,
+      candidateEpisode: null,
+    }, {
+      fetcher: guideFetcher,
+      searcher: async ({ query }) => {
+        queries.push(query);
+        const line = lines.find((candidate) => query.includes(candidate));
+        return line
+          ? [{
+              url: "https://transcripts.example/example-show/s02e02",
+              title: "Example Show S2E2 — The Unprecedented Goal transcript",
+              snippet: line,
+            }]
+          : [];
+      },
+      verifier: async () => { throw new Error("Groq must not be called"); },
+    });
+
+    expect(result.verified).toBe(true);
+    expect(result.episodeTitle).toBe("The Unprecedented Goal");
+    expect(queries).toHaveLength(2);
+    expect(queries.some((query) => query.includes(lines[2]))).toBe(false);
+  });
+
+  it("searches the remaining lines when the first two disagree", async () => {
+    const lines = [
+      "Ron Hextall just scored the final goal for us tonight everyone",
+      "We left the hockey game early because of the traffic",
+      "Murray never forgave the Flyers for that",
+    ];
+    const queries: string[] = [];
+    const result = await resolveEpisodeEvidence({ ...env, GROQ_API_KEY: "" }, {
+      showTitle: "Example Show",
+      detectedDialogue: lines.join(". "),
+      visualEvidence: [],
+      captionEvidence: "",
+      candidateSeason: null,
+      candidateEpisode: null,
+    }, {
+      fetcher: guideFetcher,
+      searcher: async ({ query }) => {
+        queries.push(query);
+        const line = lines.find((candidate) => query.includes(candidate));
+        if (!line) return [];
+        return [line === lines[1]
+          ? {
+              url: "https://social.example/s04e16",
+              title: "Example Show S4E16 — The Dynamic Duo clip",
+              snippet: line,
+            }
+          : {
+              url: "https://transcripts.example/example-show/s02e02",
+              title: "Example Show S2E2 — The Unprecedented Goal transcript",
+              snippet: line,
+            }];
+      },
+    });
+
+    expect(queries).toHaveLength(3);
+    expect(result.verified).toBe(true);
+    expect(result.seasonNumber).toBe(2);
+    expect(result.episodeNumber).toBe(2);
+  });
+
   it("rejects a verifier result that is absent from the canonical guide", async () => {
     const result = await resolveEpisodeEvidence(env, {
       showTitle: "Example Show",

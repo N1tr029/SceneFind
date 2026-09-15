@@ -52,7 +52,7 @@ export async function resolveEpisodeEvidence(
 
   const phrases = dialoguePhrases(args.transcriptCues, args.detectedDialogue);
   const searcher = dependencies.searcher ?? searchWeb;
-  const batches = await Promise.all(phrases.map(async (anchor) => {
+  const searchPhrases = async (anchors: string[]) => (await Promise.all(anchors.map(async (anchor) => {
     const results = await searcher({
       apiKey: env.SEARCH_API_KEY,
       query: `"${anchor.replaceAll('"', "")}" "${guide.showTitle}" episode transcript`,
@@ -60,9 +60,17 @@ export async function resolveEpisodeEvidence(
       fetcher: dependencies.fetcher,
     });
     return searchSupports(results.slice(0, 12), guide.showTitle, anchor, guide.episodes);
-  }));
+  }))).flat();
+  // Every search spends paid quota, and it is the scarcest resource per clip.
+  // Search the two most quotable lines first. If both land on the same episode
+  // and nothing points anywhere else, the remaining lines cannot change the
+  // answer, so they are only searched when the first two do not settle it.
+  const { first, rest } = searchWaves(phrases);
+  let supports = deduplicateSupports(await searchPhrases(first));
+  if (rest.length > 0 && !unanimousAgreement(supports)) {
+    supports = deduplicateSupports([...supports, ...await searchPhrases(rest)]);
+  }
   const captionHints = parseEpisodeCoordinates(args.captionEvidence);
-  let supports = deduplicateSupports(batches.flat());
   dependencies.diagnostic?.({ phrases, captionHints: [...captionHints], supports });
   let deterministic = strongSearchResolution(supports, captionHints, guide.episodes);
 
@@ -245,6 +253,23 @@ function unsafeSearchHost(hostname: string): boolean {
   const match = host.match(/^172\.(\d{1,3})\./);
   if (match && Number(match[1]) >= 16 && Number(match[1]) <= 31) return true;
   return host === "::1" || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:");
+}
+
+/** Splits phrases into a first wave of the two most quotable lines and the
+ *  rest. Quoted search matches best on one sentence of about eleven words;
+ *  clipped fragments at a clip's edges are shorter and rank last. */
+function searchWaves(phrases: string[]): { first: string[]; rest: string[] } {
+  const quotability = (phrase: string) => Math.abs(phrase.split(/\s+/).filter(Boolean).length - 11);
+  const ranked = phrases
+    .map((phrase, index) => ({ phrase, index }))
+    .sort((left, right) => quotability(left.phrase) - quotability(right.phrase) || left.index - right.index)
+    .map(({ phrase }) => phrase);
+  return { first: ranked.slice(0, 2), rest: ranked.slice(2) };
+}
+
+/** Two distinct lines agree on one episode and no result names another. */
+function unanimousAgreement(supports: SearchSupport[]): boolean {
+  return new Set(supports.map(coordinateKey)).size === 1 && distinctAnchors(supports) >= 2;
 }
 
 function dialoguePhrases(cues: TranscriptCue[] | undefined, dialogue: string): string[] {
