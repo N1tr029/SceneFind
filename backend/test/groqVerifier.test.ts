@@ -102,3 +102,20 @@ describe("episode verifier request", () => {
     });
   });
 });
+
+describe("providerErrorSummary", () => {
+  it("keeps the provider's code and message but never echoed generations", async () => {
+    const { providerErrorSummary } = await import("../src/providers/errorSummary");
+    const summary = await providerErrorSummary(new Response(JSON.stringify({
+      error: {
+        message: "Failed to generate JSON.",
+        type: "invalid_request_error",
+        code: "json_validate_failed",
+        failed_generation: "{\"evidence\":\"a line of dialogue from the clip\"}",
+      },
+    }), { status: 400 }));
+
+    expect(summary).toBe("400 json_validate_failed: Failed to generate JSON.");
+    expect(summary).not.toContain("dialogue");
+  });
+});

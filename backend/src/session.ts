@@ -387,8 +387,12 @@ export class AnalysisSession implements DurableObject {
   private async fail(error: unknown): Promise<void> {
     const session = this.session;
     if (!session || session.status !== "running") return;
-    // No clip content: the error class and message name the failing step.
-    console.error("analysis failed", error instanceof Error ? `${error.name}: ${error.message}` : String(error));
+    // Only SceneFind's own errors carry messages safe to log. Anything else
+    // (a JSON SyntaxError, say) can quote provider output derived from the
+    // clip, so it is logged by class name alone.
+    const kind = error instanceof Error ? error.constructor.name : typeof error;
+    const ownError = ["ProviderError", "PublicPipelineError", "RetrievalError"].includes(kind);
+    console.error("analysis failed", kind, ownError && error instanceof Error ? error.message : "");
     session.status = "failed";
     session.errorCode = error instanceof PublicPipelineError ? error.code : "provider_unavailable";
     await this.finishAllowance(false);

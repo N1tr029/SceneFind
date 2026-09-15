@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { providerErrorSummary } from "./errorSummary";
 
 export interface GeminiIdentification {
   detectedDialogue: string;
@@ -95,7 +96,7 @@ async function requestModel(
     throw new ProviderError("provider_unavailable", "Identification timed out.", true);
   }
   if (!response.ok) {
-    console.warn("gemini identification failed", model, response.status, (await response.text()).slice(0, 300));
+    console.warn("gemini identification failed", model, await providerErrorSummary(response));
     throw new ProviderError(
       "provider_unavailable",
       `Identification provider returned ${response.status}.`,

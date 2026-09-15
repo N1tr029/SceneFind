@@ -1,3 +1,5 @@
+import { providerErrorSummary } from "./providers/errorSummary";
+
 export interface WebSearchResult {
   url: string;
   title: string;
@@ -68,7 +70,7 @@ export async function searchWebDetailed(options: {
       if (!response.ok) {
         // An exhausted monthly plan shows up here first. Never log the URL: it
         // carries the API key.
-        console.warn("serpapi search failed", response.status, (await response.text()).slice(0, 200));
+        console.warn("serpapi search failed", await providerErrorSummary(response));
         return { results: [], ok: false, knowledge: [] };
       }
       body = await response.json() as typeof body;

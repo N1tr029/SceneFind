@@ -2,6 +2,7 @@
 
 import type { Env } from "../types";
 import { ProviderError } from "./gemini";
+import { providerErrorSummary } from "./errorSummary";
 
 export interface EpisodeVerification {
   verified: boolean;
@@ -122,12 +123,12 @@ export async function verifyEpisode(
     // Structured outputs and reasoning parameters are the newest part of this
     // request. If Groq rejects them, one plain JSON-mode retry keeps the
     // verifier working while the log says what to fix.
-    console.warn("groq verifier rejected structured request", (await res.text()).slice(0, 300));
+    console.warn("groq verifier rejected structured request", await providerErrorSummary(res));
     res = await postVerification(env, plainVerificationRequestBody(env.GROQ_MODEL, args));
   }
 
   if (!res.ok) {
-    console.warn("groq verifier failed", res.status, (await res.text()).slice(0, 300));
+    console.warn("groq verifier failed", await providerErrorSummary(res));
     throw new ProviderError(
       "provider_unavailable",
       `Episode verifier returned ${res.status}.`,

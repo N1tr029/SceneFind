@@ -1,5 +1,6 @@
 import type { TranscriptCue } from "../sourceRetrieval";
 import type { Env } from "../types";
+import { providerErrorSummary } from "./errorSummary";
 
 interface GroqSegment {
   start?: number;
@@ -36,7 +37,7 @@ export async function transcribeMedia(
   if (!response.ok) {
     // Logged without media or transcript content: status and Groq's own
     // message are enough to tell an expired key from a rejected file.
-    console.warn("groq transcription failed", response.status, (await response.text()).slice(0, 300));
+    console.warn("groq transcription failed", await providerErrorSummary(response));
     return [];
   }
   let body: { segments?: GroqSegment[] };
