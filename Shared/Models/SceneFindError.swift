@@ -61,7 +61,7 @@ enum SceneFindError: LocalizedError {
         case .identificationAllowanceExhausted: "You have used all successful identifications in your current allowance period."
         case .analysisRateLimited: "SceneFind is receiving too many requests from this device. Wait a moment and try again."
         case .deviceVerificationFailed: "SceneFind could not verify this installation with the secure analysis service."
-        case .mediaTooLarge: "That media file is too large to upload. Choose a clip under 8 MB."
+        case .mediaTooLarge: "That video is too large to upload, even compressed. Trim it to a shorter clip and try again."
         }
     }
 

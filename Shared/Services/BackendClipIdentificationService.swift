@@ -43,7 +43,7 @@ final class BackendClipIdentificationService: ProgressReportingClipIdentificatio
         request sharedRequest: SharedClipRequest,
         progress: @escaping (AnalysisProgressEvent) -> Void
     ) async throws -> ClipAnalysisResult {
-        let body = try requestBody(for: sharedRequest)
+        let body = try await requestBody(for: sharedRequest)
         let start: SceneFindBackendClient.AnalysisStart
         do {
             start = try await client.startAnalysis(body: encoder.encode(body))
@@ -62,15 +62,26 @@ final class BackendClipIdentificationService: ProgressReportingClipIdentificatio
         }
     }
 
-    private func requestBody(for request: SharedClipRequest) throws -> RequestBody {
-        let fileURL = store.resolveFileURL(fileName: request.localFileName)
+    private func requestBody(for request: SharedClipRequest) async throws -> RequestBody {
+        let storedURL = store.resolveFileURL(fileName: request.localFileName)
+        // Videos are re-encoded to fit the upload limit; the temporary copy is
+        // read into memory below and removed before this returns.
+        var fileURL = storedURL
+        if let storedURL, Self.isVideo(storedURL) {
+            fileURL = try await VideoCompressor.uploadableVideo(from: storedURL)
+        }
+        defer {
+            if let fileURL, fileURL != storedURL {
+                try? FileManager.default.removeItem(at: fileURL)
+            }
+        }
         let fileData: Data?
         if let fileURL {
             let values = try fileURL.resourceValues(forKeys: [.fileSizeKey])
-            guard (values.fileSize ?? 0) <= 8_000_000 else {
+            guard (values.fileSize ?? 0) <= VideoCompressor.backendLimitBytes else {
                 throw SceneFindError.mediaTooLarge
             }
-            fileData = try Data(contentsOf: fileURL, options: [.mappedIfSafe])
+            fileData = try Data(contentsOf: fileURL)
         } else {
             fileData = nil
         }
@@ -97,6 +108,10 @@ final class BackendClipIdentificationService: ProgressReportingClipIdentificatio
             region: Locale.current.region?.identifier ?? "US",
             idempotencyKey: request.id.uuidString.lowercased()
         )
+    }
+
+    private static func isVideo(_ url: URL) -> Bool {
+        UTType(filenameExtension: url.pathExtension)?.conforms(to: .movie) ?? false
     }
 
     private func map(_ error: SceneFindBackendError) -> SceneFindError {
