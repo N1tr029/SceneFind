@@ -1,5 +1,35 @@
 # SceneFind App Store Submission Runbook
 
+## Shipping an update (the routine after launch)
+
+1. **Bump the version before pushing.** Set `MARKETING_VERSION` in `project.yml`
+   and run `xcodegen generate`. A version train closes once Apple approves it,
+   so a push that keeps an approved version's number fails every upload.
+2. **Push to `main`.** Xcode Cloud archives it twice, once per workflow, and
+   reports both runs to GitHub:
+   `gh api repos/N1tr029/SceneFind/commits/<sha>/check-runs`. Put `[ci skip]`
+   in a commit message that shouldn't build, such as backend or docs changes.
+3. **Deploy backend changes separately**, and before the app needs them:
+   `cd backend && npx tsc --noEmit && npx vitest run && npx wrangler deploy`.
+   Check `GET /healthz` afterwards. Workers Logs are on, so provider failures
+   show under Observability in the Cloudflare dashboard.
+4. **Create the version in App Store Connect** with the + next to iOS App, once
+   the previous version is released. Screenshots, description and review notes
+   carry over. Write What's New, and update the review notes if the first-run
+   flow changed.
+5. **Attach the newest build.** One of each pair stays greyed out while it
+   processes, so pick the highest number that is selectable. Check its upload
+   time is after the push you want.
+6. **Release settings:** automatic release after approval, with a 7-day phased
+   rollout. Phased release can be paused if crash reports come in.
+7. **Add for Review, then Submit for Review.** On a draft submission, that
+   dialog is the final submit.
+
+Before every submission, make sure what ships still matches the privacy policy
+and review notes. In particular: no shared content in logs, and AI providers
+not training on user clips, which needs a paid Gemini key.
+
+
 ## Guideline 4.1(a) Metadata Remediation (Build 73)
 
 ### Second rejection, 2026-09-10
