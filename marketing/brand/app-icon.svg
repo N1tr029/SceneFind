@@ -1,3 +1,3 @@
 <svg viewBox="0 0 1024 1024" width="1024" height="1024" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="gP" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6d2ce8"/><stop offset="1" stop-color="#c034a8"/></linearGradient></defs><rect width="1024" height="1024" fill="#0b0b10"/><g opacity="0.1" stroke="#ffffff" fill="none" stroke-width="56"><circle cx="512" cy="512" r="268"/><line x1="332.4" y1="691.6" x2="145.7" y2="878.3" stroke-linecap="butt"/><circle cx="145.7" cy="878.3" r="28.0" fill="#ffffff" stroke="none"/></g><g stroke="#1db4d6" fill="none" stroke-width="48" stroke-linecap="round">
-<path d="M 200 396 L 200 260 Q 200 200 260 200 L 396 200"/>
-<path d="M 824 628 L 824 764 Q 824 824 764 824 L 628 824"/></g><path d="M 418 352 L 706 512 L 418 672 Z" fill="url(#gP)" stroke="url(#gP)" stroke-width="56" stroke-linejoin="round"/></svg>
+<path d="M 150 346 L 150 210 Q 150 150 210 150 L 346 150"/>
+<path d="M 874 678 L 874 814 Q 874 874 814 874 L 678 874"/></g><path d="M 418 352 L 706 512 L 418 672 Z" fill="url(#gP)" stroke="url(#gP)" stroke-width="56" stroke-linejoin="round"/></svg>
