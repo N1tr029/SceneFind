@@ -29,9 +29,15 @@ export interface Env {
   ANALYSIS: DurableObjectNamespace;
   APP_ATTEST: DurableObjectNamespace;
   ENTITLEMENTS: DurableObjectNamespace;
+  /** Entitlement owner mappings. Not used for rate limiting any more. */
   RATE_LIMIT: KVNamespace;
   /** Resolved episode → provider URL cache, shared by every install. */
   WATCH_LINKS: KVNamespace;
+  /** Workers Rate Limiting bindings (wrangler.toml [[ratelimits]]). Optional so
+   *  local runs without them fail open instead of crashing. */
+  INSTALL_RATE_LIMITER?: RateLimit;
+  IP_RATE_LIMITER?: RateLimit;
+  CHALLENGE_RATE_LIMITER?: RateLimit;
 }
 
 /** A provider page confirmed to be the requested title. */

@@ -30,7 +30,8 @@ class_name = "EntitlementLedger"
 tag = "v1"
 new_sqlite_classes = ["AnalysisSession", "AppAttestationRegistry", "EntitlementLedger"]
 
-# Rate-limiting counters and short-lived install identities.
+# Entitlement owner mappings (install -> purchase owner). The binding name is
+# historical: rate limiting moved to the [[ratelimits]] bindings below.
 [[kv_namespaces]]
 binding = "RATE_LIMIT"
 id = "d735950d74b54e8d988927a667834a5d"   # wrangler kv:namespace create RATE_LIMIT
@@ -43,12 +44,42 @@ id = "d735950d74b54e8d988927a667834a5d"   # wrangler kv:namespace create RATE_LI
 binding = "WATCH_LINKS"
 id = "7f8a495fb7944fb7b29dc6447bfe79c0"   # wrangler kv:namespace create WATCH_LINKS
 
+# Abuse limits. Counters live at the edge rather than in KV, so they cost no KV
+# writes (Workers Free allows 1,000 a day, and every put throws past that).
+# Periods can only be 10 or 60 seconds. namespace_id is account-wide: another
+# Worker using the same id would share these counters.
+[[ratelimits]]
+name = "INSTALL_RATE_LIMITER"
+namespace_id = "72001"
+
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
+[[ratelimits]]
+name = "IP_RATE_LIMITER"
+namespace_id = "72002"
+
+  [ratelimits.simple]
+  limit = 120
+  period = 60
+
+[[ratelimits]]
+name = "CHALLENGE_RATE_LIMITER"
+namespace_id = "72003"
+
+  [ratelimits.simple]
+  limit = 60
+  period = 60
+
 [vars]
 # Non-secret config. Model names can be overridden per environment.
 # 3.5-flash answered the same prompt in ~9.3s where 3.6-flash took ~1.7s.
 GEMINI_MODEL = "gemini-3.6-flash"
 GEMINI_FALLBACK_MODEL = "gemini-3.1-flash-lite"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+# llama-3.3-70b-versatile was shut down on 2026-08-16; this is Groq's named
+# replacement. It is a reasoning model with strict JSON-schema support.
+GROQ_MODEL = "openai/gpt-oss-120b"
 GROQ_TRANSCRIPTION_MODEL = "whisper-large-v3-turbo"
 # Set to "1" to allow unauthenticated calls during local development only.
 ALLOW_INSECURE_DEV_AUTH = "0"

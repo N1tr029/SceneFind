@@ -1,43 +1,45 @@
 import type { Env } from "./types";
 
-interface RateRecord {
-  count: number;
-  resetAtMs: number;
-}
+/*
+ * Abuse limits for signed app calls and App Attest challenges.
+ *
+ * These counters used to live in KV, which wrote a record on every request.
+ * Workers Free allows 1,000 KV writes a day and every put throws past that, so
+ * a busy day would have failed every authenticated request until UTC midnight.
+ * Workers Rate Limiting bindings keep the counters at the edge and cost no KV
+ * writes. They are per Cloudflare location and eventually consistent, which is
+ * fine here: App Attest is what keeps unknown clients out, and these limits only
+ * blunt a single install or address hammering the API.
+ */
 
 export async function enforceRateLimits(
   req: Request,
   env: Env,
   installationID: string,
 ): Promise<boolean> {
-  const ip = req.headers.get("CF-Connecting-IP") ?? "unknown";
   const [installAllowed, ipAllowed] = await Promise.all([
-    consume(env, `rl:install:${installationID}`, 30, 60),
-    consume(env, `rl:ip:${ip}`, 120, 60),
+    allow(env.INSTALL_RATE_LIMITER, `install:${installationID}`),
+    allow(env.IP_RATE_LIMITER, `ip:${clientIP(req)}`),
   ]);
   return installAllowed && ipAllowed;
 }
 
 export async function enforceChallengeRateLimit(req: Request, env: Env): Promise<boolean> {
-  const ip = req.headers.get("CF-Connecting-IP") ?? "unknown";
-  return consume(env, `rl:challenge:${ip}`, 60, 60);
+  return allow(env.CHALLENGE_RATE_LIMITER, `challenge:${clientIP(req)}`);
 }
 
-async function consume(
-  env: Env,
-  key: string,
-  limit: number,
-  windowSeconds: number,
-): Promise<boolean> {
-  const nowMs = Date.now();
-  const existing = await env.RATE_LIMIT.get<RateRecord>(key, "json");
-  const record = !existing || existing.resetAtMs <= nowMs
-    ? { count: 0, resetAtMs: nowMs + windowSeconds * 1_000 }
-    : existing;
-  if (record.count >= limit) return false;
-  record.count += 1;
-  await env.RATE_LIMIT.put(key, JSON.stringify(record), {
-    expirationTtl: Math.max(60, Math.ceil((record.resetAtMs - nowMs) / 1_000)),
-  });
-  return true;
+/** Fails open. A missing binding or a limiter error must not turn into an
+ *  outage of identification itself, which is what the KV version risked. */
+async function allow(limiter: RateLimit | undefined, key: string): Promise<boolean> {
+  if (!limiter) return true;
+  try {
+    const { success } = await limiter.limit({ key });
+    return success;
+  } catch {
+    return true;
+  }
+}
+
+function clientIP(req: Request): string {
+  return req.headers.get("CF-Connecting-IP") ?? "unknown";
 }

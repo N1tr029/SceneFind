@@ -54,7 +54,9 @@ export async function handleWatchLinks(req: Request, env: Env): Promise<Response
   }
 
   const key = cacheKey(query);
-  const cached = await env.WATCH_LINKS.get<WatchLinksResponse>(key, "json");
+  // The cache saves search quota; it must never be the reason a lookup fails.
+  // KV throws once a free-plan daily limit is spent, so treat that as a miss.
+  const cached = await env.WATCH_LINKS.get<WatchLinksResponse>(key, "json").catch(() => null);
   if (cached) {
     return json({ ...cached, source: "cache" } satisfies WatchLinksResponse);
   }
@@ -83,7 +85,7 @@ export async function handleWatchLinks(req: Request, env: Env): Promise<Response
   if (ok || links.length > 0) {
     await env.WATCH_LINKS.put(key, JSON.stringify({ links, source: "cache" }), {
       expirationTtl: links.length > 0 ? HIT_TTL_SECONDS : MISS_TTL_SECONDS,
-    });
+    }).catch(() => undefined);
   }
 
   return json(body);

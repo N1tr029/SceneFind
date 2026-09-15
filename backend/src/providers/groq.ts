@@ -22,6 +22,44 @@ with that entry's summary. Return ONLY strict JSON with keys: verified
 confidence (0..1). Set verified=false unless the dialogue or visuals clearly
 match a specific episode.`;
 
+/** Strict structured output: Groq constrains decoding to this schema, so the
+ *  reply always parses. Nullable fields are unions because strict mode requires
+ *  every property to be listed as required. */
+const VERIFICATION_SCHEMA = {
+  type: "object",
+  properties: {
+    verified: { type: "boolean" },
+    seasonNumber: { type: ["integer", "null"] },
+    episodeNumber: { type: ["integer", "null"] },
+    episodeTitle: { type: ["string", "null"] },
+    evidence: { type: "string" },
+    confidence: { type: "number" },
+  },
+  required: ["verified", "seasonNumber", "episodeNumber", "episodeTitle", "evidence", "confidence"],
+  additionalProperties: false,
+} as const;
+
+/** The verifier model is a reasoning model. Low effort keeps it inside the
+ *  timeout and the free tier's tokens-per-minute budget; the reasoning text is
+ *  never needed, so it is not sent back. */
+export function verificationRequestBody(model: string, args: unknown): Record<string, unknown> {
+  return {
+    model,
+    temperature: 0.1,
+    reasoning_effort: "low",
+    include_reasoning: false,
+    max_completion_tokens: 1_024,
+    response_format: {
+      type: "json_schema",
+      json_schema: { name: "episode_verification", strict: true, schema: VERIFICATION_SCHEMA },
+    },
+    messages: [
+      { role: "system", content: VERIFY_SYSTEM_PROMPT },
+      { role: "user", content: JSON.stringify(args) },
+    ],
+  };
+}
+
 export async function verifyEpisode(
   env: Env,
   args: {
@@ -57,15 +95,7 @@ export async function verifyEpisode(
         authorization: `Bearer ${env.GROQ_API_KEY}`,
       },
       signal: AbortSignal.timeout(6_000),
-      body: JSON.stringify({
-        model: env.GROQ_MODEL,
-        temperature: 0.1,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: VERIFY_SYSTEM_PROMPT },
-          { role: "user", content: JSON.stringify(args) },
-        ],
-      }),
+      body: JSON.stringify(verificationRequestBody(env.GROQ_MODEL, args)),
     });
   } catch {
     throw new ProviderError("provider_unavailable", "Episode verifier timed out.", true);

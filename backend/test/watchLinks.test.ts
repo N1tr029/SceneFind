@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { isExactEpisodeRoute, knowledgeLinks, resolveRedirect, verifyCandidates, type WatchLinkQuery } from "../src/watchLinks";
+import { describe, expect, it, vi } from "vitest";
+import { handleWatchLinks, isExactEpisodeRoute, knowledgeLinks, resolveRedirect, verifyCandidates, type WatchLinkQuery } from "../src/watchLinks";
+import type { Env } from "../src/types";
 
 const query: WatchLinkQuery = {
   title: "All American",
@@ -166,5 +167,34 @@ describe("Google redirector resolution", () => {
     const fetcher = (async () => new Response(null, { status: 200 })) as unknown as typeof fetch;
     const raw = "https://www.google.com/goto?url=CAES";
     expect(await resolveRedirect(raw, fetcher)).toBe(raw);
+  });
+});
+
+describe("watch link cache", () => {
+  it("still answers when KV has spent its daily reads and writes", async () => {
+    let searches = 0;
+    vi.stubGlobal("fetch", async () => {
+      searches += 1;
+      return Response.json({ organic_results: [] });
+    });
+    const env = {
+      SEARCH_API_KEY: "a".repeat(64),
+      WATCH_LINKS: {
+        get: async () => { throw new Error("KV get() limit exceeded for the day."); },
+        put: async () => { throw new Error("KV put() limit exceeded for the day."); },
+      },
+    } as unknown as Env;
+
+    try {
+      const response = await handleWatchLinks(
+        new Request("https://worker.example/v1/watch-links?title=All%20American&type=tv&season=8&episode=1"),
+        env,
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ links: [], source: "resolved" });
+      expect(searches).toBeGreaterThan(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
