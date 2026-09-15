@@ -36,6 +36,8 @@ struct RootView: View {
     @EnvironmentObject private var model: SceneFindModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var didRouteMarketingPreview = false
+    @AppStorage("didCompleteOnboarding.v1") private var didCompleteOnboarding = false
+    @State private var isShowingOnboarding = false
 
     var body: some View {
         TabView(selection: $router.selectedTab) {
@@ -66,7 +68,18 @@ struct RootView: View {
         .sensoryFeedback(.selection, trigger: router.selectedTab)
         .onAppear {
             routeMarketingPreviewIfNeeded()
-            routePendingShare()
+            let openedFromShare = routePendingShare()
+            // Someone whose first launch comes from sharing a clip wants that
+            // result, not a tour. They get onboarding on their next launch.
+            if !didCompleteOnboarding, !MarketingPreview.isEnabled, !openedFromShare {
+                isShowingOnboarding = true
+            }
+        }
+        .fullScreenCover(isPresented: $isShowingOnboarding) {
+            OnboardingView {
+                didCompleteOnboarding = true
+                isShowingOnboarding = false
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
@@ -75,10 +88,12 @@ struct RootView: View {
         }
     }
 
-    private func routePendingShare() {
-        guard !MarketingPreview.isEnabled else { return }
-        guard let requestID = model.store.consumePendingRequestID() else { return }
+    @discardableResult
+    private func routePendingShare() -> Bool {
+        guard !MarketingPreview.isEnabled else { return false }
+        guard let requestID = model.store.consumePendingRequestID() else { return false }
         router.navigate(to: .analyze(requestID))
+        return true
     }
 
     private func routeMarketingPreviewIfNeeded() {
