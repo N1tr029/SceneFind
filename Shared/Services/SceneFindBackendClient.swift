@@ -135,6 +135,13 @@ final class SceneFindBackendClient: @unchecked Sendable {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let registration = AppAttestRegistrationCoordinator()
+    /// App Attest counters must reach the server in the order they were
+    /// generated: the server rejects any assertion whose counter is not higher
+    /// than the last one it accepted. Two signed requests sent at once, such as
+    /// an allowance refresh and an analysis started from the share sheet, can
+    /// arrive out of order and fail as "device verification". Signing and
+    /// sending therefore happen one request at a time.
+    private let signing = SignedRequestGate()
 
     init(
         session: URLSession = .shared,
@@ -197,9 +204,23 @@ final class SceneFindBackendClient: @unchecked Sendable {
         progress: @escaping (AnalysisProgressEvent) -> Void
     ) async throws -> ClipAnalysisResult {
         var request = try request(path: "v1/analysis/\(id)/events", method: "GET")
-        request.timeoutInterval = 40
-        request = try await authorized(request)
-        let (bytes, response) = try await session.bytes(for: request)
+        // Idle interval between bytes. Some pipeline stages run silently for
+        // tens of seconds; a timeout here now reconnects rather than failing.
+        request.timeoutInterval = 60
+        // The gate is held only until response headers arrive: the server has
+        // verified the assertion by then, and the stream itself can take a
+        // minute.
+        await signing.acquire()
+        let bytes: URLSession.AsyncBytes
+        let response: URLResponse
+        do {
+            request = try await authorized(request)
+            (bytes, response) = try await session.bytes(for: request)
+        } catch {
+            await signing.release()
+            throw error
+        }
+        await signing.release()
         try validate(response: response, data: nil)
 
         var eventName = "message"
@@ -233,18 +254,29 @@ final class SceneFindBackendClient: @unchecked Sendable {
     }
 
     func cancelAnalysis(id: String) async {
-        guard var request = try? request(path: "v1/analysis/\(id)", method: "DELETE"),
-              let authorized = try? await authorized(request) else { return }
-        request = authorized
-        _ = try? await session.data(for: request)
+        guard let request = try? request(path: "v1/analysis/\(id)", method: "DELETE") else { return }
+        await signing.acquire()
+        if let authorized = try? await authorized(request) {
+            _ = try? await session.data(for: authorized)
+        }
+        await signing.release()
     }
 
     private func sendAuthorized<T: Decodable>(
         _ request: URLRequest,
         as type: T.Type
     ) async throws -> T {
-        let authorizedRequest = try await authorized(request)
-        let (data, response) = try await session.data(for: authorizedRequest)
+        await signing.acquire()
+        let data: Data
+        let response: URLResponse
+        do {
+            let authorizedRequest = try await authorized(request)
+            (data, response) = try await session.data(for: authorizedRequest)
+        } catch {
+            await signing.release()
+            throw error
+        }
+        await signing.release()
         try validate(response: response, data: data)
         do {
             return try decoder.decode(type, from: data)
@@ -367,6 +399,29 @@ final class SceneFindBackendClient: @unchecked Sendable {
               components.scheme?.lowercased() == "https" else { return nil }
         if !components.path.hasSuffix("/") { components.path += "/" }
         return components.url
+    }
+}
+
+/// A first-in, first-out async lock. Waiters resume in arrival order, which is
+/// what keeps App Attest counters arriving at the server in sequence.
+private actor SignedRequestGate {
+    private var isHeld = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func acquire() async {
+        guard isHeld else {
+            isHeld = true
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func release() {
+        if waiters.isEmpty {
+            isHeld = false
+        } else {
+            waiters.removeFirst().resume()
+        }
     }
 }
 

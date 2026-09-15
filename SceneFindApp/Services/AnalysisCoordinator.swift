@@ -142,6 +142,11 @@ final class AnalysisCoordinator: ObservableObject {
                 title: (error as? SceneFindError)?.failureTitle ?? "Analysis failed",
                 message: error.localizedDescription
             )
+            // A failed run releases its held credit on the server, so the
+            // allowance on screen is now stale. Refreshing in a separate task
+            // keeps a quick "Try again" from racing this one's cleanup.
+            let subscription = subscription
+            Task { await subscription.refreshEntitlement() }
         }
         tasks[requestID] = nil
     }

@@ -52,14 +52,62 @@ final class BackendClipIdentificationService: ProgressReportingClipIdentificatio
         }
 
         return try await withTaskCancellationHandler {
-            do {
-                return try await client.analysisEvents(id: start.id, progress: progress)
-            } catch let error as SceneFindBackendError {
-                throw map(error)
-            }
+            try await follow(analysisID: start.id, progress: progress)
         } onCancel: {
             Task { await self.client.cancelAnalysis(id: start.id) }
         }
+    }
+
+    /// Follows a started analysis to its result.
+    ///
+    /// The server keeps running no matter what happens to this connection, and
+    /// it holds the user's credit while it runs. Treating a dropped or timed-out
+    /// stream as a failure let the server finish and charge for a result the
+    /// user never saw. So the stream is reopened instead, and the server replays
+    /// every event and the result. Only the server's own verdict ends the run
+    /// early. If the stream can't be recovered, the run is cancelled so the held
+    /// credit is released before the error reaches the screen.
+    private func follow(
+        analysisID: String,
+        progress: @escaping (AnalysisProgressEvent) -> Void
+    ) async throws -> ClipAnalysisResult {
+        let delivered = DeliveredEvents()
+        var reconnects = 0
+        while true {
+            do {
+                return try await client.analysisEvents(id: analysisID) { event in
+                    // A reopened stream replays the backlog; show each step once.
+                    if delivered.insert(event.id) { progress(event) }
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as SceneFindBackendError where Self.isVerdict(error) {
+                throw map(error)
+            } catch {
+                try Task.checkCancellation()
+                reconnects += 1
+                guard reconnects <= Self.maximumReconnects else {
+                    await client.cancelAnalysis(id: analysisID)
+                    if let backendError = error as? SceneFindBackendError {
+                        throw map(backendError)
+                    }
+                    throw error
+                }
+                try await Task.sleep(nanoseconds: UInt64(reconnects) * 1_500_000_000)
+            }
+        }
+    }
+
+    private static let maximumReconnects = 4
+
+    /// The server decided the outcome, such as no match, a provider outage, a
+    /// run that no longer exists, or no allowance left. Reconnecting can't
+    /// change that. Auth, rate-limit and server errors are transient and worth
+    /// another try.
+    private static func isVerdict(_ error: SceneFindBackendError) -> Bool {
+        guard case .rejected(let code, _) = error else { return false }
+        let transient: Set<String> = ["unauthorized", "attestation_required", "rate_limited", "internal"]
+        return !transient.contains(code) && !code.hasPrefix("http_5")
     }
 
     private func requestBody(for request: SharedClipRequest) async throws -> RequestBody {
@@ -131,5 +179,18 @@ final class BackendClipIdentificationService: ProgressReportingClipIdentificatio
         case .invalidResponse, .streamEnded:
             .analysisFailed
         }
+    }
+}
+
+/// Event IDs already shown for one analysis, so a reconnect's replayed backlog
+/// doesn't duplicate steps in the progress timeline.
+private final class DeliveredEvents: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ids = Set<UUID>()
+
+    func insert(_ id: UUID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return ids.insert(id).inserted
     }
 }
