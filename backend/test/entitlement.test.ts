@@ -113,10 +113,11 @@ describe("EntitlementLedger", () => {
     const reserved = await reserve(ledger, "starter-use");
     const reservation = await reserved.json() as { reservationID: string };
     await finish(ledger, "/commit", reservation.reservationID);
-    expect((await getState(ledger)).remaining).toBe(9);
+    const starterAllowance = (await getState(ledger)).allowance;
+    expect((await getState(ledger)).remaining).toBe(starterAllowance - 1);
 
     await applyTransaction(ledger, { ...first, signedDateMs: first.signedDateMs + 1_000 });
-    expect((await getState(ledger)).remaining).toBe(9);
+    expect((await getState(ledger)).remaining).toBe(starterAllowance - 1);
 
     await applyTransaction(ledger, transaction({
       productID: PRODUCT_IDS.starter,
@@ -125,7 +126,7 @@ describe("EntitlementLedger", () => {
       expirationDateMs: Date.parse("2026-10-01T00:00:00Z"),
       signedDateMs: Date.parse("2026-09-01T00:00:01Z"),
     }));
-    expect((await getState(ledger)).remaining).toBe(10);
+    expect((await getState(ledger)).remaining).toBe(starterAllowance);
   });
 
   it("revokes refunded lifetime access", async () => {
@@ -249,3 +250,26 @@ function transaction(
     ...overrides,
   };
 }
+
+describe("yearly subscriptions", () => {
+  it("resets the monthly allowance while access runs to the renewal date", async () => {
+    const ledger = makeLedger();
+    const purchase = Date.parse("2026-09-16T00:00:00Z");
+    await applyTransaction(ledger, transaction({
+      productID: PRODUCT_IDS.proYearly,
+      transactionID: "txn-yearly-1",
+      purchaseDateMs: purchase,
+      expirationDateMs: Date.parse("2027-09-16T00:00:00Z"),
+      signedDateMs: purchase + 1_000,
+    }));
+
+    const state = await getState(ledger);
+    expect(state.plan).toBe("pro");
+    expect(state.canAnalyze).toBe(true);
+    // A yearly plan spends its allowance monthly, not 50 for the whole year.
+    expect(state.allowance).toBe(50);
+    expect(state.renewsAt).toBe("2027-09-16T00:00:00.000Z");
+    // The period is the calendar month, so the count comes back each month.
+    expect(state.periodEnd?.startsWith("2026-10-01")).toBe(true);
+  });
+});

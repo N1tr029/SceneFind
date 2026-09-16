@@ -4,8 +4,14 @@ import StoreKit
 enum SubscriptionProductIDs {
     static let starter = "com.kavigandham.scenefind.starter.monthly"
     static let pro = "com.kavigandham.scenefind.pro.monthly"
+    static let starterYearly = "com.kavigandham.scenefind.starter.yearly"
+    static let proYearly = "com.kavigandham.scenefind.pro.yearly"
+    /// Retired. Anyone who bought it keeps it, but it is no longer offered, so
+    /// it is not fetched and never appears on the paywall.
     static let lifetime = "com.kavigandham.scenefind.lifetime"
-    static let all = [starter, pro, lifetime]
+    static let all = [starter, starterYearly, pro, proYearly]
+
+    static let yearly: Set<String> = [starterYearly, proYearly]
 
     static func order(_ productID: String) -> Int {
         all.firstIndex(of: productID) ?? .max

@@ -58,7 +58,7 @@ struct PaywallView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    Text("Starter and Pro renew monthly unless cancelled at least 24 hours before the end of the current billing period. Payment is charged to your Apple Account. Lifetime is a one-time purchase and provides 10 successful identifications per calendar month. Allowances never roll over.")
+                    Text("Plans renew automatically unless cancelled at least 24 hours before the end of the current billing period. Payment is charged to your Apple Account. Yearly plans are billed once a year and release their allowance each calendar month. Allowances never roll over.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 
@@ -123,7 +123,7 @@ struct PaywallView: View {
                     Text(product.displayPrice)
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.primary)
-                    Text(product.id == SubscriptionProductIDs.lifetime ? "one time" : "per month")
+                    Text(SubscriptionProductIDs.yearly.contains(product.id) ? "per year" : "per month")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -153,11 +153,13 @@ struct PaywallView: View {
     private func planDetails(_ productID: String) -> String {
         switch productID {
         case SubscriptionProductIDs.starter:
-            "10 successful identifications each billing period"
+            "10 successful identifications a month"
         case SubscriptionProductIDs.pro:
-            "50 successful identifications each billing period"
-        case SubscriptionProductIDs.lifetime:
-            "10 successful identifications each calendar month"
+            "50 successful identifications a month"
+        case SubscriptionProductIDs.starterYearly:
+            "10 a month, billed once a year. Two months free."
+        case SubscriptionProductIDs.proYearly:
+            "50 a month, billed once a year. Two months free."
         default:
             "Successful identifications according to the displayed allowance"
         }

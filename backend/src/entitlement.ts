@@ -9,13 +9,33 @@ import type {
 export const PRODUCT_IDS = {
   starter: "com.kavigandham.scenefind.starter.monthly",
   pro: "com.kavigandham.scenefind.pro.monthly",
+  starterYearly: "com.kavigandham.scenefind.starter.yearly",
+  proYearly: "com.kavigandham.scenefind.pro.yearly",
   lifetime: "com.kavigandham.scenefind.lifetime",
 } as const;
 
+/** Yearly plans bill once but spend their allowance monthly, so the count
+ *  resets on the UTC calendar month while access runs to the renewal date.
+ *  They report as "starter" and "pro" so apps built before they existed can
+ *  still decode the entitlement. */
+const YEARLY_PRODUCT_IDS: readonly string[] = [PRODUCT_IDS.starterYearly, PRODUCT_IDS.proYearly];
+
+function isYearlyProduct(productID: string): boolean {
+  return YEARLY_PRODUCT_IDS.includes(productID);
+}
+
+/**
+ * A successful identification costs 8-10 cents at current provider plans, and
+ * Apple keeps 15-30% of the price, so every tier has to clear that. The old
+ * ladder did the opposite: Starter was 10 cents an identification and Pro was
+ * 20, so the bigger plan was the worse deal, and Lifetime was cheapest of all
+ * while costing about 80 cents a month forever.
+ */
 const PLAN_ALLOWANCE: Record<EntitlementPlan, number> = {
   freeTrial: 2,
   starter: 10,
   pro: 50,
+  // Kept at 10 for anyone who already bought it. The product is retired.
   lifetime: 10,
 };
 
@@ -48,6 +68,10 @@ interface LedgerRecord {
   plan: EntitlementPlan;
   status: EntitlementStatus;
   used: number;
+  /** A yearly subscription: the allowance resets monthly, and access runs to
+   *  `accessEndsAtMs` rather than to the end of the current month. */
+  yearly?: boolean;
+  accessEndsAtMs?: number;
   periodStartMs?: number;
   periodEndMs?: number;
   originalTransactionID?: string;
@@ -184,7 +208,8 @@ export class EntitlementLedger implements DurableObject {
     }
 
     const plan = planForProduct(transaction.productID)!;
-    const nextPeriod = periodFor(plan, transaction, nowMs);
+    const yearly = isYearlyProduct(transaction.productID);
+    const nextPeriod = periodFor(plan, transaction, nowMs, yearly);
     const periodChanged =
       ledger.plan !== plan ||
       ledger.periodStartMs !== nextPeriod.startMs ||
@@ -195,6 +220,8 @@ export class EntitlementLedger implements DurableObject {
       ledger.reservations = {};
     }
     ledger.plan = plan;
+    ledger.yearly = yearly;
+    ledger.accessEndsAtMs = yearly ? transaction.expirationDateMs : undefined;
     ledger.periodStartMs = nextPeriod.startMs;
     ledger.periodEndMs = nextPeriod.endMs;
     ledger.originalTransactionID = transaction.originalTransactionID;
@@ -231,7 +258,7 @@ export class EntitlementLedger implements DurableObject {
       }
     }
 
-    if (ledger.plan === "lifetime") {
+    if (ledger.plan === "lifetime" || ledger.yearly) {
       const month = utcCalendarMonth(nowMs);
       if (ledger.periodStartMs !== month.startMs || ledger.periodEndMs !== month.endMs) {
         ledger.periodStartMs = month.startMs;
@@ -318,8 +345,10 @@ export async function applyVerifiedTransaction(
 function planForProduct(productID: string): EntitlementPlan | null {
   switch (productID) {
     case PRODUCT_IDS.starter:
+    case PRODUCT_IDS.starterYearly:
       return "starter";
     case PRODUCT_IDS.pro:
+    case PRODUCT_IDS.proYearly:
       return "pro";
     case PRODUCT_IDS.lifetime:
       return "lifetime";
@@ -332,8 +361,9 @@ function periodFor(
   plan: EntitlementPlan,
   transaction: VerifiedTransaction,
   nowMs: number,
+  yearly = false,
 ): { startMs?: number; endMs?: number } {
-  if (plan === "lifetime") return utcCalendarMonth(nowMs);
+  if (plan === "lifetime" || yearly) return utcCalendarMonth(nowMs);
   if (plan === "freeTrial") return {};
   return {
     startMs: transaction.purchaseDateMs,
@@ -370,6 +400,7 @@ function utcCalendarMonth(nowMs: number): { startMs: number; endMs: number } {
 
 function hasActiveAccess(ledger: LedgerRecord, nowMs: number): boolean {
   if (ledger.status === "active") {
+    if (ledger.yearly) return ledger.accessEndsAtMs !== undefined && ledger.accessEndsAtMs > nowMs;
     return ledger.plan === "freeTrial" || ledger.plan === "lifetime" ||
       (ledger.periodEndMs !== undefined && ledger.periodEndMs > nowMs);
   }
@@ -396,8 +427,9 @@ function publicState(ledger: LedgerRecord, nowMs: number): EntitlementState {
     remaining,
     periodStart: iso(ledger.periodStartMs),
     periodEnd: iso(ledger.periodEndMs),
-    renewsAt:
-      ledger.plan === "starter" || ledger.plan === "pro"
+    renewsAt: ledger.yearly
+      ? iso(ledger.accessEndsAtMs)
+      : ledger.plan === "starter" || ledger.plan === "pro"
         ? iso(ledger.periodEndMs)
         : null,
     canAnalyze: active && remaining > 0,
