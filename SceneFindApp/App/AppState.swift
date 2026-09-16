@@ -326,6 +326,10 @@ enum MarketingPreview {
         case result
         case saved
         case services
+        /// The plans screen, for the App Review screenshot each subscription
+        /// needs. StoreKit test products only load when Xcode launches the app,
+        /// so the preview supplies the rows instead.
+        case plans
     }
 
     private static let argumentPrefix = "-SceneFindMarketing="

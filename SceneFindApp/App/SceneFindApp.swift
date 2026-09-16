@@ -112,6 +112,8 @@ struct RootView: View {
         case .result:
             guard let result = model.recentResults.first else { return }
             router.navigate(to: .result(result.id))
+        case .plans:
+            router.navigate(to: .paywall)
         }
     }
 

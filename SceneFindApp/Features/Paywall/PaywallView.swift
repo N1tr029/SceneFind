@@ -18,7 +18,7 @@ struct PaywallView: View {
 
                 currentAllowance
 
-                if subscription.products.isEmpty {
+                if planRows.isEmpty {
                     ContentUnavailableView(
                         "Plans unavailable",
                         systemImage: "wifi.slash",
@@ -29,8 +29,8 @@ struct PaywallView: View {
                 } else {
                     SceneGlassContainer(spacing: 12) {
                         VStack(spacing: 12) {
-                            ForEach(subscription.products, id: \.id) { product in
-                                productButton(product)
+                            ForEach(planRows) { row in
+                                planButton(row)
                             }
                         }
                     }
@@ -90,9 +90,9 @@ struct PaywallView: View {
         HStack(spacing: 14) {
             IconTile(symbol: "sparkles", tint: .sceneCyan)
             VStack(alignment: .leading, spacing: 3) {
-                Text(subscription.accessLabel)
+                Text(allowanceTitle)
                     .font(.headline)
-                Text(subscription.allowanceLabel)
+                Text(allowanceDetail)
                     .font(.subheadline)
                     .foregroundStyle(Color.sceneGreen)
             }
@@ -101,29 +101,64 @@ struct PaywallView: View {
         .padding(16)
         .background(Color.sceneSurface, in: SceneShape.card)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Current allowance: \(subscription.accessLabel), \(subscription.allowanceLabel)")
+        .accessibilityLabel("Current allowance: \(allowanceTitle), \(allowanceDetail)")
     }
 
-    private func productButton(_ product: Product) -> some View {
+    // The screenshot preview has no backend, so it would otherwise show the
+    // offline state on a screen meant to show the plans.
+    private var allowanceTitle: String {
+        #if DEBUG
+        if MarketingPreview.isEnabled { return "Free trial · Active" }
+        #endif
+        return subscription.accessLabel
+    }
+
+    private var allowanceDetail: String {
+        #if DEBUG
+        if MarketingPreview.isEnabled { return "2 of 2 remaining" }
+        #endif
+        return subscription.allowanceLabel
+    }
+
+    /// One row per plan. Rows come from StoreKit, except in the screenshot
+    /// preview, where StoreKit has nothing to return.
+    private var planRows: [PlanRow] {
+        #if DEBUG
+        if MarketingPreview.isEnabled { return PlanRow.previewRows }
+        #endif
+        return subscription.products.map { product in
+            PlanRow(
+                id: product.id,
+                name: product.displayName,
+                price: product.displayPrice,
+                cadence: SubscriptionProductIDs.yearly.contains(product.id) ? "per year" : "per month",
+                details: planDetails(product.id),
+                product: product
+            )
+        }
+    }
+
+    private func planButton(_ row: PlanRow) -> some View {
         Button {
+            guard let product = row.product else { return }
             Task { await subscription.purchase(product) }
         } label: {
             HStack(alignment: .center, spacing: 14) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(product.displayName)
+                    Text(row.name)
                         .font(.headline)
                         .foregroundStyle(.primary)
-                    Text(planDetails(product.id))
+                    Text(row.details)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 12)
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(product.displayPrice)
+                    Text(row.price)
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.primary)
-                    Text(SubscriptionProductIDs.yearly.contains(product.id) ? "per year" : "per month")
+                    Text(row.cadence)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -135,7 +170,7 @@ struct PaywallView: View {
         .buttonStyle(.plain)
         .sceneGlassInteractive(in: SceneShape.card)
         .disabled(subscription.purchaseInProgress)
-        .accessibilityHint("Purchases \(product.displayName) through the App Store")
+        .accessibilityHint("Purchases \(row.name) through the App Store")
     }
 
     private func secondaryButton(_ title: String, action: @escaping () -> Void) -> some View {
@@ -178,3 +213,29 @@ struct PaywallView: View {
         }
     }
 }
+
+/// A plan as the paywall draws it.
+private struct PlanRow: Identifiable {
+    let id: String
+    let name: String
+    let price: String
+    let cadence: String
+    let details: String
+    var product: Product?
+}
+
+#if DEBUG
+extension PlanRow {
+    /// Mirrors the live App Store products for the review screenshot.
+    static let previewRows: [PlanRow] = [
+        PlanRow(id: SubscriptionProductIDs.pro, name: "SceneFind Pro", price: "$19.99",
+                cadence: "per month", details: "50 successful identifications a month"),
+        PlanRow(id: SubscriptionProductIDs.proYearly, name: "Pro Yearly", price: "$199.99",
+                cadence: "per year", details: "50 a month, billed once a year. Two months free."),
+        PlanRow(id: SubscriptionProductIDs.starter, name: "SceneFind Starter", price: "$4.99",
+                cadence: "per month", details: "10 successful identifications a month"),
+        PlanRow(id: SubscriptionProductIDs.starterYearly, name: "Starter Yearly", price: "$49.99",
+                cadence: "per year", details: "10 a month, billed once a year. Two months free."),
+    ]
+}
+#endif
