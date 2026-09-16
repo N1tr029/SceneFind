@@ -133,7 +133,7 @@ private struct SourcesPage: View {
                         symbol: "speaker.slash.fill",
                         tint: .sceneGold,
                         title: "Instagram links",
-                        detail: "Instagram only shares the cover and caption, so these find the show. Save the reel and import it for the episode."
+                        detail: "Instagram never shares the video itself, so these fail far more often than TikTok and can't pin the episode. Save the reel and import it instead."
                     )
                 }
             }

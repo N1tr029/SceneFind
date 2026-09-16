@@ -35,7 +35,11 @@ enum VideoImport {
 
 extension SharedPlatform {
     /// Instagram hands other apps a reel's cover image and caption but never
-    /// the video, so a link can name the show but not the episode or moment.
+    /// the video, so a link can name the show but not the episode or moment —
+    /// and with no dialogue to work from, it comes up empty far more often
+    /// than a TikTok link does. Both halves of that belong in the warning.
     static let instagramLinkLimit =
-        "Instagram only shares a reel's cover and caption with other apps, so SceneFind can name the show but can't hear the dialogue that pins down the episode."
+        "Instagram only shares a reel's cover and caption with other apps, never the video. " +
+        "SceneFind can often name the show from that, but not the episode or the moment — " +
+        "and Instagram links fail outright far more often than TikTok ones."
 }

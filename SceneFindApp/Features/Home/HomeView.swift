@@ -264,7 +264,7 @@ private struct ClipInput: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: "info.circle")
                         .foregroundStyle(Color.sceneGold)
-                    Text("Instagram links find the show, not the episode. Save the reel and import it to get the exact scene.")
+                    Text("Instagram links fail more often than TikTok and can't pin the episode. Save the reel and import it to get the exact scene.")
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .font(.footnote)

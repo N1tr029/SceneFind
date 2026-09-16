@@ -226,7 +226,7 @@ private struct AnalysisSourceSummary: View {
             // Most Instagram shares arrive here straight from the share sheet,
             // so this is where the expectation has to be set.
             if request.sourcePlatform == .instagram, request.sourceType == .url {
-                Text("Instagram links usually stop at the show. To find the episode, save the reel and import it instead.")
+                Text("Instagram links fail more often than TikTok, and at best stop at the show. To find the episode, save the reel and import it instead.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
