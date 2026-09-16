@@ -18,7 +18,8 @@ import {
   type RetrievedEvidence,
 } from "./sourceRetrieval";
 import { handleWatchLinks } from "./watchLinks";
-import { resolveSceneTimeline } from "./timestampResolver";
+import { resolveSceneTimeline, resolveSceneTimelineFromReference } from "./timestampResolver";
+import { fetchReferenceTrack } from "./providers/openSubtitles";
 import { resolveEpisodeMetadata } from "./episodeCatalog";
 import { transcribeMedia } from "./providers/groqTranscription";
 
@@ -202,9 +203,11 @@ export class AnalysisSession implements DurableObject {
       }
     }
     let timeline = await timelineTask;
+    let timedCues = evidence.transcriptCues ?? [];
     if (!timeline && (evidence.mediaURL || evidence.mediaDataBase64)) {
       const transcribedCues = await transcribeMedia(this.env, evidence).catch(() => []);
       if (transcribedCues.length > 0) {
+        timedCues = transcribedCues;
         await this.emit(
           "transcriptRetrieved",
           "Timed audio transcription recovered",
@@ -215,6 +218,38 @@ export class AnalysisSession implements DurableObject {
           durationSeconds: evidence.durationSeconds,
           expectedTitle: identification.showTitle,
         }).catch(() => null);
+      }
+    }
+    // QuoDB can only place a clip in a title it has already indexed, and its
+    // coverage thins out badly on recent films. The title is known by now, so a
+    // downloaded subtitle track answers the narrower question directly. An
+    // episode we could not pin down is skipped rather than guessed at: there is
+    // no single correct track to fetch for "some episode of this show".
+    const episodeKnown =
+      verification.seasonNumber !== null && verification.episodeNumber !== null;
+    if (!timeline && timedCues.length > 0 &&
+        (identification.mediaType !== "television" || episodeKnown)) {
+      const referenceCues = await fetchReferenceTrack(this.env, {
+        title: identification.showTitle,
+        year: identification.releaseYear,
+        seasonNumber: verification.seasonNumber,
+        episodeNumber: verification.episodeNumber,
+      }).catch(() => null);
+      if (referenceCues && referenceCues.length > 0) {
+        await this.emit(
+          "transcriptRetrieved",
+          "Subtitle reference retrieved",
+          `${referenceCues.length} reference lines`,
+        );
+        timeline = resolveSceneTimelineFromReference({
+          cues: timedCues,
+          referenceCues,
+          durationSeconds: evidence.durationSeconds,
+          canonicalTitle: identification.showTitle,
+          episodeTitle: verification.episodeTitle,
+          seasonNumber: verification.seasonNumber,
+          episodeNumber: verification.episodeNumber,
+        });
       }
     }
     if (timeline?.seriesTitle && timeline.episodeTitle) {

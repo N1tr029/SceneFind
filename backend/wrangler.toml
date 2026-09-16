@@ -44,6 +44,14 @@ id = "d735950d74b54e8d988927a667834a5d"   # wrangler kv:namespace create RATE_LI
 binding = "WATCH_LINKS"
 id = "7f8a495fb7944fb7b29dc6447bfe79c0"   # wrangler kv:namespace create WATCH_LINKS
 
+# Downloaded subtitle tracks, keyed by title. OpenSubtitles meters downloads,
+# not searches, so a track is fetched once and then reused by every clip from
+# that title — and titles it does not carry are remembered too, to keep repeat
+# shares of an unindexed clip from spending the daily quota on nothing.
+[[kv_namespaces]]
+binding = "SUBTITLES"
+id = "5eeeb2cad31f4cd4b2dca90d784e0ac0"   # wrangler kv namespace create SUBTITLES
+
 # Abuse limits. Counters live at the edge rather than in KV, so they cost no KV
 # writes (Workers Free allows 1,000 a day, and every put throws past that).
 # Periods can only be 10 or 60 seconds. namespace_id is account-wide: another

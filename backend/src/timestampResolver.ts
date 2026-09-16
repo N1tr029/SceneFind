@@ -3,6 +3,11 @@ import type { TranscriptCue } from "./sourceRetrieval";
 const QUODB_ORIGIN = "https://api.quodb.com";
 const MAX_QUERIES = 8;
 const OFFSET_TOLERANCE_SECONDS = 4;
+// The title is already fixed when a reference track is used, so this plays the
+// same role as the scoped QuoDB floor: tolerate auto-caption noise, and leave
+// the single-anchor case to the stricter 0.9 check in finalizeTimeline.
+const REFERENCE_SIMILARITY_FLOOR = 0.58;
+const REFERENCE_SCAN_LIMIT = 4_000;
 
 export interface SceneTimelineResolution {
   canonicalTitle: string;
@@ -101,7 +106,19 @@ export async function resolveSceneTimeline(options: {
     }
   }
   if (hits.length === 0) return null;
+  return finalizeTimeline(hits, options.cues, options.durationSeconds, Boolean(options.expectedTitle));
+}
 
+/// Turns dialogue anchors into a clip window, or refuses. Both subtitle sources
+/// end here so a QuoDB match and an OpenSubtitles match are held to the same
+/// evidence bar. `scoped` means the title is already known, which is what makes
+/// a single strong anchor admissible.
+function finalizeTimeline(
+  hits: TimelineHit[],
+  cues: TranscriptCue[],
+  durationSecondsHint: number | undefined,
+  scoped: boolean,
+): SceneTimelineResolution | null {
   const grouped = new Map<string, TimelineHit[]>();
   for (const hit of hits) {
     const key = `${normalized(hit.canonicalTitle)}|${normalized(hit.episodeTitle ?? "")}`;
@@ -113,17 +130,17 @@ export async function resolveSceneTimeline(options: {
     .sort(compareClusters);
   const best = clusters[0];
   if (!best) return null;
-  const minimumAnchors = options.expectedTitle ? 1 : 2;
+  const minimumAnchors = scoped ? 1 : 2;
   if (best.hits.length < minimumAnchors) return null;
   const runnerUp = clusters[1];
-  if (!options.expectedTitle && runnerUp &&
+  if (!scoped && runnerUp &&
       runnerUp.hits.length === best.hits.length &&
       runnerUp.averageSimilarity >= best.averageSimilarity - 0.05) return null;
 
   const representative = best.hits[0];
-  const duration = options.durationSeconds && options.durationSeconds > 0
-    ? options.durationSeconds
-    : Math.max(...options.cues.map((cue) => cue.endSeconds));
+  const duration = durationSecondsHint && durationSecondsHint > 0
+    ? durationSecondsHint
+    : Math.max(...cues.map((cue) => cue.endSeconds));
   const startSeconds = Math.max(0, best.offsetSeconds);
   const orderedHits = [...best.hits].sort((left, right) => left.startSeconds - right.startSeconds);
   const lastAnchor = orderedHits.at(-1)!;
@@ -173,6 +190,123 @@ export async function resolveSceneTimeline(options: {
     tailOffsetSeconds,
     confidence,
   };
+}
+
+/**
+ * Places the clip inside a full subtitle track for an already-identified title.
+ *
+ * QuoDB is asked which title contains a line, so a title it never indexed can
+ * never be placed. Once identification has named the title, a downloaded track
+ * answers the narrower question directly, and the anchors it produces go
+ * through the same clustering and refusal rules as QuoDB's.
+ */
+export function resolveSceneTimelineFromReference(options: {
+  cues: TranscriptCue[];
+  referenceCues: TranscriptCue[];
+  durationSeconds?: number;
+  canonicalTitle: string;
+  seriesTitle?: string | null;
+  episodeTitle?: string | null;
+  seasonNumber?: number | null;
+  episodeNumber?: number | null;
+}): SceneTimelineResolution | null {
+  if (options.referenceCues.length === 0) return null;
+  const phrases = searchablePhrases(options.cues);
+  if (phrases.length === 0) return null;
+
+  const index = buildReferenceIndex(options.referenceCues);
+  const hits: TimelineHit[] = [];
+  for (const phrase of phrases) {
+    const match = bestReferenceMatch(phrase, index);
+    if (!match) continue;
+    hits.push({
+      ...phrase,
+      canonicalTitle: options.canonicalTitle,
+      seriesTitle: options.seriesTitle ?? null,
+      episodeTitle: options.episodeTitle ?? null,
+      seasonNumber: options.seasonNumber ?? null,
+      episodeNumber: options.episodeNumber ?? null,
+      canonicalSeconds: match.startSeconds,
+      offsetSeconds: match.startSeconds - phrase.startSeconds,
+      similarity: match.similarity,
+    });
+  }
+  if (hits.length === 0) return null;
+  return finalizeTimeline(hits, options.cues, options.durationSeconds, true);
+}
+
+interface ReferenceWindow {
+  startSeconds: number;
+  tokens: Set<string>;
+}
+
+interface ReferenceIndex {
+  windows: ReferenceWindow[];
+  byToken: Map<string, number[]>;
+}
+
+/// A feature's track runs to a couple of thousand cues and one spoken sentence
+/// is routinely split across two or three of them, so windows of up to three
+/// adjacent cues are indexed — the same shape searchablePhrases builds from the
+/// clip side, which is what lets the two be compared directly.
+function buildReferenceIndex(cues: TranscriptCue[]): ReferenceIndex {
+  const windows: ReferenceWindow[] = [];
+  for (let start = 0; start < cues.length; start += 1) {
+    let text = "";
+    let endSeconds = cues[start].endSeconds;
+    for (let length = 1; length <= 3 && start + length <= cues.length; length += 1) {
+      const cue = cues[start + length - 1];
+      if (length > 1 && cue.startSeconds - endSeconds > 2.5) break;
+      text = `${text} ${cue.text}`.replace(/\s+/g, " ").trim();
+      endSeconds = cue.endSeconds;
+      const words = tokens(text);
+      if (words.length === 0 || words.length > 40) continue;
+      windows.push({ startSeconds: cues[start].startSeconds, tokens: new Set(words) });
+    }
+  }
+  const byToken = new Map<string, number[]>();
+  windows.forEach((window, index) => {
+    for (const token of window.tokens) {
+      const bucket = byToken.get(token);
+      if (bucket) bucket.push(index);
+      else byToken.set(token, [index]);
+    }
+  });
+  return { windows, byToken };
+}
+
+/// Scoring every phrase against every window would be tens of millions of set
+/// operations on a request's CPU budget. A window that clears the similarity
+/// floor must share most of the phrase's words, so it is certain to appear in
+/// the phrase's rarest token buckets, and only those are scored.
+function bestReferenceMatch(
+  phrase: SearchPhrase,
+  index: ReferenceIndex,
+): { startSeconds: number; similarity: number } | null {
+  const phraseTokens = new Set(tokens(phrase.text));
+  if (phraseTokens.size === 0) return null;
+  const buckets = [...phraseTokens]
+    .map((token) => index.byToken.get(token) ?? [])
+    .filter((bucket) => bucket.length > 0)
+    .sort((left, right) => left.length - right.length)
+    .slice(0, 4);
+
+  const seen = new Set<number>();
+  let best: { startSeconds: number; similarity: number } | null = null;
+  for (const bucket of buckets) {
+    for (const windowIndex of bucket) {
+      if (seen.has(windowIndex)) continue;
+      seen.add(windowIndex);
+      if (seen.size > REFERENCE_SCAN_LIMIT) return best;
+      const window = index.windows[windowIndex];
+      const similarity = setSimilarity(phraseTokens, window.tokens);
+      if (similarity < REFERENCE_SIMILARITY_FLOOR) continue;
+      if (!best || similarity > best.similarity) {
+        best = { startSeconds: window.startSeconds, similarity };
+      }
+    }
+  }
+  return best;
 }
 
 export function searchablePhrases(cues: TranscriptCue[]): SearchPhrase[] {
@@ -353,12 +487,14 @@ export function titlesMatch(left: string, right: string): boolean {
 }
 
 function phraseSimilarity(left: string, right: string): number {
-  const lhs = new Set(tokens(left));
-  const rhs = new Set(tokens(right));
-  if (lhs.size === 0 || rhs.size === 0) return 0;
+  return setSimilarity(new Set(tokens(left)), new Set(tokens(right)));
+}
+
+function setSimilarity(left: Set<string>, right: Set<string>): number {
+  if (left.size === 0 || right.size === 0) return 0;
   let intersection = 0;
-  for (const word of lhs) if (rhs.has(word)) intersection += 1;
-  return (2 * intersection) / (lhs.size + rhs.size);
+  for (const word of left) if (right.has(word)) intersection += 1;
+  return (2 * intersection) / (left.size + right.size);
 }
 
 function tokens(value: string): string[] {

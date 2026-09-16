@@ -15,6 +15,13 @@ export interface Env {
    *  Optional: without it /v1/watch-links resolves nothing and the app falls
    *  back to opening a service's own search page. */
   SEARCH_API_KEY?: string;
+  /** OpenSubtitles API consumer key. Without it the subtitle fallback is
+   *  skipped and timestamps rest on QuoDB alone. */
+  OPENSUBTITLES_API_KEY?: string;
+  /** OpenSubtitles account. Optional, but the API key on its own allows only
+   *  five downloads per IP per day; an account raises that to its own quota. */
+  OPENSUBTITLES_USERNAME?: string;
+  OPENSUBTITLES_PASSWORD?: string;
 
   // Vars (wrangler.toml [vars])
   GEMINI_MODEL: string;
@@ -33,6 +40,9 @@ export interface Env {
   RATE_LIMIT: KVNamespace;
   /** Resolved episode → provider URL cache, shared by every install. */
   WATCH_LINKS: KVNamespace;
+  /** Downloaded subtitle tracks, keyed by title. Optional so a deploy without
+   *  the namespace degrades to QuoDB instead of failing every analysis. */
+  SUBTITLES?: KVNamespace;
   /** Workers Rate Limiting bindings (wrangler.toml [[ratelimits]]). Optional so
    *  local runs without them fail open instead of crashing. */
   INSTALL_RATE_LIMITER?: RateLimit;
