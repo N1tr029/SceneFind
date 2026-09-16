@@ -170,7 +170,12 @@ final class BackendClipIdentificationService: ProgressReportingClipIdentificatio
             case "not_found": .noLikelyMatch
             case "rate_limited": .analysisRateLimited
             case "attestation_required", "unauthorized": .deviceVerificationFailed
-            default: .productionBackendUnavailable
+            case "provider_unavailable": .analysisServiceBusy
+            case "invalid_request", "unsupported_source": .unsupportedSource
+            // A code this build has not seen is still a failure on the service's
+            // side. Claiming the build is misconfigured reads as "this app is
+            // broken" for what is usually one transient provider error.
+            default: .analysisFailed
             }
         case .attestationUnavailable:
             .deviceVerificationFailed

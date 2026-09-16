@@ -26,6 +26,8 @@ enum SceneFindError: LocalizedError {
     case geminiInvalidResponse
     case geminiRequestFailed(String)
     case productionBackendUnavailable
+    case analysisServiceBusy
+    case unsupportedSource
     case identificationAllowanceExhausted
     case analysisRateLimited
     case deviceVerificationFailed
@@ -58,6 +60,8 @@ enum SceneFindError: LocalizedError {
         case .geminiInvalidResponse: "Gemini answered, but SceneFind could not finish reading the result. Try again."
         case .geminiRequestFailed(let message): "Gemini request failed: \(message)"
         case .productionBackendUnavailable: "SceneFind's production analysis service is not configured in this build."
+        case .analysisServiceBusy: "SceneFind's analysis service is busy right now. Wait a moment and try again — this did not use an identification."
+        case .unsupportedSource: "SceneFind could not analyze that link. Try a public TikTok or YouTube link, or import the clip from your camera roll."
         case .identificationAllowanceExhausted: "You have used all successful identifications in your current allowance period."
         case .analysisRateLimited: "SceneFind is receiving too many requests from this device. Wait a moment and try again."
         case .deviceVerificationFailed: "SceneFind could not verify this installation with the secure analysis service."
@@ -82,6 +86,8 @@ enum SceneFindError: LocalizedError {
         case .geminiInvalidResponse: "Couldn't read the result"
         case .geminiRequestFailed: "Gemini unavailable"
         case .productionBackendUnavailable: "Service unavailable"
+        case .analysisServiceBusy: "Service busy"
+        case .unsupportedSource: "Link not supported"
         case .identificationAllowanceExhausted: "Allowance used"
         case .analysisRateLimited: "Too many requests"
         case .deviceVerificationFailed: "Device verification failed"
