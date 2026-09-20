@@ -67,12 +67,13 @@ class FakeLedgerNamespace {
 describe("EntitlementLedger", () => {
   afterEach(() => vi.useRealTimers());
 
-  it("atomically allows only two concurrent free-trial reservations", async () => {
+  it("atomically allows only four concurrent free-trial reservations", async () => {
     const ledger = makeLedger();
     const responses = await Promise.all(
-      ["one", "two", "three"].map((key) => reserve(ledger, key)),
+      ["one", "two", "three", "four", "five"].map((key) => reserve(ledger, key)),
     );
-    expect(responses.map((response) => response.status).sort()).toEqual([200, 200, 402]);
+    expect(responses.map((response) => response.status).sort())
+      .toEqual([200, 200, 200, 200, 402]);
   });
 
   it("deduplicates a request and commits a success exactly once", async () => {
@@ -86,7 +87,7 @@ describe("EntitlementLedger", () => {
     await finish(ledger, "/commit", firstBody.reservationID);
     await finish(ledger, "/commit", firstBody.reservationID);
     const state = await getState(ledger);
-    expect(state.remaining).toBe(1);
+    expect(state.remaining).toBe(3);
   });
 
   it("does not consume failed or cancelled work", async () => {
@@ -95,7 +96,7 @@ describe("EntitlementLedger", () => {
     const body = await response.json() as { reservationID: string };
     await finish(ledger, "/release", body.reservationID);
     const state = await getState(ledger);
-    expect(state.remaining).toBe(2);
+    expect(state.remaining).toBe(4);
   });
 
   it("applies Starter billing periods and resets only on renewal", async () => {
@@ -199,6 +200,14 @@ function makeLedger(): EntitlementLedger {
   return new EntitlementLedger(new FakeState() as unknown as DurableObjectState);
 }
 
+/** A ledger already in storage, for exercising records written by an older
+ *  version of the Worker. */
+function makeSeededLedger(record: Record<string, unknown>): EntitlementLedger {
+  const state = new FakeState();
+  void state.storage.put("ledger", record);
+  return new EntitlementLedger(state as unknown as DurableObjectState);
+}
+
 function makeEnv(): Env {
   return {
     RATE_LIMIT: new FakeKV(),
@@ -271,5 +280,45 @@ describe("yearly subscriptions", () => {
     expect(state.renewsAt).toBe("2027-09-16T00:00:00.000Z");
     // The period is the calendar month, so the count comes back each month.
     expect(state.periodEnd?.startsWith("2026-10-01")).toBe(true);
+  });
+});
+
+describe("the free trial growing from two to four", () => {
+  const legacy = (used: number) => ({
+    plan: "freeTrial",
+    status: "active",
+    used,
+    reservations: {},
+    updatedAtMs: Date.now(),
+  });
+
+  it("gives a fresh install the full four", async () => {
+    expect(await getState(makeLedger())).toMatchObject({ allowance: 4, remaining: 4 });
+  });
+
+  it("hands nothing more to an install that already spent the old trial", async () => {
+    expect(await getState(makeSeededLedger(legacy(2)))).toMatchObject({
+      allowance: 2,
+      remaining: 0,
+      canAnalyze: false,
+    });
+  });
+
+  it("moves an install still inside the old trial up to four", async () => {
+    expect(await getState(makeSeededLedger(legacy(1)))).toMatchObject({
+      allowance: 4,
+      remaining: 3,
+    });
+  });
+
+  it("holds a promoted install at four once it spends past the old ceiling", async () => {
+    const ledger = makeSeededLedger(legacy(1));
+    for (const key of ["a", "b", "c"]) {
+      const body = await (await reserve(ledger, key)).json() as { reservationID: string };
+      await finish(ledger, "/commit", body.reservationID);
+    }
+    // Deriving the allowance from `used` on every read would cut this install
+    // back to two the moment it spent a third, stranding credit it was given.
+    expect(await getState(ledger)).toMatchObject({ allowance: 4, remaining: 0 });
   });
 });

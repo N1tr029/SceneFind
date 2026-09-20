@@ -31,8 +31,14 @@ function isYearlyProduct(productID: string): boolean {
  * 20, so the bigger plan was the worse deal, and Lifetime was cheapest of all
  * while costing about 80 cents a month forever.
  */
+/** The trial as offered today. */
+const FREE_TRIAL_ALLOWANCE = 4;
+/** What the trial granted before it grew on 2026-09-19. Ledgers opened under
+ *  the old number keep it if they had already spent it. */
+const LEGACY_FREE_TRIAL_ALLOWANCE = 2;
+
 const PLAN_ALLOWANCE: Record<EntitlementPlan, number> = {
-  freeTrial: 2,
+  freeTrial: FREE_TRIAL_ALLOWANCE,
   starter: 10,
   pro: 50,
   // Kept at 10 for anyone who already bought it. The product is retired.
@@ -68,6 +74,9 @@ interface LedgerRecord {
   plan: EntitlementPlan;
   status: EntitlementStatus;
   used: number;
+  /** The trial size this install was granted, fixed the first time the ledger
+   *  is touched so that later changing the trial cannot re-grant spent credit. */
+  trialAllowance?: number;
   /** A yearly subscription: the allowance resets monthly, and access runs to
    *  `accessEndsAtMs` rather than to the end of the current month. */
   yearly?: boolean;
@@ -87,6 +96,7 @@ function initialLedger(nowMs: number): LedgerRecord {
     plan: "freeTrial",
     status: "active",
     used: 0,
+    trialAllowance: FREE_TRIAL_ALLOWANCE,
     reservations: {},
     updatedAtMs: nowMs,
   };
@@ -235,7 +245,9 @@ export class EntitlementLedger implements DurableObject {
   }
 
   private async load(nowMs: number): Promise<LedgerRecord> {
-    return (await this.state.storage.get<LedgerRecord>("ledger")) ?? initialLedger(nowMs);
+    const ledger = (await this.state.storage.get<LedgerRecord>("ledger")) ?? initialLedger(nowMs);
+    stampTrialAllowance(ledger);
+    return ledger;
   }
 
   private save(ledger: LedgerRecord): Promise<void> {
@@ -409,16 +421,35 @@ function hasActiveAccess(ledger: LedgerRecord, nowMs: number): boolean {
     ledger.gracePeriodExpiresDateMs > nowMs;
 }
 
+/// The free trial grew from 2 to 4. A ledger written before that carries no
+/// stamp, so it gets one the first time it is touched: an install that had
+/// already spent the old trial keeps it spent, while one still inside the trial
+/// moves up to the new count. Stamping once is what makes this stable — deriving
+/// the number from `used` on every read would cut a promoted install back off at
+/// two the moment it spent a third.
+function stampTrialAllowance(ledger: LedgerRecord): void {
+  if (ledger.trialAllowance !== undefined) return;
+  ledger.trialAllowance = ledger.used >= LEGACY_FREE_TRIAL_ALLOWANCE
+    ? LEGACY_FREE_TRIAL_ALLOWANCE
+    : FREE_TRIAL_ALLOWANCE;
+}
+
+function allowanceFor(ledger: LedgerRecord): number {
+  return ledger.plan === "freeTrial"
+    ? ledger.trialAllowance ?? LEGACY_FREE_TRIAL_ALLOWANCE
+    : PLAN_ALLOWANCE[ledger.plan];
+}
+
 function availableCount(ledger: LedgerRecord): number {
   const held = Object.values(ledger.reservations).filter(
     (reservation) => reservation.status === "reserved",
   ).length;
-  return Math.max(0, PLAN_ALLOWANCE[ledger.plan] - ledger.used - held);
+  return Math.max(0, allowanceFor(ledger) - ledger.used - held);
 }
 
 function publicState(ledger: LedgerRecord, nowMs: number): EntitlementState {
   const active = hasActiveAccess(ledger, nowMs);
-  const allowance = PLAN_ALLOWANCE[ledger.plan];
+  const allowance = allowanceFor(ledger);
   const remaining = active ? availableCount(ledger) : 0;
   return {
     plan: ledger.plan,

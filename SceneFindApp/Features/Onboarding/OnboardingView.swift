@@ -138,7 +138,7 @@ private struct SourcesPage: View {
                 }
             }
 
-            Text("Your first 2 identifications are free.")
+            Text("Your first 4 identifications are free.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 12)
@@ -234,8 +234,10 @@ private extension View {
 /// The app icon's Focus Mark, drawn as vectors so it stays sharp at any size.
 /// Geometry and colours match `marketing/brand/app-icon.svg` on its 1024 grid.
 struct FocusMark: View {
-    private static let ground = Color(red: 11 / 255, green: 11 / 255, blue: 16 / 255)
-    private static let bracket = Color(red: 29 / 255, green: 180 / 255, blue: 214 / 255)
+    private static let ground = Color(red: 7 / 255, green: 9 / 255, blue: 13 / 255)
+    private static let lensFill = Color(red: 10 / 255, green: 12 / 255, blue: 18 / 255)
+    private static let lensStroke = Color(red: 244 / 255, green: 247 / 255, blue: 251 / 255)
+    private static let bracket = Color(red: 31 / 255, green: 199 / 255, blue: 234 / 255)
     private static let violet = Color(red: 109 / 255, green: 44 / 255, blue: 232 / 255)
     private static let magenta = Color(red: 192 / 255, green: 52 / 255, blue: 168 / 255)
 
@@ -249,44 +251,46 @@ struct FocusMark: View {
                 with: .color(Self.ground)
             )
 
-            // The ghosted magnifier: one path, so the ring and handle overlap
-            // without doubling their opacity.
-            var magnifier = Path(ellipseIn: CGRect(x: 244, y: 244, width: 536, height: 536))
-            magnifier.move(to: CGPoint(x: 332.4, y: 691.6))
-            magnifier.addLine(to: CGPoint(x: 145.7, y: 878.3))
+            context.fill(
+                Path(ellipseIn: CGRect(x: 270, y: 224, width: 500, height: 500)),
+                with: .color(Self.lensFill)
+            )
+
+            var magnifier = Path(ellipseIn: CGRect(x: 270, y: 224, width: 500, height: 500))
+            magnifier.move(to: CGPoint(x: 344, y: 650))
+            magnifier.addLine(to: CGPoint(x: 164, y: 830))
             context.stroke(
                 magnifier,
-                with: .color(.white.opacity(0.1)),
-                style: StrokeStyle(lineWidth: 56, lineCap: .round)
+                with: .color(Self.lensStroke),
+                style: StrokeStyle(lineWidth: 54, lineCap: .round)
             )
 
             var brackets = Path()
-            brackets.move(to: CGPoint(x: 150, y: 346))
-            brackets.addLine(to: CGPoint(x: 150, y: 210))
-            brackets.addQuadCurve(to: CGPoint(x: 210, y: 150), control: CGPoint(x: 150, y: 150))
-            brackets.addLine(to: CGPoint(x: 346, y: 150))
-            brackets.move(to: CGPoint(x: 874, y: 678))
-            brackets.addLine(to: CGPoint(x: 874, y: 814))
-            brackets.addQuadCurve(to: CGPoint(x: 814, y: 874), control: CGPoint(x: 874, y: 874))
-            brackets.addLine(to: CGPoint(x: 678, y: 874))
+            brackets.move(to: CGPoint(x: 154, y: 334))
+            brackets.addLine(to: CGPoint(x: 154, y: 216))
+            brackets.addQuadCurve(to: CGPoint(x: 216, y: 154), control: CGPoint(x: 154, y: 154))
+            brackets.addLine(to: CGPoint(x: 334, y: 154))
+            brackets.move(to: CGPoint(x: 870, y: 690))
+            brackets.addLine(to: CGPoint(x: 870, y: 808))
+            brackets.addQuadCurve(to: CGPoint(x: 808, y: 870), control: CGPoint(x: 870, y: 870))
+            brackets.addLine(to: CGPoint(x: 690, y: 870))
             context.stroke(
                 brackets,
                 with: .color(Self.bracket),
-                style: StrokeStyle(lineWidth: 48, lineCap: .round, lineJoin: .round)
+                style: StrokeStyle(lineWidth: 46, lineCap: .round, lineJoin: .round)
             )
 
             var play = Path()
-            play.move(to: CGPoint(x: 432, y: 378))
-            play.addLine(to: CGPoint(x: 688, y: 512))
-            play.addLine(to: CGPoint(x: 432, y: 646))
+            play.move(to: CGPoint(x: 434, y: 352))
+            play.addLine(to: CGPoint(x: 714, y: 478))
+            play.addLine(to: CGPoint(x: 434, y: 629))
             play.closeSubpath()
             let gradient = GraphicsContext.Shading.linearGradient(
                 Gradient(colors: [Self.violet, Self.magenta]),
-                startPoint: CGPoint(x: 432, y: 378),
-                endPoint: CGPoint(x: 688, y: 646)
+                startPoint: CGPoint(x: 434, y: 352),
+                endPoint: CGPoint(x: 714, y: 629)
             )
             context.fill(play, with: gradient)
-            context.stroke(play, with: gradient, style: StrokeStyle(lineWidth: 56, lineJoin: .round))
         }
         .aspectRatio(1, contentMode: .fit)
         .accessibilityHidden(true)
