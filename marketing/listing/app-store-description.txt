@@ -1,0 +1,40 @@
+Seen a short clip and wondered what it came from? Share it with SceneFind.
+
+SceneFind analyzes user-supplied clips and, when the evidence supports a match, returns the title, season, episode, scene timestamp, and available viewing options.
+
+HOW IT WORKS
+Share a clip from another app, import a video from your library, paste a public link, or enter a line of dialogue you remember.
+
+SceneFind can show:
+• The title
+• The season and episode
+• The timestamp where the scene begins
+• Available viewing destinations
+
+IT WON'T GUESS
+SceneFind shows a title only when the evidence supports it. Season, episode, and timestamp appear only when they can be independently corroborated. If something cannot be confirmed, SceneFind leaves it out instead of inventing an answer.
+
+TIMESTAMPS FROM DIALOGUE
+Where captions permit, SceneFind aligns dialogue from the supplied clip with subtitle data to locate the scene.
+
+PRIVACY
+No account. No ads. No tracking. Nothing is analyzed unless you explicitly submit it, and analysis data is transient.
+
+PLANS
+Start with 4 free successful identifications.
+
+• Starter: $4.99 per month for 10 successful identifications
+• Pro: $19.99 per month for 50 successful identifications
+• Starter Yearly: $49.99 per year for 10 each month — two months free
+• Pro Yearly: $199.99 per year for 50 each month — two months free
+
+Failed and cancelled requests do not count against your allowance.
+
+All plans are auto-renewing subscriptions billed to your Apple Account. Payment is charged at confirmation of purchase. Subscriptions renew automatically unless auto-renew is turned off at least 24 hours before the current period ends. Manage or cancel subscriptions in your device settings.
+
+SceneFind identifies content the user supplies. It does not download, unlock, or bypass access controls.
+
+Requires iPhone with iOS 17 or later.
+
+Terms of Use: https://n1tr029.github.io/SceneFind/terms.html
+Privacy Policy: https://n1tr029.github.io/SceneFind/privacy.html
