@@ -164,10 +164,10 @@ not the bundle ID, is the `APPLE_APP_ID` Worker secret.
 - [x] "Sign-in required" unchecked — the app has no login, and leaving it
       ticked makes review wait for credentials that do not exist.
 - [x] App Review contact information.
-- [ ] Set `[JURISDICTION]` in `site/terms.html`. The legal entity is filled in
-      as "Kavi Gandham" to match the Apple seller name and the copyright line;
-      governing law is a legal choice and is still a visible placeholder on the
-      live page.
+- [x] Governing law set in `site/terms.html`. The legal entity is "Kavi
+      Gandham", matching the Apple seller name and the copyright line, and the
+      governing law is New Jersey — the seller entity's home state per the App
+      Store Connect agreements page. No placeholder is left on the live page.
 - [x] Digital Services Act trader status — Active for 27 countries. Paid Apps
       Agreement, bank account and W-9 were already active too.
 - [ ] Resolve the standing "cannot identify your GitHub account — relink"
