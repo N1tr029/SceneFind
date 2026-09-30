@@ -1,5 +1,41 @@
 # SceneFind App Store Submission Runbook
 
+## 1.0.3 release gates (as of 2026-09-30)
+
+What is done and on `main`: the trial is four in `entitlement.ts` with the
+legacy-ledger stamp and 86 passing tests, `MARKETING_VERSION` is 1.0.3 in both
+`project.yml` and the generated project, Xcode Cloud archived 1.0.3 green on
+both workflows, the three site plan tables and the Terms billing prose match the
+paywall, and `marketing/listing/whats-new-1.0.3.txt` is written.
+
+Three gates are left, and none of them can be done from a Linux CI container —
+they need Cloudflare and App Store Connect credentials:
+
+1. **Deploy the Worker, before the build goes to review.** Four free
+   identifications is a server-side number: `FREE_TRIAL_ALLOWANCE` lives in
+   `backend/src/entitlement.ts`, so until `npx wrangler deploy` runs, a 1.0.3
+   build still hands new installs two. `/healthz` returns a bare `ok` and does
+   not report a revision, so the deploy cannot be confirmed from outside —
+   check the Cloudflare dashboard's deployment list against the commit that
+   raised the allowance (3bffd94).
+2. **Fix the products in App Store Connect.** The monthlies are still priced at
+   the launch $0.99 and $9.99, and `starter.yearly` and `pro.yearly` do not
+   exist. The paywall draws four rows from `SubscriptionProductIDs.all`, so
+   until both yearly products exist and are approved, two rows render with no
+   purchasable product behind them. Both yearly products have to be created in
+   group 22350290 and submitted for review with the version.
+3. **Create and submit version 1.0.3.** Paste the corrected
+   `marketing/listing/app-store-description.txt` over the live description —
+   the listing Apple currently shows still sells Lifetime at $19.99 and
+   promises two free identifications — then What's New from
+   `whats-new-1.0.3.txt`, attach the newest 1.0.3 build, and Add for Review →
+   Submit for Review.
+
+Gate 1 is independent of the other two; gates 2 and 3 go in the same review
+submission.
+
+---
+
 ## Shipping an update (the routine after launch)
 
 1. **Bump the version before pushing.** Set `MARKETING_VERSION` in `project.yml`
