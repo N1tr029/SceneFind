@@ -34,6 +34,13 @@ they need Cloudflare and App Store Connect credentials:
 Gate 1 is independent of the other two; gates 2 and 3 go in the same review
 submission.
 
+`scripts/asc-preflight.mjs` reports gate 2 against the live account without
+changing anything: which of the four products exist, their state and US price,
+whether Lifetime is still on sale, whether 1.0.3 exists, and the newest builds.
+Run it before any write. It needs `ASC_KEY_ID`, `ASC_ISSUER_ID` and
+`ASC_PRIVATE_KEY` in the environment; reading works with any role, but the
+writes behind gates 2 and 3 need Admin or App Manager.
+
 ---
 
 ## Shipping an update (the routine after launch)
