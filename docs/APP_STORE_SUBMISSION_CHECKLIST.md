@@ -107,14 +107,26 @@ backend cannot identify anything, and the build gate refuses to produce one.
 Mostly done as of 2026-08-29. App Apple ID is **6792423118** — that numeric ID,
 not the bundle ID, is the `APPLE_APP_ID` Worker secret.
 
-- [x] All three products exist with the exact IDs entitlement lookup requires:
+- [ ] All four products exist with the exact IDs entitlement lookup requires,
+      at the prices the paywall and the listing now advertise:
       | Product | ID | Apple ID | Price |
       | --- | --- | --- | ---: |
-      | Starter | `com.kavigandham.scenefind.starter.monthly` | 6807253941 | $0.99/mo |
-      | Pro | `com.kavigandham.scenefind.pro.monthly` | 6807254844 | $9.99/mo |
-      | Lifetime | `com.kavigandham.scenefind.lifetime` | 6807253318 | $19.99 once |
-      Subscription group "SceneFind Plans" is 22350290.
-- [x] Localized display names and descriptions on all three.
+      | Starter | `com.kavigandham.scenefind.starter.monthly` | 6807253941 | $4.99/mo |
+      | Pro | `com.kavigandham.scenefind.pro.monthly` | 6807254844 | $19.99/mo |
+      | Starter Yearly | `com.kavigandham.scenefind.starter.yearly` | — | $49.99/yr |
+      | Pro Yearly | `com.kavigandham.scenefind.pro.yearly` | — | $199.99/yr |
+      Subscription group "SceneFind Plans" is 22350290. Two things are open
+      here, and both block 1.0.3: the monthly prices were raised from $0.99 and
+      $9.99 and the price change has to be made in App Store Connect, and the
+      two yearly products do not exist yet — they have to be created in the
+      same group and submitted for review alongside the version, or the paywall
+      draws four rows and StoreKit serves two.
+- [x] Lifetime (`com.kavigandham.scenefind.lifetime`, 6807253318, $19.99 once)
+      is retired. Remove it from sale rather than deleting it: existing owners
+      keep 10 identifications per UTC calendar month, which `entitlement.ts`
+      still honours.
+- [ ] Localized display names and descriptions on all four, including the two
+      new yearly products.
 - [x] Subscription levels ordered by service: Pro is level 1, Starter level 2, so
       Starter → Pro is an immediate upgrade rather than a deferred downgrade.
       The level UI is a react-beautiful-dnd widget that ignores synthetic drag
@@ -202,7 +214,7 @@ four failures since and none before.
       The simulator cannot exercise this.
 - [ ] Sandbox StoreKit matrix: purchase, renewal, upgrade, downgrade, grace
       period, billing retry, refund, revocation, reinstall, restore across two
-      devices, and Lifetime rollover across a UTC month boundary.
+      devices, and yearly-plan allowance release across a UTC month boundary.
 - [ ] Physical share-sheet matrix: share from TikTok, Instagram, YouTube, and
       Photos; background/foreground during analysis; poor network; airplane
       mode. Confirm failures release allowance rather than consuming it.

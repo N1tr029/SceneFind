@@ -1,0 +1,8 @@
+The free trial is now four successful identifications instead of two. If you
+were still inside the old trial, the extra two are added to what you have left.
+You are still only charged an identification when one succeeds.
+
+Clearer expectations for Instagram links. Onboarding, the home hint, and the
+analyze screen now say plainly that an Instagram link often returns nothing at
+all: without video or dialogue there is only a cover image and a caption to work
+from. That is a limit of the source, not a failure of the app.
