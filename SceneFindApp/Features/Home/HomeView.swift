@@ -65,7 +65,7 @@ struct HomeView: View {
 
     private func analyzePastedURL() {
         let trimmed = pastedURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed), url.scheme != nil else {
+        guard let url = Self.normalizedLink(trimmed) else {
             errorMessage = SceneFindError.invalidURL.localizedDescription
             return
         }
@@ -79,12 +79,34 @@ struct HomeView: View {
         saveAndNavigate(request)
     }
 
+    /// A pasted link routinely arrives without a scheme, and the backend accepts
+    /// HTTPS only. Both are settled here so neither costs the user a round trip:
+    /// a bare host is read as HTTPS, and anything that is not a web link is
+    /// refused before a request is even stored.
+    private static func normalizedLink(_ value: String) -> URL? {
+        guard !value.isEmpty else { return nil }
+        let candidate = value.contains("://") ? value : "https://\(value)"
+        guard var components = URLComponents(string: candidate),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              let host = components.host, host.contains(".") else { return nil }
+        components.scheme = "https"
+        return components.url
+    }
+
     private func importSelectedVideo() async {
         guard let selectedVideo else { return }
         do {
             let request = try await VideoImport.pendingRequest(from: selectedVideo, store: model.store)
+            // Cleared before navigating. `.task(id:)` restarts whenever Home
+            // reappears, and a NavigationStack's root reappears on every pop —
+            // so leaving the pick in place re-imported the same video and
+            // started (and charged for) another analysis each time the user
+            // came back from a result.
+            self.selectedVideo = nil
             router.navigate(to: .analyze(request.id))
         } catch {
+            self.selectedVideo = nil
             errorMessage = error.localizedDescription
         }
     }

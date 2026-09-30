@@ -113,7 +113,12 @@ export class EntitlementLedger implements DurableObject {
     const path = new URL(req.url).pathname;
     const nowMs = Date.now();
     const ledger = await this.load(nowMs);
-    this.rollPeriodAndPrune(ledger, nowMs);
+    // Persisted here rather than left to whichever handler happens to save:
+    // `reserve` returns early on an exhausted or duplicate request without
+    // saving, so an expired reservation released by the prune, or a monthly
+    // roll for a lifetime or yearly plan, was recomputed on every call instead
+    // of being written down once.
+    if (this.rollPeriodAndPrune(ledger, nowMs)) await this.save(ledger);
 
     switch (`${req.method} ${path}`) {
       case "GET /state":
@@ -254,19 +259,23 @@ export class EntitlementLedger implements DurableObject {
     return this.state.storage.put("ledger", ledger);
   }
 
-  private rollPeriodAndPrune(ledger: LedgerRecord, nowMs: number): void {
+  /** Returns whether anything changed, so the caller can persist it once. */
+  private rollPeriodAndPrune(ledger: LedgerRecord, nowMs: number): boolean {
+    let changed = false;
     for (const [id, reservation] of Object.entries(ledger.reservations)) {
       if (
         reservation.status === "reserved" &&
         reservation.createdAtMs + RESERVATION_TTL_MS <= nowMs
       ) {
         reservation.status = "released";
+        changed = true;
       }
       if (
         reservation.status === "released" &&
         reservation.createdAtMs + 24 * 60 * 60 * 1_000 <= nowMs
       ) {
         delete ledger.reservations[id];
+        changed = true;
       }
     }
 
@@ -278,8 +287,10 @@ export class EntitlementLedger implements DurableObject {
         ledger.used = 0;
         ledger.reservations = {};
         ledger.updatedAtMs = nowMs;
+        changed = true;
       }
     }
+    return changed;
   }
 }
 
@@ -343,7 +354,17 @@ export async function applyVerifiedTransaction(
     await env.RATE_LIMIT.put(mappingKey, owner);
   }
   if (installationID) {
-    await env.RATE_LIMIT.put(`entitlement-owner:${installationID}`, owner);
+    // Written only when it actually changes. The app re-submits every current
+    // StoreKit entitlement on each launch, and an unconditional put spent one
+    // of Workers Free's 1,000 daily KV writes every time. Past that ceiling
+    // `put` throws, which surfaced here as a 500, put the app into its offline
+    // state, and — because release builds are fail-closed — left paying
+    // subscribers unable to analyze anything until UTC midnight. Reads are not
+    // metered anywhere near as tightly, so this trades a write for a read.
+    const ownerKey = `entitlement-owner:${installationID}`;
+    if ((await env.RATE_LIMIT.get(ownerKey)) !== owner) {
+      await env.RATE_LIMIT.put(ownerKey, owner);
+    }
   }
   const response = await ledgerStub(env, owner).fetch("https://ledger/transaction", {
     method: "POST",

@@ -108,6 +108,9 @@ struct ResultView: View {
             self.importedVideo = nil
             router.navigate(to: .analyze(request.id))
         } catch {
+            // Cleared on failure too, or the same pick is retried every time
+            // this screen reappears.
+            self.importedVideo = nil
             importError = error.localizedDescription
         }
     }

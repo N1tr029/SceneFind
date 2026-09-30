@@ -100,3 +100,8 @@ ALLOW_INSECURE_DEV_AUTH = "0"
 APP_ATTEST_ALLOW_DEVELOPMENT = "0"
 APPLE_ENABLE_ONLINE_CHECKS = "1"
 APPLE_BUNDLE_ID = "com.kavigandham.scenefind"
+# TestFlight testers buy through Apple's sandbox, so this has to stay "1" while
+# the app is in testing. A sandbox purchase costs nothing and is signed by the
+# same Apple roots as a real one, so set this to "0" once TestFlight IAP testing
+# is finished — after that, only Production transactions grant an entitlement.
+ALLOW_SANDBOX_STOREKIT = "1"

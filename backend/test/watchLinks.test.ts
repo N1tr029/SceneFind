@@ -198,3 +198,52 @@ describe("watch link cache", () => {
     }
   });
 });
+
+describe("knowledge-panel search cost", () => {
+  // The panel test used to run against the raw entries, which are Google
+  // redirector URLs and so never match a provider host. The one-search path
+  // could not fire and every episode spent three searches — against a free
+  // tier of 250 a month.
+  it("stops after one search when the panel answers through Google's redirector", async () => {
+    let searches = 0;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === "serpapi.com") {
+        searches += 1;
+        return Response.json({
+          organic_results: [],
+          watch_now: [{ name: "Netflix", link: "https://www.google.com/goto?url=opaque" }],
+        });
+      }
+      if (url.hostname === "www.google.com") {
+        return new Response(null, {
+          status: 302,
+          headers: { location: "https://www.netflix.com/watch/81647019" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const env = {
+      SEARCH_API_KEY: "a".repeat(64),
+      WATCH_LINKS: { get: async () => null, put: async () => undefined },
+    } as unknown as Env;
+
+    try {
+      const response = await handleWatchLinks(
+        new Request("https://worker.example/v1/watch-links?title=All%20American&type=tv&season=8&episode=1"),
+        env,
+      );
+      expect(await response.json()).toEqual({
+        links: [{
+          url: "https://www.netflix.com/watch/81647019",
+          service: "netflix",
+          serviceName: "Netflix",
+        }],
+        source: "resolved",
+      });
+      expect(searches).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

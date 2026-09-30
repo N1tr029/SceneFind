@@ -31,6 +31,9 @@ export interface Env {
   ALLOW_INSECURE_DEV_AUTH: string;
   APP_ATTEST_ALLOW_DEVELOPMENT: string;
   APPLE_ENABLE_ONLINE_CHECKS: string;
+  /** "1" while TestFlight testers still need to buy through Apple's sandbox.
+   *  Anything else refuses sandbox transactions, which are free to make. */
+  ALLOW_SANDBOX_STOREKIT: string;
 
   // Bindings
   ANALYSIS: DurableObjectNamespace;

@@ -3,8 +3,11 @@ import SwiftUI
 @main
 struct SceneFindApp: App {
     @StateObject private var router = AppRouter()
-    @StateObject private var model = SceneFindModel()
-    @StateObject private var subscription = SubscriptionManager()
+    // Built in `init` rather than inline: the coordinator needs the same two
+    // objects the views get, and an inline initializer here would read as a
+    // second, separate pair.
+    @StateObject private var model: SceneFindModel
+    @StateObject private var subscription: SubscriptionManager
     @StateObject private var coordinator: AnalysisCoordinator
 
     init() {

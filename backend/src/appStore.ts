@@ -122,6 +122,14 @@ async function verifierFor(
     );
   }
   if (environment === Environment.SANDBOX) {
+    // Sandbox transactions are signed by the same Apple roots as production
+    // ones, so accepting them unconditionally means a sandbox purchase — which
+    // costs nothing — grants a real entitlement on the live Worker. TestFlight
+    // buys through sandbox, so this has to stay on while the app is in testing;
+    // set ALLOW_SANDBOX_STOREKIT to "0" once TestFlight IAP testing is done.
+    if (env.ALLOW_SANDBOX_STOREKIT !== "1") {
+      throw new StoreKitVerificationError("Sandbox transactions are not accepted.");
+    }
     return new SignedDataVerifier(
       roots,
       onlineChecks,

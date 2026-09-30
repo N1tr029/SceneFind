@@ -62,14 +62,9 @@ export async function handleWatchLinks(req: Request, env: Env): Promise<Response
   }
 
   const { results, knowledge, ok } = await search(query, env);
-  // Panel entries point at Google's redirector; the provider URL is one hop away.
-  const resolved = await Promise.all(
-    knowledge.slice(0, 8).map(async (entry) => ({
-      ...entry,
-      url: await resolveRedirect(entry.url),
-    })),
-  );
-  const trusted = knowledgeLinks(resolved, query);
+  // Panel entries point at Google's redirector; the provider URL is one hop
+  // away. Entries `search` already resolved cost nothing to pass through again.
+  const trusted = knowledgeLinks(await resolveKnowledge(knowledge), query);
   const verified = await verifyCandidates(results, query);
   // Google's panel wins per service: it carries the exact playback id, where a
   // verified organic result is at best the right episode page.
@@ -114,9 +109,13 @@ function parseQuery(url: URL): WatchLinkQuery | null {
 
 function cacheKey(query: WatchLinkQuery): string {
   const normalized = query.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  // `mediaType` is part of the key: without it a film and a series sharing a
+  // title, year and region collided on one entry, because an episode we could
+  // not pin down leaves the season and episode slots empty just as a film does.
   return [
-    "wl:v2",
+    "wl:v3",
     normalized,
+    query.mediaType,
     query.seasonNumber ?? "-",
     query.episodeNumber ?? "-",
     query.releaseYear ?? "-",
@@ -160,8 +159,13 @@ async function search(
   // that difference is the difference between ~80 episodes and ~250.
   if (query.mediaType === "tv" && query.seasonNumber && query.episodeNumber) {
     const panel = await ask(`${query.title} s${query.seasonNumber} episode ${query.episodeNumber}`);
-    if (knowledgeLinks(panel.knowledge, query).length > 0) {
-      return { results: panel.results, knowledge: panel.knowledge, ok: true };
+    // Resolved before the test, not after. A panel entry arrives as
+    // `google.com/goto?url=…`, which never matches a provider host, so testing
+    // the raw entries made this check always fail — the one-search path could
+    // not fire and every episode spent three searches instead of one.
+    const panelKnowledge = await resolveKnowledge(panel.knowledge);
+    if (knowledgeLinks(panelKnowledge, query).length > 0) {
+      return { results: panel.results, knowledge: panelKnowledge, ok: true };
     }
     const fallbacks = await Promise.all([
       ask(searchQuery(query)),
@@ -175,7 +179,7 @@ async function search(
           : `"season ${query.seasonNumber} episode ${query.episodeNumber}"`,
       ].join(" ")),
     ]);
-    return merge([panel, ...fallbacks]);
+    return merge([{ ...panel, knowledge: panelKnowledge }, ...fallbacks]);
   }
 
   return merge([await ask(searchQuery(query))]);
@@ -253,6 +257,21 @@ export async function resolveRedirect(
   } catch {
     return raw;
   }
+}
+
+/** One hop for each panel entry, in parallel. `resolveRedirect` returns a URL
+ *  that is not a Google redirector untouched, so re-resolving an already
+ *  resolved list costs nothing. */
+export async function resolveKnowledge(
+  entries: KnowledgeWatchLink[],
+  fetcher: typeof fetch = fetch,
+): Promise<KnowledgeWatchLink[]> {
+  return Promise.all(
+    entries.slice(0, 8).map(async (entry) => ({
+      ...entry,
+      url: await resolveRedirect(entry.url, fetcher),
+    })),
+  );
 }
 
 const PANEL_USER_AGENT =
