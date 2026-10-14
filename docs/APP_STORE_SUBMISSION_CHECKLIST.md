@@ -1,45 +1,85 @@
 # SceneFind App Store Submission Runbook
 
-## 1.0.3 release gates (as of 2026-09-30)
+## 1.0.4 release gates (as of 2026-10-14)
 
-What is done and on `main`: the trial is four in `entitlement.ts` with the
-legacy-ledger stamp and 86 passing tests, `MARKETING_VERSION` is 1.0.3 in both
-`project.yml` and the generated project, Xcode Cloud archived 1.0.3 green on
-both workflows, the three site plan tables and the Terms billing prose match the
-paywall, and `marketing/listing/whats-new-1.0.3.txt` is written.
+**The shipped app is two releases behind this repository.** 1.0.2 has been the
+public build since 2026-09-16. 1.0.3 archived green on both workflows on
+2026-09-20 and was never submitted. 1.0.4 -- the billing and run-state fixes --
+had never been pushed at all; it sat as a local-only commit for two weeks and
+is now rebased onto `main`. Nothing in 1.0.3 or 1.0.4 is in a customer's hands.
 
-Three gates are left, and none of them can be done from a Linux CI container —
-they need Cloudflare and App Store Connect credentials:
+Verified green on the rebased 1.0.4 (2026-10-14): backend typecheck clean, 87
+of 87 backend tests, 63 of 63 iOS tests with the 2 live-network ones skipped.
+
+### Gate 2 was already done -- the entry below was wrong
+
+The previous revision of this file claimed the monthlies were still at $0.99
+and $9.99 and that `starter.yearly` and `pro.yearly` did not exist. That was
+written from this runbook's own stale product table in a container with no App
+Store Connect access, and it is not what the account holds. The live product
+page lists all four at the current prices and no Lifetime:
+
+    Starter Yearly $49.99 | Pro Yearly $199.99 | Pro $19.99 | Starter $4.99
+
+Re-check it that way before trusting any claim here again -- it needs no login
+and no API key:
+
+```sh
+curl -sL -A Mozilla "https://apps.apple.com/us/app/id6792423118" \
+  | grep -o 'In-App Purchases.\{0,600\}'
+```
+
+`scripts/asc-preflight.mjs` reports the same thing against the API with
+`ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_PRIVATE_KEY` set, and reads with any
+role. Prefer whichever you can run; do not infer product state from this file.
+
+### Two gates are left, and both need credentials only Hassan has
 
 1. **Deploy the Worker, before the build goes to review.** Four free
    identifications is a server-side number: `FREE_TRIAL_ALLOWANCE` lives in
-   `backend/src/entitlement.ts`, so until `npx wrangler deploy` runs, a 1.0.3
-   build still hands new installs two. `/healthz` returns a bare `ok` and does
-   not report a revision, so the deploy cannot be confirmed from outside —
-   check the Cloudflare dashboard's deployment list against the commit that
-   raised the allowance (3bffd94).
-2. **Fix the products in App Store Connect.** The monthlies are still priced at
-   the launch $0.99 and $9.99, and `starter.yearly` and `pro.yearly` do not
-   exist. The paywall draws four rows from `SubscriptionProductIDs.all`, so
-   until both yearly products exist and are approved, two rows render with no
-   purchasable product behind them. Both yearly products have to be created in
-   group 22350290 and submitted for review with the version.
-3. **Create and submit version 1.0.3.** Paste the corrected
-   `marketing/listing/app-store-description.txt` over the live description —
-   the listing Apple currently shows still sells Lifetime at $19.99 and
-   promises two free identifications — then What's New from
-   `whats-new-1.0.3.txt`, attach the newest 1.0.3 build, and Add for Review →
-   Submit for Review.
+   `backend/src/entitlement.ts`, so until `wrangler deploy` runs, even a 1.0.4
+   build hands new installs two. 1.0.4 also carries backend fixes that only
+   land on deploy: the watch-link resolution that cut three SerpApi searches an
+   episode to one, and the entitlement-owner write that otherwise ran on every
+   launch against a 1,000-a-day ceiling.
 
-Gate 1 is independent of the other two; gates 2 and 3 go in the same review
-submission.
+   **Blocked right now:** `wrangler whoami` on this machine resolves to a
+   different Cloudflare account than the one hosting the live Worker, and a
+   deployments read against the live account returns `Authentication error
+   [code: 10000]`. `account_id` is now pinned in `backend/wrangler.toml`, so a
+   deploy aimed at the wrong account fails loudly instead of quietly creating a
+   second `scenefind-backend` there and reporting success. Clearing this needs
+   an interactive `wrangler login` against the hahmed0629@gmail.com account.
 
-`scripts/asc-preflight.mjs` reports gate 2 against the live account without
-changing anything: which of the four products exist, their state and US price,
-whether Lifetime is still on sale, whether 1.0.3 exists, and the newest builds.
-Run it before any write. It needs `ASC_KEY_ID`, `ASC_ISSUER_ID` and
-`ASC_PRIVATE_KEY` in the environment; reading works with any role, but the
-writes behind gates 2 and 3 need Admin or App Manager.
+   `/healthz` returns a bare `ok` with no revision, so a deploy still cannot be
+   confirmed from outside Cloudflare -- check the dashboard's deployment list.
+
+2. **Create and submit version 1.0.4.** Paste the corrected
+   `marketing/listing/app-store-description.txt` over the live description.
+   This is the one customer-visible defect that is live right now: the store
+   page sells the plans at the correct prices in its In-App Purchases list
+   while the description above it still promises two free identifications,
+   Starter at $0.99, Pro at $9.99, and a Lifetime that cannot be bought. A
+   buyer reads $0.99 and is charged $4.99. Then What's New, attach the newest
+   1.0.4 build, and Add for Review -> Submit for Review.
+
+Gate 1 is independent of gate 2, and gate 1 should land first: a 1.0.4 build
+reviewed against an undeployed Worker still gives new installs two free
+identifications, which is the point of the release.
+
+### Also worth deciding before this ships
+
+- `ALLOW_SANDBOX_STOREKIT = "1"` in `backend/wrangler.toml` makes the backend
+  grant entitlements for Apple *sandbox* transactions as well as production
+  ones. It is set that way on purpose so TestFlight testers can buy, and the
+  app is now public, so it is also a way to hold a paid plan without paying.
+  Turn it to `"0"` once IAP testing is finished.
+- The non-Debug secret scan in `project.yml` greps the built product for
+  `BSA[A-Za-z0-9_-]{20,}` among other shapes, and Apple's own
+  `XCTestCore.framework` binary contains `BSASCRESASASAS...`, which matches. It
+  cannot fire on a release archive, which embeds no XCTest, but it does fire on
+  any non-Debug build that links the test bundle -- so read that error as a
+  false positive before hunting for a leaked key.
 
 ---
 

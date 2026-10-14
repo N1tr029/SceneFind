@@ -1,0 +1,17 @@
+The free trial is now four successful identifications instead of two. If you
+were still inside the old trial, the extra two are added to what you have left.
+You are still only charged an identification when one succeeds.
+
+Fixed: coming back from a result could re-import the video you had just
+analyzed and start a second paid analysis of it.
+
+Fixed: retrying an analysis could leave you watching a spinner for a result
+that had already finished.
+
+Fixed: an interrupted analysis now tells you it was paused instead of clearing
+the message.
+
+Fixed: subscribers could be told the service was unavailable after a day of
+heavy use.
+
+Links pasted without "https://" are now understood instead of refused.

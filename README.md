@@ -23,10 +23,23 @@ contain provider keys. Debug builds retain local adapters for development.
 
 | Plan | Price | Successful identifications |
 | --- | ---: | ---: |
-| Free | $0 | 2 total |
-| Starter | $0.99/month | 10 per billing period |
-| Pro | $9.99/month | 50 per billing period |
-| Lifetime | $19.99 once | 10 per UTC calendar month |
+| Free | $0 | 4 total |
+| Starter | $4.99/month | 10 per billing period |
+| Pro | $19.99/month | 50 per billing period |
+| Starter Yearly | $49.99/year | 10 per UTC calendar month |
+| Pro Yearly | $199.99/year | 50 per UTC calendar month |
+
+Prices were re-cut on 2026-09-16 to hold at least 2x the roughly 9 cents an
+identification costs at the providers. **Lifetime is retired** (removed from
+sale 2026-09-16): one-time revenue against a recurring cost went underwater,
+and it undercut both subscriptions. Existing owners keep it and the backend
+still honours plan `lifetime` at 10 a month.
+
+A free trial of four is a *server-side* number (`FREE_TRIAL_ALLOWANCE` in
+`backend/src/entitlement.ts`), so it only takes effect once the Worker is
+deployed -- a shipped build alone still hands new installs the old two. The
+size is stamped onto each ledger when it is first touched, so an install that
+had already spent the old trial of two does not get two more.
 
 The backend—not local device state—is the allowance authority. Failures do not
 consume allowance, duplicate requests are idempotent, and production analysis
@@ -96,10 +109,18 @@ Store listing and the app's `SCENEFIND_*_URL` settings point at. Pushing to
 
 ## Release status
 
-The current evidence and every open external gate are recorded in
-`docs/APP_STORE_READINESS_AUDIT.md`, and the order to clear them in is in
-`docs/APP_STORE_SUBMISSION_CHECKLIST.md`. A successful local build is not
-sufficient for release: deployed backend, App Store Connect products, physical
-App Attest, signed StoreKit scenarios, the 50-Instagram ground-truth
-regression, observability, metadata, signed archive, and TestFlight validation
-are required.
+SceneFind is live on the App Store. **Version 1.0.2 has been the public
+build since 2026-09-16**; 1.0.3 archived green on both Xcode Cloud workflows
+and was never submitted, and 1.0.4 adds the billing and run-state fixes on
+top of it. So the shipped app is two releases behind this repository, and the
+fixes customers most need -- the re-import that started a second paid
+analysis, the retry race that stranded a charged run on a spinner, and the
+per-launch KV write that could lock paying subscribers out until UTC midnight
+-- are not in anyone's hands yet.
+
+The ordered runbook, and the gates that genuinely remain, are in
+`docs/APP_STORE_SUBMISSION_CHECKLIST.md`. `docs/APP_STORE_READINESS_AUDIT.md`
+is the older evidence log and predates the launch; read it as history, not as
+current state. A green local build is not a release: the Worker deploy, the
+App Store Connect version, physical App Attest, signed StoreKit scenarios and
+the Instagram ground-truth regression are all still external gates.
