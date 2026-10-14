@@ -53,7 +53,7 @@ struct PaywallView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Label("Free trial", systemImage: "gift.fill")
                             .font(.headline)
-                        Text("Includes 2 successful identifications total. Failed, cancelled, duplicate, and server-error analyses do not use an identification.")
+                        Text("Includes 4 successful identifications total. Failed, cancelled, duplicate, and server-error analyses do not use an identification.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -115,7 +115,11 @@ struct PaywallView: View {
 
     private var allowanceDetail: String {
         #if DEBUG
-        if MarketingPreview.isEnabled { return "2 of 2 remaining" }
+        // Must match FREE_TRIAL_ALLOWANCE in backend/src/entitlement.ts. This
+        // string is the App Review screenshot attached to every subscription,
+        // so a stale number here contradicts the listing's "four free
+        // successful identifications" on the one screen a reviewer compares.
+        if MarketingPreview.isEnabled { return "4 of 4 remaining" }
         #endif
         return subscription.allowanceLabel
     }
