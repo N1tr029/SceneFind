@@ -1,4 +1,12 @@
 name = "scenefind-backend"
+# Pinned on purpose. Without it wrangler deploys to whatever account the current
+# OAuth token defaults to, and a token for the wrong account does not fail -- it
+# creates a second "scenefind-backend" there and reports success, while the live
+# Worker the app talks to stays on the old code. Pinning turns that silent
+# mis-deploy into an authentication error. The live Worker lives on the
+# hahmed0629@gmail.com account; if deploy errors here, re-run `wrangler login`
+# and pick that account rather than changing this id.
+account_id = "16272a21f373c412f08130400f96536a"
 main = "src/index.ts"
 compatibility_date = "2026-08-19"
 compatibility_flags = ["nodejs_compat"]
