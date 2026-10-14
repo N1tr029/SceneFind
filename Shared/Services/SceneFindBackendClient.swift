@@ -49,18 +49,6 @@ struct BackendEntitlementState: Codable, Equatable, Sendable {
     let renewsAt: Date?
     let canAnalyze: Bool
     let lastSyncedAt: Date
-
-    static let unavailable = BackendEntitlementState(
-        plan: .freeTrial,
-        status: .active,
-        allowance: 2,
-        remaining: 0,
-        periodStart: nil,
-        periodEnd: nil,
-        renewsAt: nil,
-        canAnalyze: false,
-        lastSyncedAt: .distantPast
-    )
 }
 
 enum SceneFindBackendError: LocalizedError, Equatable {
