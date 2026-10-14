@@ -33,39 +33,36 @@ curl -sL -A Mozilla "https://apps.apple.com/us/app/id6792423118" \
 `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_PRIVATE_KEY` set, and reads with any
 role. Prefer whichever you can run; do not infer product state from this file.
 
-### Two gates are left, and both need credentials only Hassan has
+### Gate 1 is done. One gate is left.
 
-1. **Deploy the Worker, before the build goes to review.** Four free
-   identifications is a server-side number: `FREE_TRIAL_ALLOWANCE` lives in
-   `backend/src/entitlement.ts`, so until `wrangler deploy` runs, even a 1.0.4
-   build hands new installs two. 1.0.4 also carries backend fixes that only
-   land on deploy: the watch-link resolution that cut three SerpApi searches an
-   episode to one, and the entitlement-owner write that otherwise ran on every
-   launch against a 1,000-a-day ceiling.
+**The Worker was deployed 2026-10-14**, version `fc8337c2-d1cb-4c63-992a-32ad6d0d1032`,
+from `ship/1.0.4`. Smoke-tested after: `/healthz` 200, `/v1/analysis` and
+`/v1/entitlement` both 401 (failing closed), unknown routes 404. It carries
+1.0.4's backend half -- the entitlement-owner write that no longer runs on
+every launch against the 1,000-a-day ceiling, and the watch-link resolution
+that spends one SerpApi search an episode instead of three.
 
-   **Blocked right now:** `wrangler whoami` on this machine resolves to a
-   different Cloudflare account than the one hosting the live Worker, and a
-   deployments read against the live account returns `Authentication error
-   [code: 10000]`. `account_id` is now pinned in `backend/wrangler.toml`, so a
-   deploy aimed at the wrong account fails loudly instead of quietly creating a
-   second `scenefind-backend` there and reporting success. Clearing this needs
-   an interactive `wrangler login` against the hahmed0629@gmail.com account.
+A correction worth keeping, because it was wrong here for two weeks: **the free
+trial of four was already live.** The deployment before this one, `4d379959`
+on 2026-09-20, is the commit that raised it (3bffd94). Earlier revisions of
+this file listed "deploy the Worker so new installs get four" as the gating
+blocker; new installs had been getting four since September 20. Read the
+deployment list before repeating a claim about what is live --
+`npx wrangler deployments list` from `backend/`.
 
-   `/healthz` returns a bare `ok` with no revision, so a deploy still cannot be
-   confirmed from outside Cloudflare -- check the dashboard's deployment list.
+The login that blocked this is also cleared: `wrangler` is now authenticated as
+hahmed0629@gmail.com against account `16272a21f373c412f08130400f96536a`, which
+matches the pinned `account_id`.
 
-2. **Create and submit version 1.0.4.** Paste the corrected
-   `marketing/listing/app-store-description.txt` over the live description.
-   This is the one customer-visible defect that is live right now: the store
-   page sells the plans at the correct prices in its In-App Purchases list
-   while the description above it still promises two free identifications,
-   Starter at $0.99, Pro at $9.99, and a Lifetime that cannot be bought. A
-   buyer reads $0.99 and is charged $4.99. Then What's New, attach the newest
-   1.0.4 build, and Add for Review -> Submit for Review.
-
-Gate 1 is independent of gate 2, and gate 1 should land first: a 1.0.4 build
-reviewed against an undeployed Worker still gives new installs two free
-identifications, which is the point of the release.
+**What is left is one gate: create and submit version 1.0.4.** Paste the
+corrected `marketing/listing/app-store-description.txt` over the live
+description -- this is the one customer-visible defect still in production. The
+store page sells the plans at the correct prices in its In-App Purchases list
+while the description above it still promises two free identifications, Starter
+at $0.99, Pro at $9.99, and a Lifetime that cannot be bought. A buyer reads
+$0.99 and is charged $4.99. Then What's New from `whats-new-1.0.4.txt`, which
+covers everything since 1.0.2 because 1.0.3 never reached anyone, attach the
+newest 1.0.4 build, and Add for Review -> Submit for Review.
 
 ### Also worth deciding before this ships
 
