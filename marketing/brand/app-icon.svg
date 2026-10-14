@@ -1,3 +1,22 @@
-<svg viewBox="0 0 1024 1024" width="1024" height="1024" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="gP" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6d2ce8"/><stop offset="1" stop-color="#c034a8"/></linearGradient></defs><rect width="1024" height="1024" fill="#0b0b10"/><g opacity="0.1" stroke="#ffffff" fill="none" stroke-width="56"><circle cx="512" cy="512" r="268"/><line x1="332.4" y1="691.6" x2="145.7" y2="878.3" stroke-linecap="butt"/><circle cx="145.7" cy="878.3" r="28.0" fill="#ffffff" stroke="none"/></g><g stroke="#1db4d6" fill="none" stroke-width="48" stroke-linecap="round">
-<path d="M 150 346 L 150 210 Q 150 150 210 150 L 346 150"/>
-<path d="M 874 678 L 874 814 Q 874 874 814 874 L 678 874"/></g><path d="M 432 378 L 688 512 L 432 646 Z" fill="url(#gP)" stroke="url(#gP)" stroke-width="56" stroke-linejoin="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="play" x1="402" y1="332" x2="686" y2="654" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6D2CE8"/>
+      <stop offset="1" stop-color="#C034A8"/>
+    </linearGradient>
+    <radialGradient id="surface" cx="0" cy="0" r="1" gradientTransform="translate(512 438) rotate(90) scale(586)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#151722"/>
+      <stop offset="1" stop-color="#07090D"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#surface)"/>
+
+  <path d="M154 334V216c0-34 28-62 62-62h118" fill="none" stroke="#1FC7EA" stroke-width="46" stroke-linecap="round"/>
+  <path d="M870 690v118c0 34-28 62-62 62H690" fill="none" stroke="#1FC7EA" stroke-width="46" stroke-linecap="round"/>
+
+  <circle cx="520" cy="474" r="250" fill="#0A0C12" stroke="#F4F7FB" stroke-width="54"/>
+  <path d="M344 650 164 830" fill="none" stroke="#F4F7FB" stroke-width="54" stroke-linecap="round"/>
+
+  <path d="M434 352c0-21 23-34 42-24l224 126c19 11 19 38 0 49L476 629c-19 11-42-3-42-24V352Z" fill="url(#play)"/>
+</svg>

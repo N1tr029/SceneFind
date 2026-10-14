@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="400" viewBox="0 0 1600 400">
+  <defs>
+    <linearGradient id="play" x1="158" y1="124" x2="258" y2="272" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6D2CE8"/>
+      <stop offset="1" stop-color="#C034A8"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(28 28) scale(.34)">
+    <path d="M154 334V216c0-34 28-62 62-62h118" fill="none" stroke="#1FC7EA" stroke-width="46" stroke-linecap="round"/>
+    <path d="M870 690v118c0 34-28 62-62 62H690" fill="none" stroke="#1FC7EA" stroke-width="46" stroke-linecap="round"/>
+    <circle cx="520" cy="474" r="250" fill="none" stroke="#151822" stroke-width="54"/>
+    <path d="M344 650 164 830" fill="none" stroke="#151822" stroke-width="54" stroke-linecap="round"/>
+    <path d="M434 352c0-21 23-34 42-24l224 126c19 11 19 38 0 49L476 629c-19 11-42-3-42-24V352Z" fill="url(#play)"/>
+  </g>
+
+  <text x="405" y="257" fill="#151822" font-family="Avenir Next, Avenir, Helvetica Neue, Arial, sans-serif" font-size="172" font-weight="700" letter-spacing="0">Scene<tspan fill="#6D2CE8">Find</tspan></text>
+</svg>
