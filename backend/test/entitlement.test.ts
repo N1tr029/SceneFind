@@ -279,7 +279,11 @@ describe("yearly subscriptions", () => {
     expect(state.allowance).toBe(50);
     expect(state.renewsAt).toBe("2027-09-16T00:00:00.000Z");
     // The period is the calendar month, so the count comes back each month.
-    expect(state.periodEnd?.startsWith("2026-10-01")).toBe(true);
+    // Derived from the current clock rather than pinned to one: getState reads
+    // the real time, so a literal date only held during the month it was written.
+    const now = new Date();
+    const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+    expect(state.periodEnd).toBe(nextMonthStart.toISOString());
   });
 });
 
